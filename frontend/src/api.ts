@@ -80,7 +80,7 @@ export async function updateProjectSettings(projectNumber: string, payload: {
   return response.data;
 }
 
-export async function createMilestone(projectNumber: string, payload: {
+export interface MilestoneInput {
   name: string;
   planned_start: string;
   planned_end: string;
@@ -89,9 +89,19 @@ export async function createMilestone(projectNumber: string, payload: {
   is_payment_node: boolean;
   payment_date?: string;
   payment_amount?: string;
-}): Promise<void> {
+}
+
+export async function createMilestone(projectNumber: string, payload: MilestoneInput): Promise<void> {
   await request(`/api/v1/projects/${projectNumber}/milestones`, {
     method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function updateMilestone(projectNumber: string, milestoneId: string, payload: MilestoneInput): Promise<void> {
+  await request(`/api/v1/projects/${projectNumber}/milestones/${milestoneId}`, {
+    method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload)
   });

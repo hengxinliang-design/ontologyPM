@@ -9,6 +9,7 @@ import {
   fetchRecords,
   fetchSyncStatus,
   triggerSync,
+  updateMilestone,
   updateProjectSettings
 } from "./api";
 import type {
@@ -202,6 +203,7 @@ function ProjectDrawer({ project, close, refresh }: { project: ProjectDetail; cl
     project_manager: project.project_manager ?? ""
   });
   const [milestone, setMilestone] = useState({ name: "", planned_start: "", planned_end: "", owner: project.project_manager ?? "", deliverable: "", is_payment_node: false, payment_date: "", payment_amount: "" });
+  const [editingMilestoneId, setEditingMilestoneId] = useState<string | null>(null);
 
   useEffect(() => {
     setSettings({ contract_type: project.contract_type, lifecycle_status: project.lifecycle_status, planned_person_days: project.planned_person_days ?? "", hours_per_person_day: project.settings.hours_per_person_day ?? "8.00", project_manager: project.project_manager ?? "" });
@@ -227,9 +229,31 @@ function ProjectDrawer({ project, close, refresh }: { project: ProjectDetail; cl
   function addMilestone(event: FormEvent) {
     event.preventDefault();
     void run(async () => {
-      await createMilestone(project.project_number, milestone);
-      setMilestone({ name: "", planned_start: "", planned_end: "", owner: settings.project_manager, deliverable: "", is_payment_node: false, payment_date: "", payment_amount: "" });
-    }, "里程碑已加入待办");
+      if (editingMilestoneId) await updateMilestone(project.project_number, editingMilestoneId, milestone);
+      else await createMilestone(project.project_number, milestone);
+      resetMilestoneForm();
+    }, editingMilestoneId ? "里程碑修改已保存" : "里程碑已加入待办");
+  }
+
+  function resetMilestoneForm() {
+    setEditingMilestoneId(null);
+    setMilestone({ name: "", planned_start: "", planned_end: "", owner: settings.project_manager, deliverable: "", is_payment_node: false, payment_date: "", payment_amount: "" });
+  }
+
+  function editMilestone(item: ProjectDetail["milestones"][number]) {
+    if (item.status === "completed") return;
+    setEditingMilestoneId(item.milestone_id);
+    setMilestone({
+      name: item.name,
+      planned_start: item.planned_start,
+      planned_end: item.planned_end,
+      owner: item.owner ?? "",
+      deliverable: item.deliverable ?? "",
+      is_payment_node: Boolean(item.is_payment_node),
+      payment_date: item.payment_date ?? "",
+      payment_amount: item.payment_amount ?? ""
+    });
+    setMessage("正在编辑待确认里程碑");
   }
 
   function actor(): string | null {
@@ -263,7 +287,8 @@ function ProjectDrawer({ project, close, refresh }: { project: ProjectDetail; cl
     </form></section>
 
     <section className="detail-section"><div className="section-title"><div><h3>里程碑计划 <span className="manual-tag">人工维护</span></h3><small>项目里程碑与商务回款节点统一维护，同步不会覆盖</small></div></div>
-      <div className="milestone-list">{project.milestones.map(item => <article key={item.milestone_id} className={`milestone-item ${item.deadline.urgency}`}><span className="sequence">{item.sequence_no ?? "—"}</span><div><strong>{item.name}</strong><small>{item.planned_start} 至 {item.planned_end} · {item.deadline.label}</small><small>输出物：{item.deliverable || "未填写"}{item.is_payment_node ? ` · 回款 ${item.payment_date} ${money(item.payment_amount)}` : ""}</small></div><div><span className={`mini-state ${item.status}`}>{item.status === "completed" ? "已完成" : "待确认"}</span>{item.confirmed_by && <small>{item.confirmed_by}</small>}</div></article>)}</div>
+      <div className="milestone-list">{project.milestones.map(item => <article key={item.milestone_id} className={`milestone-item ${item.deadline.urgency} ${editingMilestoneId === item.milestone_id ? "editing" : ""}`}><span className="sequence">{item.sequence_no ?? "—"}</span><div><strong>{item.name}</strong><small>{item.planned_start} 至 {item.planned_end} · {item.deadline.label}</small><small>输出物：{item.deliverable || "未填写"}{item.is_payment_node ? ` · 回款 ${item.payment_date} ${money(item.payment_amount)}` : ""}</small></div><div className="milestone-actions"><span className={`mini-state ${item.status}`}>{item.status === "completed" ? "已完成" : "待确认"}</span>{item.confirmed_by && <small>{item.confirmed_by}</small>}{item.status !== "completed" && <button type="button" onClick={() => editMilestone(item)}>admin 编辑</button>}</div></article>)}</div>
+      {editingMilestoneId && <div className="editing-banner"><strong>编辑待确认里程碑</strong><span>保存后将重新计算待办日期和回款提醒</span></div>}
       <form className="milestone-form" onSubmit={addMilestone}>
         <label>里程碑名称<input required value={milestone.name} onChange={e => setMilestone({ ...milestone, name: e.target.value })} /></label>
         <label>负责人<input value={milestone.owner} onChange={e => setMilestone({ ...milestone, owner: e.target.value })} /></label>
@@ -272,7 +297,7 @@ function ProjectDrawer({ project, close, refresh }: { project: ProjectDetail; cl
         <label className="span-2">输出物<input value={milestone.deliverable} onChange={e => setMilestone({ ...milestone, deliverable: e.target.value })} placeholder="如：需求说明书、软件设计方案" /></label>
         <label className="check-label span-2"><input type="checkbox" checked={milestone.is_payment_node} onChange={e => setMilestone({ ...milestone, is_payment_node: e.target.checked })} />同时设为商务回款节点</label>
         {milestone.is_payment_node && <><label>回款日期<input type="date" required value={milestone.payment_date} onChange={e => setMilestone({ ...milestone, payment_date: e.target.value })} /></label><label>回款金额（元）<input type="number" min="0" step="0.01" required value={milestone.payment_amount} onChange={e => setMilestone({ ...milestone, payment_amount: e.target.value })} /></label></>}
-        <button className="button primary span-2" disabled={saving}>添加里程碑</button>
+        <div className="form-actions span-2"><button className="button primary" disabled={saving}>{editingMilestoneId ? "保存修改" : "添加里程碑"}</button>{editingMilestoneId && <button type="button" className="button secondary" disabled={saving} onClick={resetMilestoneForm}>取消编辑</button>}</div>
       </form>
     </section>
     <DetailSection title="最近工时（系统接口 · 只读）" empty="暂无工时数据">{project.time_entries.map(item => <div className="detail-row" key={item.external_id}><div><strong>{item.employee_name} · 填报 {item.hours}h / 客户确认 {item.approved_hours}h</strong><small>{item.work_content}</small></div><time>{item.work_date}</time></div>)}</DetailSection>

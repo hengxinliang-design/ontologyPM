@@ -248,17 +248,32 @@ class ProjectRepository:
         )
         if current is None:
             raise KeyError("milestone not found")
+        if current["status"] == "completed":
+            raise ValueError("completed milestones are locked and cannot be edited")
+        if payload.get("status") == "completed":
+            raise ValueError("use the confirm endpoint to complete a milestone")
         values = {**current, **payload}
         planned_end = values.get("planned_end") or values.get("planned_date")
         is_payment_node = bool(values.get("is_payment_node"))
         payment_node_id = current.get("payment_node_id")
+        removed_payment_node_id = None
         payment_date = payload.get("payment_date")
         payment_amount = payload.get("payment_amount")
         if is_payment_node and not payment_node_id:
             if not payment_date or payment_amount in (None, ""):
                 raise ValueError("payment_date and payment_amount are required for payment milestones")
             payment_node_id = "pay_" + uuid.uuid4().hex[:16]
+        elif not is_payment_node and payment_node_id:
+            removed_payment_node_id = payment_node_id
+            payment_node_id = None
         with self.database.connect() as connection:
+            if removed_payment_node_id:
+                payment = connection.execute(
+                    "SELECT status FROM payment_nodes WHERE payment_node_id = ?",
+                    (removed_payment_node_id,),
+                ).fetchone()
+                if payment and payment["status"] == "paid":
+                    raise ValueError("a confirmed payment node cannot be removed")
             connection.execute(
                 """
                 UPDATE milestones SET sequence_no=?, name=?, planned_date=?,
@@ -302,6 +317,11 @@ class ProjectRepository:
                         (payment_node_id, project_number, values["name"], payment_date,
                          _decimal_text(payment_amount), values.get("notes"), self._now()),
                     )
+            elif removed_payment_node_id:
+                connection.execute(
+                    "DELETE FROM payment_nodes WHERE payment_node_id = ?",
+                    (removed_payment_node_id,),
+                )
             connection.commit()
         return self._milestone_with_payment(milestone_id)
 

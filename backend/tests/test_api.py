@@ -96,6 +96,24 @@ def test_manual_project_setup_milestone_todos_and_confirmation(tmp_path):
         milestone = created.json()["data"]
         assert milestone["payment_amount"] == "412500.00"
 
+        edited = client.patch(
+            f"/api/v1/projects/WDR101/milestones/{milestone['milestone_id']}",
+            json={
+                "name": "需求与范围确认",
+                "planned_start": "2026-06-02",
+                "planned_end": "2026-07-02",
+                "owner": "Admin User",
+                "deliverable": "签字版需求说明书",
+                "is_payment_node": True,
+                "payment_date": "2026-07-05",
+                "payment_amount": "420000",
+            },
+        )
+        assert edited.status_code == 200
+        milestone = edited.json()["data"]
+        assert milestone["name"] == "需求与范围确认"
+        assert milestone["payment_amount"] == "420000.00"
+
         project = client.get("/api/v1/projects/WDR101").json()["data"]
         assert project["maintenance_complete"] is True
         assert project["pending_todos"] == 2
@@ -107,6 +125,11 @@ def test_manual_project_setup_milestone_todos_and_confirmation(tmp_path):
             f"/api/v1/projects/WDR101/milestones/{milestone['milestone_id']}/confirm",
             json={"confirmed_by": "Manager Wang"},
         ).status_code == 200
+        locked = client.patch(
+            f"/api/v1/projects/WDR101/milestones/{milestone['milestone_id']}",
+            json={"name": "不允许修改"},
+        )
+        assert locked.status_code == 422
         assert client.post(
             f"/api/v1/projects/WDR101/payment-nodes/{milestone['payment_node_id']}/confirm",
             json={"confirmed_by": "Manager Wang"},
