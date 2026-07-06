@@ -1,0 +1,922 @@
+# TSG PM API 文档
+
+本文档对应当前代码基线：FastAPI 后端 `TSG PM Data API v1.0.0`，React 前端通过 `frontend/src/api.ts` 调用这些接口。
+
+## 1. 基础约定
+
+### 1.1 Base URL
+
+本地开发默认：
+
+```text
+http://127.0.0.1:8000
+```
+
+前端开发环境通过 Vite 代理访问：
+
+```text
+http://127.0.0.1:5173
+```
+
+### 1.2 鉴权
+
+后端未设置 `XTCRM_API_TOKEN` 时，接口不校验鉴权，适用于本地开发。
+
+生产环境设置 `XTCRM_API_TOKEN` 后，所有 `/api/v1/*` 接口需要：
+
+```http
+Authorization: Bearer <XTCRM_API_TOKEN>
+```
+
+`GET /health` 不需要鉴权。
+
+### 1.3 金额与日期格式
+
+- 金额统一使用十进制字符串，避免浮点误差，例如 `"420000.00"`。
+- CRM 金额字段在 JSON 中使用：
+
+```json
+{
+  "amount": "149900.00",
+  "currency": "CNY",
+  "display": "¥149,900.00"
+}
+```
+
+- 日期使用 `YYYY-MM-DD`。
+- 日期时间使用 ISO 8601，例如 `2026-07-06T03:00:00-04:00`。
+
+### 1.4 错误响应
+
+后端统一返回 `application/problem+json`：
+
+```json
+{
+  "type": "https://xtcrm.local/problems/validation_error",
+  "title": "Validation failed",
+  "status": 422,
+  "detail": "...",
+  "instance": "/api/v1/projects/WDR101/milestones/ms_xxx",
+  "code": "VALIDATION_ERROR",
+  "trace_id": "local"
+}
+```
+
+常见状态码：
+
+| 状态码 | 含义 |
+|---:|---|
+| 200 | 请求成功 |
+| 201 | 创建成功 |
+| 202 | 同步任务已接受 |
+| 401 | Token 缺失或无效 |
+| 404 | 记录、项目或任务不存在 |
+| 409 | 当前已有同步任务运行 |
+| 422 | 请求字段不合法或业务规则不允许 |
+| 503 | 当前没有可用的成功快照 |
+
+## 2. 枚举定义
+
+### 2.1 CRM 数据类型
+
+| 值 | 说明 |
+|---|---|
+| `contract_order` | 合同/订单 |
+| `sales_opportunity` | 销售机会 |
+
+### 2.2 合同类型
+
+| 值 | 说明 | 是否要求预算人天 |
+|---|---|---|
+| `construction` | 建设类 | 是 |
+| `maintenance` | 维护类 | 是 |
+| `open_ended` | 开口类 | 否 |
+| `sales` | 销售类 | 否 |
+| `unknown` | 未分类 | 否，但会进入人工维护提醒 |
+
+### 2.3 生命周期状态
+
+| 值 | 说明 |
+|---|---|
+| `planned` | 计划中 |
+| `active` | 执行中 |
+| `on_hold` | 暂停 |
+| `completed` | 已完成 |
+| `closed` | 已关闭 |
+
+### 2.4 风险等级
+
+| 值 | 说明 |
+|---|---|
+| `healthy` | 正常 |
+| `warning` | 预警 |
+| `critical` | 严重 |
+
+### 2.5 待办紧急程度
+
+| 值 | 说明 |
+|---|---|
+| `completed` | 已确认完成 |
+| `overdue` | 已逾期 |
+| `due_today` | 今天到期 |
+| `due_soon` | 7 天内到期 |
+| `upcoming` | 未到期 |
+
+## 3. 系统接口
+
+### 3.1 健康检查
+
+```http
+GET /health
+```
+
+响应：
+
+```json
+{
+  "status": "ok"
+}
+```
+
+## 4. CRM 记录接口
+
+CRM 记录是系统接口同步后的只读事实数据。人工维护字段不写入 CRM 记录表。
+
+### 4.1 查询 CRM 记录列表
+
+```http
+GET /api/v1/records
+```
+
+查询参数：
+
+| 参数 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `data_type` | string | 否 | `contract_order` 或 `sales_opportunity` |
+| `project_number` | string | 否 | 项目编号 |
+| `owner` | string | 否 | CRM 所有者 |
+| `status` | string | 否 | 状态 |
+| `probability` | integer | 否 | 0 至 100 |
+| `q` | string | 否 | 主题、客户等关键字 |
+| `signed_from` | string | 否 | 签约开始日期 |
+| `signed_to` | string | 否 | 签约结束日期 |
+| `updated_since` | string | 否 | 若当前快照未更新，返回空列表 |
+| `page` | integer | 否 | 默认 `1` |
+| `page_size` | integer | 否 | 默认 `50`，最大 `200` |
+| `sort` | string | 否 | 默认 `project_number`，支持前缀 `-` 降序 |
+
+`sort` 支持字段：
+
+```text
+project_number, subject, signed_at, owner, probability, status
+```
+
+示例：
+
+```http
+GET /api/v1/records?data_type=contract_order&page=1&page_size=50&sort=-signed_at
+```
+
+响应：
+
+```json
+{
+  "data": [
+    {
+      "record_id": "rec_xxx",
+      "data_type": "contract_order",
+      "project_number": "TPL149",
+      "subject": "TPL149-天津鹏翎集团股份有限公司ERP/MOM与SRM接口项目",
+      "customer": "〖TPL〗",
+      "category": "实施服务",
+      "signed_at": "2026-06-16",
+      "total_amount": {
+        "amount": "149900.00",
+        "currency": "CNY",
+        "display": "¥149,900.00"
+      },
+      "received_amount": {
+        "amount": "0.00",
+        "currency": "CNY",
+        "display": "¥0.00"
+      },
+      "invoiced_amount": {
+        "amount": "74950.00",
+        "currency": "CNY",
+        "display": "¥74,950.00"
+      },
+      "owner": "Li Qiang",
+      "probability": 100,
+      "status": "成功",
+      "merged_from_opportunity": true,
+      "updated_at": "2026-07-01T16:01:22-04:00"
+    }
+  ],
+  "meta": {
+    "page": 1,
+    "page_size": 50,
+    "total_records": 1,
+    "total_pages": 1,
+    "schema_version": "1.0",
+    "updated_at": "2026-07-01T16:01:22-04:00"
+  },
+  "links": {
+    "self": "/api/v1/records?data_type=contract_order&page=1&page_size=50",
+    "next": null,
+    "previous": null
+  }
+}
+```
+
+### 4.2 查询单条 CRM 记录
+
+```http
+GET /api/v1/records/{record_id}
+```
+
+响应：
+
+```json
+{
+  "data": {
+    "record_id": "rec_xxx",
+    "data_type": "contract_order",
+    "project_number": "TPL149",
+    "subject": "TPL149-天津鹏翎集团股份有限公司ERP/MOM与SRM接口项目"
+  }
+}
+```
+
+## 5. 项目接口
+
+项目以 `project_number` 为主键聚合 CRM 合同/商机、人工维护配置、工时、里程碑、回款节点和风险提醒。
+
+### 5.1 查询项目组合
+
+```http
+GET /api/v1/projects
+```
+
+查询参数：
+
+| 参数 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `contract_type` | string | 否 | 合同类型枚举 |
+| `lifecycle_status` | string | 否 | 生命周期枚举 |
+| `risk_level` | string | 否 | 风险等级枚举 |
+| `q` | string | 否 | 项目编号、主题、客户、项目经理关键字 |
+
+响应：
+
+```json
+{
+  "data": [
+    {
+      "project_number": "TPL149",
+      "subject": "TPL149-天津鹏翎集团股份有限公司ERP/MOM与SRM接口项目",
+      "customer": "〖TPL〗",
+      "owner": "Li Qiang",
+      "project_manager": "Li Qiang",
+      "contract_type": "construction",
+      "lifecycle_status": "active",
+      "planned_start": "2026-06-16",
+      "planned_end": "2026-08-31",
+      "contract_count": 1,
+      "opportunity_count": 0,
+      "contract_value": "149900.00",
+      "received_amount": "0.00",
+      "invoiced_amount": "74950.00",
+      "planned_person_days": "30.00",
+      "reported_hours": "20.00",
+      "reported_person_days": "2.50",
+      "customer_confirmed_hours": "20.00",
+      "customer_confirmed_person_days": "2.50",
+      "confirmation_gap_hours": "0.00",
+      "confirmation_gap_person_days": "0.00",
+      "actual_hours": "20.00",
+      "actual_person_days": "2.50",
+      "budget_utilization": 8.3,
+      "billable_person_days": null,
+      "milestone_total": 2,
+      "milestone_completed": 0,
+      "overdue_milestones": 0,
+      "payment_node_total": 2,
+      "overdue_payment_nodes": 0,
+      "open_interventions": 0,
+      "maintenance_complete": true,
+      "maintenance_reasons": [],
+      "pending_todos": 4,
+      "overdue_todos": 0,
+      "next_todo": null,
+      "anomaly_count": 0,
+      "anomaly_alerts": [],
+      "risk_level": "healthy",
+      "risk_reasons": []
+    }
+  ],
+  "summary": {
+    "total_projects": 3,
+    "contract_value": "149900.00",
+    "received_amount": "0.00",
+    "critical_projects": 0,
+    "warning_projects": 1
+  }
+}
+```
+
+### 5.2 查询项目详情
+
+```http
+GET /api/v1/projects/{project_number}
+```
+
+项目详情在项目组合字段基础上增加：
+
+| 字段 | 说明 |
+|---|---|
+| `crm_records` | 该项目下的 CRM 合同/商机记录 |
+| `time_entries` | 最近工时记录，最多返回 30 条 |
+| `milestones` | 里程碑明细 |
+| `payment_nodes` | 回款节点明细 |
+| `interventions` | 管理干预记录 |
+| `settings` | 人工维护配置 |
+| `todo_events` | 里程碑和回款待办 |
+
+### 5.3 查询项目 CRM 记录
+
+```http
+GET /api/v1/projects/{project_number}/records
+```
+
+响应：
+
+```json
+{
+  "data": [],
+  "meta": {
+    "total_records": 0
+  }
+}
+```
+
+### 5.4 更新项目人工配置
+
+```http
+PATCH /api/v1/projects/{project_number}/settings
+Content-Type: application/json
+```
+
+请求：
+
+```json
+{
+  "contract_type": "construction",
+  "lifecycle_status": "active",
+  "planned_person_days": "40",
+  "hours_per_person_day": "8",
+  "planned_start": "2026-06-01",
+  "planned_end": "2026-08-31",
+  "project_manager": "Manager Wang",
+  "notes": "项目备注"
+}
+```
+
+业务规则：
+
+- `construction` 和 `maintenance` 必须填写 `planned_person_days`。
+- `open_ended` 不要求预算人天。
+- 该接口只更新人工维护表，不会改写 CRM 原始记录。
+- CRM 增量同步不会覆盖这些人工维护字段。
+
+响应：
+
+```json
+{
+  "data": {
+    "project_number": "WDR101",
+    "contract_type": "construction",
+    "lifecycle_status": "active",
+    "planned_person_days": "40.00"
+  }
+}
+```
+
+## 6. 里程碑接口
+
+里程碑用于项目交付计划和商务回款节点统一维护。
+
+### 6.1 创建里程碑
+
+```http
+POST /api/v1/projects/{project_number}/milestones
+Content-Type: application/json
+```
+
+请求：
+
+```json
+{
+  "name": "需求确认",
+  "planned_start": "2026-06-01",
+  "planned_end": "2026-06-30",
+  "owner": "Manager Wang",
+  "deliverable": "需求说明书",
+  "is_payment_node": true,
+  "payment_date": "2026-07-01",
+  "payment_amount": "412500",
+  "notes": "首付款节点"
+}
+```
+
+字段说明：
+
+| 字段 | 必填 | 说明 |
+|---|---|---|
+| `name` | 是 | 里程碑名称 |
+| `planned_start` | 否 | 计划开始日期；为空时取 `planned_end` |
+| `planned_end` | 是 | 计划结束日期 |
+| `owner` | 否 | 负责人 |
+| `deliverable` | 否 | 输出物 |
+| `is_payment_node` | 否 | 是否同时创建回款节点，默认 `false` |
+| `payment_date` | 条件必填 | `is_payment_node=true` 时必填 |
+| `payment_amount` | 条件必填 | `is_payment_node=true` 时必填 |
+| `notes` | 否 | 备注 |
+
+响应：
+
+```json
+{
+  "data": {
+    "milestone_id": "ms_xxx",
+    "project_number": "WDR101",
+    "sequence_no": 1,
+    "name": "需求确认",
+    "planned_date": "2026-06-30",
+    "planned_start": "2026-06-01",
+    "planned_end": "2026-06-30",
+    "status": "planned",
+    "owner": "Manager Wang",
+    "deliverable": "需求说明书",
+    "is_payment_node": 1,
+    "payment_node_id": "pay_xxx",
+    "payment_date": "2026-07-01",
+    "payment_amount": "412500.00",
+    "payment_status": "planned"
+  }
+}
+```
+
+### 6.2 编辑待确认里程碑
+
+```http
+PATCH /api/v1/projects/{project_number}/milestones/{milestone_id}
+Content-Type: application/json
+```
+
+请求：
+
+```json
+{
+  "name": "需求与范围确认",
+  "planned_start": "2026-06-02",
+  "planned_end": "2026-07-02",
+  "owner": "Admin User",
+  "deliverable": "签字版需求说明书",
+  "is_payment_node": true,
+  "payment_date": "2026-07-05",
+  "payment_amount": "420000"
+}
+```
+
+最新业务规则：
+
+- `status != completed` 的里程碑允许 admin 再次编辑。
+- `status = completed` 的里程碑已确认完成，后端锁定，不允许编辑。
+- 不允许通过 PATCH 直接把 `status` 设置为 `completed`；必须调用确认接口。
+- 待确认里程碑关联的未到账回款节点可同步更新名称、计划回款日期、计划金额和备注。
+- 待确认里程碑取消 `is_payment_node` 时：
+  - 若关联回款节点未支付，则删除关联回款节点。
+  - 若关联回款节点已支付，则不允许取消，返回 422。
+
+成功响应同创建接口。
+
+已确认里程碑再次编辑时返回：
+
+```json
+{
+  "status": 422,
+  "detail": "completed milestones are locked and cannot be edited"
+}
+```
+
+### 6.3 确认里程碑完成
+
+```http
+POST /api/v1/projects/{project_number}/milestones/{milestone_id}/confirm
+Content-Type: application/json
+```
+
+请求：
+
+```json
+{
+  "confirmed_by": "Manager Wang"
+}
+```
+
+效果：
+
+- 设置里程碑 `status=completed`。
+- 写入 `completed_date`、`confirmed_by`、`confirmed_at`。
+- 该里程碑后续不可再编辑。
+
+响应：
+
+```json
+{
+  "data": {
+    "milestone_id": "ms_xxx",
+    "status": "completed",
+    "confirmed_by": "Manager Wang"
+  }
+}
+```
+
+## 7. 回款节点接口
+
+### 7.1 创建回款节点
+
+```http
+POST /api/v1/projects/{project_number}/payment-nodes
+Content-Type: application/json
+```
+
+请求：
+
+```json
+{
+  "name": "首期款",
+  "planned_date": "2026-07-20",
+  "planned_amount": "74950",
+  "actual_date": null,
+  "actual_amount": "0",
+  "status": "planned",
+  "notes": "合同首付款"
+}
+```
+
+响应：
+
+```json
+{
+  "data": {
+    "payment_node_id": "pay_xxx",
+    "project_number": "TPL149",
+    "name": "首期款",
+    "planned_date": "2026-07-20",
+    "planned_amount": "74950.00",
+    "actual_date": null,
+    "actual_amount": "0.00",
+    "status": "planned"
+  }
+}
+```
+
+### 7.2 确认回款到账
+
+```http
+POST /api/v1/projects/{project_number}/payment-nodes/{payment_node_id}/confirm
+Content-Type: application/json
+```
+
+请求：
+
+```json
+{
+  "confirmed_by": "Manager Wang",
+  "actual_amount": "74950",
+  "actual_date": "2026-07-21"
+}
+```
+
+字段说明：
+
+- `confirmed_by` 必填。
+- `actual_amount` 为空时，默认取计划金额。
+- `actual_date` 为空时，默认取系统当前日期。
+
+响应：
+
+```json
+{
+  "data": {
+    "payment_node_id": "pay_xxx",
+    "status": "paid",
+    "actual_amount": "74950.00",
+    "actual_date": "2026-07-21",
+    "notes": "确认人：Manager Wang"
+  }
+}
+```
+
+## 8. 管理干预接口
+
+### 8.1 创建管理干预
+
+```http
+POST /api/v1/projects/{project_number}/interventions
+Content-Type: application/json
+```
+
+请求：
+
+```json
+{
+  "title": "协调客户确认延期里程碑",
+  "intervention_type": "management",
+  "status": "open",
+  "owner": "PMO",
+  "due_date": "2026-07-10",
+  "notes": "需要项目经理跟进"
+}
+```
+
+响应：
+
+```json
+{
+  "data": {
+    "intervention_id": "act_xxx",
+    "project_number": "TPL149",
+    "title": "协调客户确认延期里程碑",
+    "intervention_type": "management",
+    "status": "open",
+    "owner": "PMO",
+    "due_date": "2026-07-10"
+  }
+}
+```
+
+## 9. 工时接口
+
+当前工时系统真实 API 未最终确认，后端提供幂等导入接口用于接收标准化后的工时数据。
+
+### 9.1 导入工时记录
+
+```http
+POST /api/v1/time-entries/import
+Content-Type: application/json
+```
+
+请求：
+
+```json
+[
+  {
+    "external_id": "TIME-20260702-0001",
+    "project_number": "TPL149",
+    "employee_id": "E001",
+    "employee_name": "Zhang San",
+    "work_date": "2026-07-02",
+    "hours": "8.00",
+    "approved_hours": "4.00",
+    "approval_status": "approved",
+    "work_content": "客户待确认工作",
+    "source_updated_at": "2026-07-02T18:00:00+08:00"
+  }
+]
+```
+
+字段说明：
+
+| 字段 | 必填 | 说明 |
+|---|---|---|
+| `external_id` | 是 | 工时系统唯一 ID；用于 upsert |
+| `project_number` | 是 | 项目编号 |
+| `employee_id` | 是 | 员工编号 |
+| `employee_name` | 是 | 员工姓名 |
+| `work_date` | 是 | 工作日期 |
+| `hours` | 是 | 员工填报工时，0 至 24 |
+| `approved_hours` | 是 | 客户确认工时，0 至 24 |
+| `approval_status` | 是 | `draft`、`submitted`、`approved`、`rejected` |
+| `work_content` | 是 | 工作内容 |
+| `source_updated_at` | 是 | 工时源系统更新时间 |
+
+响应：
+
+```json
+{
+  "imported": 1
+}
+```
+
+业务规则：
+
+- `external_id` 相同则更新已有记录。
+- `hours` 表示已发生内部成本。
+- `approved_hours` 表示客户确认或认可工时。
+- `hours - approved_hours` 会聚合为项目级客户确认缺口，并触发 `TIME_CONFIRMATION_GAP` 提醒。
+- 建设类、维护类项目按 `reported_person_days / planned_person_days` 计算预算使用率。
+
+## 10. 同步接口
+
+同步接口负责从配置的数据源读取 CRM 快照，标准化、校验并写入 SQLite。成功后切换当前活跃快照；失败时保留上一份成功快照。
+
+### 10.1 查询同步状态
+
+```http
+GET /api/v1/sync-status
+```
+
+响应：
+
+```json
+{
+  "status": "succeeded",
+  "last_success_at": "2026-07-06T03:00:00-04:00",
+  "next_scheduled_at": "2026-07-07T03:00:00-04:00",
+  "timezone": "America/Detroit",
+  "source_stats": {
+    "contract_order": 1,
+    "sales_opportunity": 2
+  },
+  "output_stats": {
+    "contract_order": 1,
+    "sales_opportunity": 2
+  },
+  "validation": {
+    "complete": true,
+    "merged_opportunities": 1,
+    "cross_type_duplicate_project_ids": 1,
+    "sync_mode": "incremental",
+    "inserted_records": 0,
+    "updated_records": 1,
+    "deleted_records": 0,
+    "unchanged_records": 2
+  }
+}
+```
+
+### 10.2 创建同步任务
+
+```http
+POST /api/v1/sync-jobs
+```
+
+响应状态码：`202`
+
+响应：
+
+```json
+{
+  "job_id": "job_xxx",
+  "status": "queued",
+  "created_at": "2026-07-06T03:00:00-04:00"
+}
+```
+
+说明：
+
+- 同步任务在后台执行。
+- 若已有任务运行，返回 `409`。
+- 调度时间由 `XTCRM_SYNC_HOUR` 和 `XTCRM_TIMEZONE` 决定。
+
+### 10.3 查询同步任务
+
+```http
+GET /api/v1/sync-jobs/{job_id}
+```
+
+响应：
+
+```json
+{
+  "job_id": "job_xxx",
+  "status": "succeeded",
+  "created_at": "2026-07-06T03:00:00-04:00",
+  "started_at": "2026-07-06T03:00:01-04:00",
+  "completed_at": "2026-07-06T03:00:02-04:00",
+  "message": null,
+  "validation_json": "{}"
+}
+```
+
+## 11. 导出接口
+
+### 11.1 导出最新 CRM 快照
+
+```http
+GET /api/v1/exports/latest?format=json
+GET /api/v1/exports/latest?format=csv
+```
+
+参数：
+
+| 参数 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `format` | string | 是 | `json` 或 `csv` |
+
+JSON 响应为当前活跃快照：
+
+```json
+{
+  "schema_version": "1.0",
+  "updated_at": "2026-07-06T03:00:00-04:00",
+  "records": []
+}
+```
+
+CSV 导出：
+
+- 编码：UTF-8 with BOM。
+- 文件名：`xtcrm-latest.csv`。
+- 字段顺序：
+
+```text
+record_id,data_type,project_number,subject,customer,category,signed_at,total_amount,received_amount,invoiced_amount,owner,probability,status,merged_from_opportunity,updated_at
+```
+
+## 12. 数据归属和同步保护规则
+
+### 12.1 系统接口字段
+
+以下字段来自 CRM 或工时系统，同步更新：
+
+- CRM：主题、客户、分类、签约时间、总金额、回款金额、开票金额、所有者、可能性、状态、CRM 更新时间。
+- 工时：员工、日期、填报工时、客户确认工时、审批状态、工作内容、源系统更新时间。
+
+### 12.2 人工维护字段
+
+以下字段由管理人员在 TSG PM 页面维护，同步不得覆盖：
+
+- 合同类型。
+- 生命周期状态。
+- 初始预算人天。
+- 每人天小时数。
+- 项目经理。
+- 项目备注。
+- 里程碑计划。
+- 回款节点计划。
+- 管理干预记录。
+- 里程碑完成确认。
+- 回款到账确认。
+
+### 12.3 合同/销售机会合并规则
+
+- `project_number` 是 CRM 与工时的业务主键。
+- 若销售机会与合同/订单存在相同 `project_number`，说明机会已转化为合同。
+- 输出中保留合同/订单记录，不重复展示对应销售机会。
+- 合同/订单记录的 `probability` 填充为 `100`，`status` 填充为 `成功`，并标记 `merged_from_opportunity=true`。
+
+### 12.4 风险提醒规则
+
+系统按项目聚合生成风险和异常：
+
+| 规则 | 提醒码 | 严重程度 |
+|---|---|---|
+| 已填报人天超过预算人天 | `BUDGET_OVERRUN` | `critical` |
+| 已填报人天达到预算 80% | `BUDGET_NEAR_LIMIT` | `warning` |
+| 已填报工时与客户确认工时存在差额 | `TIME_CONFIRMATION_GAP` | `warning` |
+| 里程碑到期或逾期未确认 | `MILESTONE_DUE` | `warning` 或 `critical` |
+| 回款节点到期或逾期未确认 | `PAYMENT_DUE` | `warning` 或 `critical` |
+| 同步后人工维护字段不完整 | `MANUAL_MAINTENANCE_REQUIRED` | `warning` |
+
+## 13. 前端当前使用接口
+
+当前 React 前端已使用以下接口：
+
+| 前端方法 | 后端接口 |
+|---|---|
+| `fetchRecords` | `GET /api/v1/records` |
+| `fetchSyncStatus` | `GET /api/v1/sync-status` |
+| `fetchProjects` | `GET /api/v1/projects` |
+| `fetchProject` | `GET /api/v1/projects/{project_number}` |
+| `updateProjectSettings` | `PATCH /api/v1/projects/{project_number}/settings` |
+| `createMilestone` | `POST /api/v1/projects/{project_number}/milestones` |
+| `updateMilestone` | `PATCH /api/v1/projects/{project_number}/milestones/{milestone_id}` |
+| `confirmMilestone` | `POST /api/v1/projects/{project_number}/milestones/{milestone_id}/confirm` |
+| `confirmPayment` | `POST /api/v1/projects/{project_number}/payment-nodes/{payment_node_id}/confirm` |
+| `triggerSync` | `POST /api/v1/sync-jobs` |
+| `downloadExport` | `GET /api/v1/exports/latest?format=json\|csv` |
+
+## 14. 本地验证
+
+后端测试：
+
+```bash
+cd backend
+.venv/bin/pytest -q
+```
+
+前端构建：
+
+```bash
+cd frontend
+npm run build
+```
+
+运行服务后，FastAPI 自动生成的 OpenAPI 页面：
+
+```text
+http://127.0.0.1:8000/docs
+```
