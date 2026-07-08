@@ -1,4 +1,7 @@
 import json
+import base64
+import io
+import zipfile
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -122,6 +125,75 @@ def test_manual_project_setup_milestone_todos_and_confirmation(tmp_path):
         assert milestone["name"] == "需求与范围确认"
         assert milestone["payment_amount"] == "420000.00"
 
+        removable = client.post(
+            "/api/v1/projects/WDR101/milestones",
+            json={
+                "name": "可删除待确认节点",
+                "planned_start": "2026-08-01",
+                "planned_end": "2026-08-15",
+                "is_payment_node": True,
+                "payment_date": "2026-08-15",
+                "payment_amount": "1000",
+            },
+        ).json()["data"]
+        deleted = client.delete(
+            f"/api/v1/projects/WDR101/milestones/{removable['milestone_id']}"
+        )
+        assert deleted.status_code == 200
+        after_delete = deleted.json()["data"]
+        assert all(
+            item["milestone_id"] != removable["milestone_id"]
+            for item in after_delete["milestones"]
+        )
+        assert all(
+            item["payment_node_id"] != removable["payment_node_id"]
+            for item in after_delete["payment_nodes"]
+        )
+
+        standalone_payment = client.post(
+            "/api/v1/projects/WDR101/payment-nodes",
+            json={
+                "name": "独立回款节点",
+                "planned_date": "2026-09-01",
+                "planned_amount": "10000",
+            },
+        )
+        assert standalone_payment.status_code == 201
+        payment = standalone_payment.json()["data"]
+        edited_payment = client.patch(
+            f"/api/v1/projects/WDR101/payment-nodes/{payment['payment_node_id']}",
+            json={
+                "name": "独立回款节点-调整",
+                "planned_date": "2026-09-10",
+                "planned_amount": "12000",
+            },
+        )
+        assert edited_payment.status_code == 200
+        assert edited_payment.json()["data"]["planned_amount"] == "12000.00"
+        deleted_payment = client.delete(
+            f"/api/v1/projects/WDR101/payment-nodes/{payment['payment_node_id']}"
+        )
+        assert deleted_payment.status_code == 204
+
+        locked_payment = client.post(
+            "/api/v1/projects/WDR101/payment-nodes",
+            json={
+                "name": "已到账回款",
+                "planned_date": "2026-09-20",
+                "planned_amount": "8000",
+            },
+        ).json()["data"]
+        assert client.post(
+            f"/api/v1/projects/WDR101/payment-nodes/{locked_payment['payment_node_id']}/confirm",
+            json={"confirmed_by": "Manager Wang"},
+        ).status_code == 200
+        assert client.delete(
+            f"/api/v1/projects/WDR101/payment-nodes/{locked_payment['payment_node_id']}"
+        ).status_code == 422
+        paid_project = client.get("/api/v1/projects/WDR101").json()["data"]
+        assert paid_project["received_amount"] == paid_project["payment_summary"]["actual_amount"]
+        assert paid_project["received_amount"] == "8000.00"
+
         project = client.get("/api/v1/projects/WDR101").json()["data"]
         assert project["maintenance_complete"] is True
         assert project["pending_todos"] == 2
@@ -138,11 +210,17 @@ def test_manual_project_setup_milestone_todos_and_confirmation(tmp_path):
             json={"name": "不允许修改"},
         )
         assert locked.status_code == 422
+        locked_delete = client.delete(
+            f"/api/v1/projects/WDR101/milestones/{milestone['milestone_id']}"
+        )
+        assert locked_delete.status_code == 422
         assert client.post(
             f"/api/v1/projects/WDR101/payment-nodes/{milestone['payment_node_id']}/confirm",
             json={"confirmed_by": "Manager Wang"},
         ).status_code == 200
         completed = client.get("/api/v1/projects/WDR101").json()["data"]
+        assert completed["received_amount"] == completed["payment_summary"]["actual_amount"]
+        assert completed["received_amount"] == "428000.00"
         assert completed["pending_todos"] == 0
 
 
@@ -262,6 +340,49 @@ def test_import_timesheet_fixture_for_2026_january_and_february(tmp_path):
         assert "TIME_CONFIRMATION_GAP" in codes
 
 
+def test_import_timesheet_xlsx_upload(tmp_path):
+    workbook = _minimal_timesheet_xlsx(
+        [
+            ["姓名", "部门", "日期", "项目代码", "case", "天数", "工作内容", "流程状态"],
+            ["唐旋", "TSG", "2026-02-28", "JJY117", "", "1", "研发领料取值逻辑变更", "流转完成"],
+            ["王殿忠", "TSG", "2026-01-13", "MKT800", "", "0.5", "返回保定", "进行中"],
+        ]
+    )
+    with TestClient(create_app(settings(tmp_path))) as client:
+        response = client.post(
+            "/api/v1/time-entries/import-xlsx",
+            json={
+                "filename": "timesheet.xlsx",
+                "content_base64": (
+                    "data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,"
+                    + base64.b64encode(workbook).decode("ascii")
+                ),
+            },
+        )
+        assert response.status_code == 200
+        assert response.json()["parsed"] == 2
+        assert response.json()["imported"] == 2
+
+        imported_again = client.post(
+            "/api/v1/time-entries/import-xlsx",
+            json={
+                "filename": "timesheet.xlsx",
+                "content_base64": base64.b64encode(workbook).decode("ascii"),
+            },
+        )
+        assert imported_again.status_code == 200
+        assert imported_again.json()["imported"] == 2
+
+        project = client.get("/api/v1/projects/JJY117").json()["data"]
+        assert project["reported_hours"] == "8.00"
+        assert project["customer_confirmed_hours"] == "8.00"
+
+        pending = client.get("/api/v1/projects/MKT800").json()["data"]
+        assert pending["reported_hours"] == "4.00"
+        assert pending["customer_confirmed_hours"] == "0.00"
+        assert pending["confirmation_gap_hours"] == "4.00"
+
+
 def test_project_health_filters_by_month_and_project_number(tmp_path):
     fixture_path = Path(__file__).parent / "fixtures" / "time_entries_202601_202602.json"
     entries = json.loads(fixture_path.read_text(encoding="utf-8"))["entries"]
@@ -308,6 +429,22 @@ def test_project_health_filters_by_month_and_project_number(tmp_path):
         assert row["health_status"] == "已超预算"
 
 
+def test_query_parameters_and_manual_config_validation(tmp_path):
+    with TestClient(create_app(settings(tmp_path))) as client:
+        assert client.get("/api/v1/projects?contract_type=construction").status_code == 200
+        assert client.get("/api/v1/projects?contract_type=invalid").status_code == 422
+        assert client.get("/api/v1/projects?lifecycle_status=active").status_code == 200
+        assert client.get("/api/v1/projects?risk_level=warning").status_code == 200
+        assert client.get("/api/v1/project-health?month=2026-02").status_code == 200
+        assert client.get("/api/v1/project-health?month=2026-2").status_code == 422
+        assert client.get("/api/v1/employee-worktime?period=month&month=2026-02").status_code == 200
+        assert client.get("/api/v1/employee-worktime?period=week").status_code == 422
+        assert client.patch(
+            "/api/v1/worktime-baseline",
+            json={"monthly_baseline_hours": "-1"},
+        ).status_code == 422
+
+
 def test_employee_worktime_assessment_and_baseline_config(tmp_path):
     fixture_path = Path(__file__).parent / "fixtures" / "time_entries_202601_202602.json"
     entries = json.loads(fixture_path.read_text(encoding="utf-8"))["entries"]
@@ -331,6 +468,7 @@ def test_employee_worktime_assessment_and_baseline_config(tmp_path):
         assert row["reported_person_days"] == "19.00"
         assert row["utilization_percent"] == "99.3"
         assert row["status"] == "工时充足"
+        assert "project_delivery_ratio_percent" not in row
 
         yearly = client.get(
             "/api/v1/employee-worktime?period=year&year=2026&employee_name=查宏斌"
@@ -351,3 +489,52 @@ def test_employee_worktime_assessment_and_baseline_config(tmp_path):
         ).json()["data"][0]
         assert adjusted["utilization_percent"] == "76.0"
         assert adjusted["status"] == "基本达标"
+
+
+def _minimal_timesheet_xlsx(rows: list[list[str]]) -> bytes:
+    sheet_rows = []
+    for row_index, row in enumerate(rows, start=1):
+        cells = []
+        for column_index, value in enumerate(row):
+            ref = f"{_excel_column(column_index)}{row_index}"
+            cells.append(
+                f'<c r="{ref}" t="inlineStr"><is><t>{_xml_escape(value)}</t></is></c>'
+            )
+        sheet_rows.append(f'<row r="{row_index}">{"".join(cells)}</row>')
+    sheet_xml = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+        f'<sheetData>{"".join(sheet_rows)}</sheetData>'
+        "</worksheet>"
+    )
+    workbook_xml = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+        '<sheets><sheet name="sheet1" sheetId="1" r:id="rId1" '
+        'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"/>'
+        "</sheets></workbook>"
+    )
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, "w") as archive:
+        archive.writestr("[Content_Types].xml", "")
+        archive.writestr("xl/workbook.xml", workbook_xml)
+        archive.writestr("xl/worksheets/sheet1.xml", sheet_xml)
+    return output.getvalue()
+
+
+def _excel_column(index: int) -> str:
+    result = ""
+    index += 1
+    while index:
+        index, remainder = divmod(index - 1, 26)
+        result = chr(ord("A") + remainder) + result
+    return result
+
+
+def _xml_escape(value: str) -> str:
+    return (
+        str(value)
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+    )

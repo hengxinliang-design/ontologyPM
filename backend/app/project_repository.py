@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
@@ -155,10 +156,11 @@ class ProjectRepository:
             ),
             "notes": payload.get("notes", current["notes"]),
         }
+        _validate_worktime_baseline(values)
         with self.database.connect() as connection:
             connection.execute(
                 """
-                INSERT INTO worktime_baseline_config(
+                INSERT OR IGNORE INTO worktime_baseline_config(
                     config_id, standard_work_days_per_year, standard_hours_per_day,
                     annual_baseline_hours, effective_baseline_hours,
                     monthly_baseline_hours, quarterly_baseline_hours,
@@ -546,6 +548,35 @@ class ProjectRepository:
             connection.commit()
         return self._milestone_with_payment(milestone_id)
 
+    def delete_milestone(self, project_number: str, milestone_id: str) -> dict[str, Any]:
+        current = self._row_by_project_id(
+            "milestones", "milestone_id", milestone_id, project_number
+        )
+        if current is None:
+            raise KeyError("milestone not found")
+        if current["status"] == "completed":
+            raise ValueError("completed milestones are locked and cannot be deleted")
+        payment_node_id = current.get("payment_node_id")
+        with self.database.connect() as connection:
+            if payment_node_id:
+                payment = connection.execute(
+                    "SELECT status FROM payment_nodes WHERE payment_node_id = ?",
+                    (payment_node_id,),
+                ).fetchone()
+                if payment and payment["status"] == "paid":
+                    raise ValueError("a confirmed payment node cannot be deleted")
+            connection.execute(
+                "DELETE FROM milestones WHERE milestone_id = ? AND project_number = ?",
+                (milestone_id, project_number),
+            )
+            if payment_node_id:
+                connection.execute(
+                    "DELETE FROM payment_nodes WHERE payment_node_id = ?",
+                    (payment_node_id,),
+                )
+            connection.commit()
+        return self.get_project(project_number) or {"project_number": project_number}
+
     def confirm_payment_node(
         self, project_number: str, payment_node_id: str, confirmed_by: str,
         actual_amount: Any | None = None, actual_date: str | None = None,
@@ -569,6 +600,57 @@ class ProjectRepository:
             )
             connection.commit()
         return self._row_by_id("payment_nodes", "payment_node_id", payment_node_id)
+
+    def update_payment_node(
+        self, project_number: str, payment_node_id: str, payload: dict[str, Any]
+    ) -> dict[str, Any]:
+        with self.database.connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM payment_nodes WHERE payment_node_id=? AND project_number=?",
+                (payment_node_id, project_number),
+            ).fetchone()
+            if row is None:
+                raise KeyError("payment node not found")
+            if row["status"] == "paid":
+                raise ValueError("a confirmed payment node cannot be edited")
+            connection.execute(
+                """
+                UPDATE payment_nodes SET name=?, planned_date=?, planned_amount=?,
+                    notes=?, updated_at=? WHERE payment_node_id=?
+                """,
+                (
+                    payload.get("name") or row["name"],
+                    payload.get("planned_date") or row["planned_date"],
+                    _decimal_text(payload.get("planned_amount", row["planned_amount"])),
+                    payload.get("notes", row["notes"]),
+                    self._now(),
+                    payment_node_id,
+                ),
+            )
+            connection.commit()
+        return self._row_by_id("payment_nodes", "payment_node_id", payment_node_id)
+
+    def delete_payment_node(self, project_number: str, payment_node_id: str) -> None:
+        with self.database.connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM payment_nodes WHERE payment_node_id=? AND project_number=?",
+                (payment_node_id, project_number),
+            ).fetchone()
+            if row is None:
+                raise KeyError("payment node not found")
+            if row["status"] == "paid":
+                raise ValueError("a confirmed payment node cannot be deleted")
+            linked_milestone = connection.execute(
+                "SELECT milestone_id FROM milestones WHERE payment_node_id=?",
+                (payment_node_id,),
+            ).fetchone()
+            if linked_milestone is not None:
+                raise ValueError("linked payment nodes must be managed through the milestone")
+            connection.execute(
+                "DELETE FROM payment_nodes WHERE payment_node_id=?",
+                (payment_node_id,),
+            )
+            connection.commit()
 
     def create_payment_node(
         self, project_number: str, payload: dict[str, Any]
@@ -740,7 +822,9 @@ class ProjectRepository:
         crm_records = snapshot["records"] if snapshot else []
         grouped: dict[str, list[dict[str, Any]]] = {}
         for record in crm_records:
-            project = record.get("project_number")
+            project = record.get("project_number") or _project_number_from_subject(
+                record.get("subject") or ""
+            )
             if project:
                 grouped.setdefault(project, []).append(record)
 
@@ -812,7 +896,6 @@ class ProjectRepository:
             reported_days / planned_days * 100 if planned_days and planned_days > 0 else None
         )
         contract_value = _sum_money(contracts, "total_amount")
-        received_amount = _sum_money(contracts, "received_amount")
         invoiced_amount = _sum_money(contracts, "invoiced_amount")
         today_date = date.today()
         today = today_date.isoformat()
@@ -886,6 +969,7 @@ class ProjectRepository:
         )
         current_milestone = _current_milestone(enriched_milestones, today_date)
         payment_summary = _payment_summary(payments, today_date)
+        received_amount = Decimal(payment_summary["actual_amount"])
         master_category = "项目" if contracts else "商机" if opportunities else "项目"
         monthly_time_entries = _monthly_time_entries(time_entries, hours_per_day)
         if confirmation_gap_hours > 0:
@@ -955,7 +1039,9 @@ class ProjectRepository:
         project = {
             "project_number": project_number,
             "subject": primary.get("subject") or project_number,
-            "customer": primary.get("customer"),
+            "customer": primary.get("customer") or (
+                "未匹配 CRM 主数据" if not primary else None
+            ),
             "owner": primary.get("owner"),
             "project_manager": settings.get("project_manager") or primary.get("owner"),
             "master_category": master_category,
@@ -1082,6 +1168,43 @@ def _decimal_sum(values: Any) -> str:
 
 def _decimal_text(value: Any) -> str:
     return _format_decimal(Decimal(str(value)))
+
+
+def _project_number_from_subject(subject: str) -> str | None:
+    match = re.match(r"^([A-Za-z]{2,}[A-Za-z0-9-]*)[-—–_]", subject.strip())
+    return match.group(1).upper() if match else None
+
+
+def _validate_worktime_baseline(values: dict[str, Any]) -> None:
+    positive_fields = (
+        "standard_work_days_per_year",
+        "standard_hours_per_day",
+        "annual_baseline_hours",
+        "effective_baseline_hours",
+        "monthly_baseline_hours",
+        "quarterly_baseline_hours",
+    )
+    for field in positive_fields:
+        if Decimal(values[field]) <= 0:
+            raise ValueError(f"{field} must be greater than 0")
+
+    threshold_fields = (
+        "attention_utilization_percent",
+        "minimum_utilization_percent",
+        "excellent_utilization_percent",
+    )
+    thresholds = {field: Decimal(values[field]) for field in threshold_fields}
+    for field, value in thresholds.items():
+        if value <= 0 or value > 100:
+            raise ValueError(f"{field} must be greater than 0 and no more than 100")
+    if not (
+        thresholds["attention_utilization_percent"]
+        < thresholds["minimum_utilization_percent"]
+        < thresholds["excellent_utilization_percent"]
+    ):
+        raise ValueError(
+            "utilization thresholds must satisfy attention < minimum < excellent"
+        )
 
 
 def _optional_decimal_text(value: Any) -> str | None:
@@ -1500,7 +1623,6 @@ def _employee_worktime_rows(
             item["reported_hours"] / baseline_hours * Decimal("100")
             if baseline_hours > 0 else Decimal("0")
         )
-        project_delivery_ratio = Decimal("100") if item["reported_hours"] > 0 else Decimal("0")
         result.append(
             {
                 "employee_id": item["employee_id"],
@@ -1518,7 +1640,6 @@ def _employee_worktime_rows(
                 ),
                 "baseline_hours": _format_decimal(baseline_hours),
                 "utilization_percent": f"{utilization.quantize(Decimal('0.1'))}",
-                "project_delivery_ratio_percent": f"{project_delivery_ratio.quantize(Decimal('0.1'))}",
                 "entry_count": item["entry_count"],
                 "project_count": len(item["project_numbers"]),
                 "status": _employee_utilization_status(utilization, baseline),

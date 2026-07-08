@@ -844,7 +844,7 @@ Content-Type: application/json
 
 ## 9. 工时接口
 
-当前工时系统真实 API 未最终确认，后端提供幂等导入接口用于接收标准化后的工时数据。
+当前工时系统真实 API 未最终确认，后端提供幂等导入接口用于接收标准化后的工时数据，也支持页面直接导入工时系统导出的 `.xlsx` 文件。
 
 ### 9.1 导入工时记录
 
@@ -903,7 +903,52 @@ Content-Type: application/json
 - `hours - approved_hours` 会聚合为项目级客户确认缺口，并触发 `TIME_CONFIRMATION_GAP` 提醒。
 - 建设类、维护类项目按 `reported_person_days / planned_person_days` 计算预算使用率。
 
-### 9.2 查询工时基线配置
+### 9.2 导入工时 Excel
+
+```http
+POST /api/v1/time-entries/import-xlsx
+Content-Type: application/json
+```
+
+用途：员工工时评估页面上传工时系统导出的 `.xlsx` 文件。前端把文件转为 base64 后提交，后端解析 Excel 并复用标准工时导入逻辑。
+
+请求：
+
+```json
+{
+  "filename": "202601-202602.xlsx",
+  "content_base64": "<xlsx file base64>"
+}
+```
+
+Excel 必需列：
+
+| Excel 列名 | 转换后字段 | 说明 |
+|---|---|---|
+| `姓名` | `employee_name` | 员工姓名 |
+| `日期` | `work_date` | 支持 Excel 日期、`YYYY-MM-DD`、`YYYY/M/D` |
+| `项目代码` | `project_number` | 项目编号 |
+| `天数` | `hours` | 按 8 小时/天转换为填报工时 |
+| `工作内容` | `work_content` | 工作内容 |
+| `流程状态` | `approval_status` / `approved_hours` | `流转完成` 转为 `approved`，确认工时=填报工时；其他状态转为 `submitted`，确认工时=0 |
+
+响应：
+
+```json
+{
+  "imported": 1303,
+  "parsed": 1303,
+  "filename": "202601-202602.xlsx"
+}
+```
+
+业务规则：
+
+- 导入不需要新增后端依赖，后端使用标准库解析 `.xlsx`。
+- `external_id` 由姓名、项目编号、日期、天数、工作内容、流程状态生成稳定哈希；重复导入相同数据会更新，不会重复累加。
+- Excel 中的 `部门`、`case` 等列当前不进入系统模型。
+
+### 9.3 查询工时基线配置
 
 ```http
 GET /api/v1/worktime-baseline
@@ -932,7 +977,7 @@ GET /api/v1/worktime-baseline
 }
 ```
 
-### 9.3 更新工时基线配置
+### 9.4 更新工时基线配置
 
 ```http
 PATCH /api/v1/worktime-baseline
@@ -956,7 +1001,7 @@ Content-Type: application/json
 }
 ```
 
-### 9.4 查询员工工时状况评估
+### 9.5 查询员工工时状况评估
 
 ```http
 GET /api/v1/employee-worktime
@@ -971,7 +1016,7 @@ GET /api/v1/employee-worktime
 | `year` | string | 否 | 年度汇总，格式 `YYYY` |
 | `employee_name` | string | 否 | 员工姓名 |
 
-当前只做按月统计和年度汇总，不按截图中的项目交付、售前支持、运维服务等维度拆分。现有工时源数据没有“专业方向”，所以员工评估表不伪造该字段。
+当前只做按月统计和年度汇总。工时数据不采集“工时类型”，因此接口不提供项目交付、售前支持、运维服务、内部赋能等结构拆分字段。
 
 工时利用率：
 
@@ -1004,7 +1049,6 @@ GET /api/v1/employee-worktime
       "approved_person_days": "19.00",
       "baseline_hours": "153.00",
       "utilization_percent": "99.3",
-      "project_delivery_ratio_percent": "100.0",
       "entry_count": 19,
       "project_count": 3,
       "status": "工时充足"

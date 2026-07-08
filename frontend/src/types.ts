@@ -190,6 +190,7 @@ export interface ProjectDetail extends ProjectSummary {
     planned_amount: string;
     actual_amount: string;
     status: string;
+    notes?: string | null;
   }>;
   interventions: Array<{
     intervention_id: string;
@@ -300,7 +301,6 @@ export interface EmployeeWorktimeRow {
   approved_person_days: string;
   baseline_hours: string;
   utilization_percent: string;
-  project_delivery_ratio_percent: string;
   entry_count: number;
   project_count: number;
   status: "工时充足" | "基本达标" | "需要关注" | "严重不足";

@@ -144,6 +144,7 @@ npm run build
 - `POST /api/v1/projects/{project_number}/payment-nodes/{payment_node_id}/confirm`
 - `POST /api/v1/projects/{project_number}/interventions`
 - `POST /api/v1/time-entries/import`
+- `POST /api/v1/time-entries/import-xlsx`
 
 CRM 查询与同步：
 
@@ -159,6 +160,7 @@ CRM 查询与同步：
 
 ## 当前边界
 
-- 工时系统的真实 API 尚未确认；目前通过 `POST /api/v1/time-entries/import` 验证数据模型和幂等导入。
-- 员工内部成本单价、开口合同角色费率、工时审批字段和回款自动核销规则仍需业务确认。
+- 工时系统的真实 API 尚未确认；目前通过 `POST /api/v1/time-entries/import` 和页面 Excel 上传验证数据模型和幂等导入。
+- 项目类型、PM 负责人、预算工时、里程碑和回款节点实际完成均以人工维护为准；同步任务不得覆盖这些维护字段。
+- 工时数据不采集工时类型，不做项目交付、售前、运维、内部赋能等结构拆分。
 - 当前前端完成项目组合与项目详情驾驶舱；项目配置、里程碑、回款节点和管理干预已提供服务端 API，后续可继续补录入界面。

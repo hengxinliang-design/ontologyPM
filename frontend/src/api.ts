@@ -102,6 +102,27 @@ export async function updateWorktimeBaseline(payload: Partial<WorktimeBaseline>)
   return response.data;
 }
 
+export async function importTimeEntriesXlsx(file: File): Promise<{ imported: number; parsed: number; filename?: string }> {
+  const content_base64 = await fileToBase64(file);
+  return request("/api/v1/time-entries/import-xlsx", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ filename: file.name, content_base64 })
+  });
+}
+
+function fileToBase64(file: File): Promise<string> {
+  return file.arrayBuffer().then(buffer => {
+    const bytes = new Uint8Array(buffer);
+    let binary = "";
+    const chunkSize = 0x8000;
+    for (let index = 0; index < bytes.length; index += chunkSize) {
+      binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize));
+    }
+    return btoa(binary);
+  });
+}
+
 export async function fetchProject(projectNumber: string): Promise<ProjectDetail> {
   const response = await request<{ data: ProjectDetail }>(`/api/v1/projects/${projectNumber}`);
   return response.data;
@@ -146,6 +167,33 @@ export async function updateMilestone(projectNumber: string, milestoneId: string
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload)
+  });
+}
+
+export async function deleteMilestone(projectNumber: string, milestoneId: string): Promise<void> {
+  await request(`/api/v1/projects/${projectNumber}/milestones/${milestoneId}`, {
+    method: "DELETE"
+  });
+}
+
+export interface PaymentNodeInput {
+  name: string;
+  planned_date: string;
+  planned_amount: string;
+  notes?: string;
+}
+
+export async function updatePaymentNode(projectNumber: string, paymentNodeId: string, payload: PaymentNodeInput): Promise<void> {
+  await request(`/api/v1/projects/${projectNumber}/payment-nodes/${paymentNodeId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function deletePaymentNode(projectNumber: string, paymentNodeId: string): Promise<void> {
+  await request(`/api/v1/projects/${projectNumber}/payment-nodes/${paymentNodeId}`, {
+    method: "DELETE"
   });
 }
 

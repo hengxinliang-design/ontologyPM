@@ -28,6 +28,7 @@ from .repository import SnapshotRepository
 from .project_repository import ProjectRepository
 from .source import build_source
 from .sync_service import SyncService
+from .xlsx_timesheet import parse_timesheet_xlsx_base64
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -286,6 +287,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
+    @app.delete(
+        "/api/v1/projects/{project_number}/milestones/{milestone_id}",
+        dependencies=[auth],
+        tags=["Projects"],
+    )
+    def delete_milestone(project_number: str, milestone_id: str) -> dict[str, Any]:
+        try:
+            return {
+                "data": project_repository.delete_milestone(
+                    project_number, milestone_id
+                )
+            }
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
     @app.post(
         "/api/v1/projects/{project_number}/payment-nodes",
         status_code=201,
@@ -296,6 +314,40 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         project_number: str, payload: dict[str, Any] = Body(...)
     ) -> dict[str, Any]:
         return {"data": project_repository.create_payment_node(project_number, payload)}
+
+    @app.patch(
+        "/api/v1/projects/{project_number}/payment-nodes/{payment_node_id}",
+        dependencies=[auth],
+        tags=["Projects"],
+    )
+    def update_payment_node(
+        project_number: str, payment_node_id: str,
+        payload: dict[str, Any] = Body(...),
+    ) -> dict[str, Any]:
+        try:
+            return {
+                "data": project_repository.update_payment_node(
+                    project_number, payment_node_id, payload
+                )
+            }
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.delete(
+        "/api/v1/projects/{project_number}/payment-nodes/{payment_node_id}",
+        status_code=204,
+        dependencies=[auth],
+        tags=["Projects"],
+    )
+    def delete_payment_node(project_number: str, payment_node_id: str) -> None:
+        try:
+            project_repository.delete_payment_node(project_number, payment_node_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     @app.post(
         "/api/v1/projects/{project_number}/payment-nodes/{payment_node_id}/confirm",
@@ -340,6 +392,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     ) -> dict[str, Any]:
         try:
             return project_repository.import_time_entries(entries)
+        except (KeyError, ValueError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.post(
+        "/api/v1/time-entries/import-xlsx",
+        dependencies=[auth],
+        tags=["Time Entries"],
+    )
+    def import_time_entries_xlsx(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
+        try:
+            entries = parse_timesheet_xlsx_base64(payload["content_base64"])
+            result = project_repository.import_time_entries(entries)
+            return {
+                **result,
+                "parsed": len(entries),
+                "filename": payload.get("filename"),
+            }
         except (KeyError, ValueError) as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
