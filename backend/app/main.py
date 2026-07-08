@@ -343,6 +343,42 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except (KeyError, ValueError) as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
+    @app.get(
+        "/api/v1/worktime-baseline", dependencies=[auth], tags=["Time Entries"]
+    )
+    def get_worktime_baseline() -> dict[str, Any]:
+        return {"data": project_repository.get_worktime_baseline()}
+
+    @app.patch(
+        "/api/v1/worktime-baseline", dependencies=[auth], tags=["Time Entries"]
+    )
+    def update_worktime_baseline(
+        payload: dict[str, Any] = Body(...)
+    ) -> dict[str, Any]:
+        try:
+            return {"data": project_repository.update_worktime_baseline(payload)}
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.get(
+        "/api/v1/employee-worktime", dependencies=[auth], tags=["Time Entries"]
+    )
+    def get_employee_worktime(
+        period: str = Query("month", pattern="^(month|year)$"),
+        month: str | None = Query(None, pattern=r"^\d{4}-\d{2}$"),
+        year: str | None = Query(None, pattern=r"^\d{4}$"),
+        employee_name: str | None = None,
+    ) -> dict[str, Any]:
+        try:
+            return project_repository.employee_worktime_assessment(
+                period=period,
+                month=month,
+                year=year,
+                employee_name=employee_name,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
     @app.get("/api/v1/sync-status", dependencies=[auth], tags=["Sync"])
     def get_sync_status() -> dict[str, Any]:
         status = repository.sync_status()

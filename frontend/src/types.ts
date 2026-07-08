@@ -274,3 +274,53 @@ export interface ProjectHealthResponse {
     mode: "month" | "range";
   };
 }
+
+export interface WorktimeBaseline {
+  config_id: string;
+  standard_work_days_per_year: string;
+  standard_hours_per_day: string;
+  annual_baseline_hours: string;
+  effective_baseline_hours: string;
+  monthly_baseline_hours: string;
+  quarterly_baseline_hours: string;
+  minimum_utilization_percent: string;
+  excellent_utilization_percent: string;
+  attention_utilization_percent: string;
+  notes: string | null;
+  updated_at: string;
+}
+
+export interface EmployeeWorktimeRow {
+  employee_id: string;
+  employee_name: string;
+  reported_hours: string;
+  approved_hours: string;
+  confirmation_gap_hours: string;
+  reported_person_days: string;
+  approved_person_days: string;
+  baseline_hours: string;
+  utilization_percent: string;
+  project_delivery_ratio_percent: string;
+  entry_count: number;
+  project_count: number;
+  status: "工时充足" | "基本达标" | "需要关注" | "严重不足";
+}
+
+export interface EmployeeWorktimeResponse {
+  data: EmployeeWorktimeRow[];
+  summary: {
+    total_employees: number;
+    sufficient_count: number;
+    qualified_count: number;
+    attention_count: number;
+    critical_count: number;
+  };
+  baseline: WorktimeBaseline;
+  meta: {
+    period: "month" | "year";
+    period_label: string;
+    start_date: string;
+    end_date: string;
+    baseline_hours: string;
+  };
+}

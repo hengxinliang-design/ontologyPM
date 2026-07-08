@@ -99,6 +99,153 @@ class ProjectRepository:
             },
         }
 
+    def get_worktime_baseline(self) -> dict[str, Any]:
+        self._ensure_worktime_baseline()
+        with self.database.connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM worktime_baseline_config WHERE config_id = 'default'"
+            ).fetchone()
+        return dict(row)
+
+    def update_worktime_baseline(self, payload: dict[str, Any]) -> dict[str, Any]:
+        current = self.get_worktime_baseline()
+        values = {
+            "standard_work_days_per_year": _decimal_text(
+                payload.get(
+                    "standard_work_days_per_year",
+                    current["standard_work_days_per_year"],
+                )
+            ),
+            "standard_hours_per_day": _decimal_text(
+                payload.get("standard_hours_per_day", current["standard_hours_per_day"])
+            ),
+            "annual_baseline_hours": _decimal_text(
+                payload.get("annual_baseline_hours", current["annual_baseline_hours"])
+            ),
+            "effective_baseline_hours": _decimal_text(
+                payload.get(
+                    "effective_baseline_hours", current["effective_baseline_hours"]
+                )
+            ),
+            "monthly_baseline_hours": _decimal_text(
+                payload.get("monthly_baseline_hours", current["monthly_baseline_hours"])
+            ),
+            "quarterly_baseline_hours": _decimal_text(
+                payload.get(
+                    "quarterly_baseline_hours", current["quarterly_baseline_hours"]
+                )
+            ),
+            "minimum_utilization_percent": _decimal_text(
+                payload.get(
+                    "minimum_utilization_percent",
+                    current["minimum_utilization_percent"],
+                )
+            ),
+            "excellent_utilization_percent": _decimal_text(
+                payload.get(
+                    "excellent_utilization_percent",
+                    current["excellent_utilization_percent"],
+                )
+            ),
+            "attention_utilization_percent": _decimal_text(
+                payload.get(
+                    "attention_utilization_percent",
+                    current["attention_utilization_percent"],
+                )
+            ),
+            "notes": payload.get("notes", current["notes"]),
+        }
+        with self.database.connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO worktime_baseline_config(
+                    config_id, standard_work_days_per_year, standard_hours_per_day,
+                    annual_baseline_hours, effective_baseline_hours,
+                    monthly_baseline_hours, quarterly_baseline_hours,
+                    minimum_utilization_percent, excellent_utilization_percent,
+                    attention_utilization_percent, notes, updated_at
+                ) VALUES ('default', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(config_id) DO UPDATE SET
+                    standard_work_days_per_year=excluded.standard_work_days_per_year,
+                    standard_hours_per_day=excluded.standard_hours_per_day,
+                    annual_baseline_hours=excluded.annual_baseline_hours,
+                    effective_baseline_hours=excluded.effective_baseline_hours,
+                    monthly_baseline_hours=excluded.monthly_baseline_hours,
+                    quarterly_baseline_hours=excluded.quarterly_baseline_hours,
+                    minimum_utilization_percent=excluded.minimum_utilization_percent,
+                    excellent_utilization_percent=excluded.excellent_utilization_percent,
+                    attention_utilization_percent=excluded.attention_utilization_percent,
+                    notes=excluded.notes,
+                    updated_at=excluded.updated_at
+                """,
+                (
+                    values["standard_work_days_per_year"],
+                    values["standard_hours_per_day"],
+                    values["annual_baseline_hours"],
+                    values["effective_baseline_hours"],
+                    values["monthly_baseline_hours"],
+                    values["quarterly_baseline_hours"],
+                    values["minimum_utilization_percent"],
+                    values["excellent_utilization_percent"],
+                    values["attention_utilization_percent"],
+                    values["notes"],
+                    self._now(),
+                ),
+            )
+            connection.commit()
+        return self.get_worktime_baseline()
+
+    def employee_worktime_assessment(
+        self,
+        *,
+        period: str = "month",
+        month: str | None = None,
+        year: str | None = None,
+        employee_name: str | None = None,
+    ) -> dict[str, Any]:
+        baseline = self.get_worktime_baseline()
+        start_date, end_date, label = _employee_period(period, month, year, self._now())
+        with self.database.connect() as connection:
+            rows = [
+                dict(row)
+                for row in connection.execute(
+                    """
+                    SELECT * FROM time_entries
+                    WHERE work_date >= ? AND work_date <= ?
+                    ORDER BY employee_name, work_date DESC
+                    """,
+                    (start_date, end_date),
+                ).fetchall()
+            ]
+        if employee_name:
+            rows = [row for row in rows if row["employee_name"] == employee_name]
+        baseline_hours = Decimal(
+            baseline[
+                "monthly_baseline_hours"
+                if period == "month" else "annual_baseline_hours"
+            ]
+        )
+        standard_hours_per_day = Decimal(baseline["standard_hours_per_day"])
+        grouped = _employee_worktime_rows(rows, baseline, baseline_hours, standard_hours_per_day)
+        return {
+            "data": grouped,
+            "summary": {
+                "total_employees": len(grouped),
+                "sufficient_count": sum(row["status"] == "工时充足" for row in grouped),
+                "qualified_count": sum(row["status"] == "基本达标" for row in grouped),
+                "attention_count": sum(row["status"] == "需要关注" for row in grouped),
+                "critical_count": sum(row["status"] == "严重不足" for row in grouped),
+            },
+            "baseline": baseline,
+            "meta": {
+                "period": period,
+                "period_label": label,
+                "start_date": start_date,
+                "end_date": end_date,
+                "baseline_hours": _format_decimal(baseline_hours),
+            },
+        }
+
     def upsert_settings(self, project_number: str, payload: dict[str, Any]) -> dict[str, Any]:
         now = self._now()
         current = self._settings().get(project_number, {})
@@ -203,6 +350,31 @@ class ProjectRepository:
                 imported += 1
             connection.commit()
         return {"imported": imported}
+
+    def _ensure_worktime_baseline(self) -> None:
+        with self.database.connect() as connection:
+            row = connection.execute(
+                "SELECT config_id FROM worktime_baseline_config WHERE config_id = 'default'"
+            ).fetchone()
+            if row:
+                return
+            connection.execute(
+                """
+                INSERT INTO worktime_baseline_config(
+                    config_id, standard_work_days_per_year, standard_hours_per_day,
+                    annual_baseline_hours, effective_baseline_hours,
+                    monthly_baseline_hours, quarterly_baseline_hours,
+                    minimum_utilization_percent, excellent_utilization_percent,
+                    attention_utilization_percent, notes, updated_at
+                ) VALUES (
+                    'default', '230.00', '8.00', '1840.00', '1564.00',
+                    '153.00', '460.00', '75.00', '90.00', '60.00',
+                    '默认工时基线参数，可在页面人工维护。', ?
+                )
+                """,
+                (self._now(),),
+            )
+            connection.commit()
 
     def create_milestone(self, project_number: str, payload: dict[str, Any]) -> dict[str, Any]:
         milestone_id = "ms_" + uuid.uuid4().hex[:16]
@@ -1274,3 +1446,95 @@ def _completion_forecast(
 
 def _health_rank(value: str) -> int:
     return {"已超预算": 0, "需关注": 1, "无基线": 2, "健康": 3}.get(value, 4)
+
+
+def _employee_period(
+    period: str, month: str | None, year: str | None, now: str
+) -> tuple[str, str, str]:
+    if period not in {"month", "year"}:
+        raise ValueError("period must be month or year")
+    if period == "month":
+        value = month or now[:7]
+        _validate_month(value)
+        start = datetime.strptime(value, "%Y-%m").date()
+        next_month_year = start.year + (1 if start.month == 12 else 0)
+        next_month = 1 if start.month == 12 else start.month + 1
+        end = date(next_month_year, next_month, 1)
+        end = date.fromordinal(end.toordinal() - 1)
+        return start.isoformat(), end.isoformat(), value
+    value = year or now[:4]
+    if len(value) != 4 or not value.isdigit():
+        raise ValueError("year must use YYYY format")
+    return f"{value}-01-01", f"{value}-12-31", value
+
+
+def _employee_worktime_rows(
+    rows: list[dict[str, Any]],
+    baseline: dict[str, Any],
+    baseline_hours: Decimal,
+    standard_hours_per_day: Decimal,
+) -> list[dict[str, Any]]:
+    grouped: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        item = grouped.setdefault(
+            row["employee_name"],
+            {
+                "employee_id": row["employee_id"],
+                "employee_name": row["employee_name"],
+                "reported_hours": Decimal("0"),
+                "approved_hours": Decimal("0"),
+                "entry_count": 0,
+                "project_numbers": set(),
+            },
+        )
+        item["reported_hours"] += Decimal(row["hours"])
+        if row["approval_status"] == "approved":
+            item["approved_hours"] += Decimal(row["approved_hours"])
+        item["entry_count"] += 1
+        item["project_numbers"].add(row["project_number"])
+
+    result = []
+    for item in grouped.values():
+        gap = max(item["reported_hours"] - item["approved_hours"], Decimal("0"))
+        utilization = (
+            item["reported_hours"] / baseline_hours * Decimal("100")
+            if baseline_hours > 0 else Decimal("0")
+        )
+        project_delivery_ratio = Decimal("100") if item["reported_hours"] > 0 else Decimal("0")
+        result.append(
+            {
+                "employee_id": item["employee_id"],
+                "employee_name": item["employee_name"],
+                "reported_hours": _format_decimal(item["reported_hours"]),
+                "approved_hours": _format_decimal(item["approved_hours"]),
+                "confirmation_gap_hours": _format_decimal(gap),
+                "reported_person_days": _format_decimal(
+                    item["reported_hours"] / standard_hours_per_day
+                    if standard_hours_per_day else Decimal("0")
+                ),
+                "approved_person_days": _format_decimal(
+                    item["approved_hours"] / standard_hours_per_day
+                    if standard_hours_per_day else Decimal("0")
+                ),
+                "baseline_hours": _format_decimal(baseline_hours),
+                "utilization_percent": f"{utilization.quantize(Decimal('0.1'))}",
+                "project_delivery_ratio_percent": f"{project_delivery_ratio.quantize(Decimal('0.1'))}",
+                "entry_count": item["entry_count"],
+                "project_count": len(item["project_numbers"]),
+                "status": _employee_utilization_status(utilization, baseline),
+            }
+        )
+    return sorted(result, key=lambda row: (-float(row["utilization_percent"]), row["employee_name"]))
+
+
+def _employee_utilization_status(utilization: Decimal, baseline: dict[str, Any]) -> str:
+    excellent = Decimal(baseline["excellent_utilization_percent"])
+    minimum = Decimal(baseline["minimum_utilization_percent"])
+    attention = Decimal(baseline["attention_utilization_percent"])
+    if utilization > excellent:
+        return "工时充足"
+    if utilization > minimum:
+        return "基本达标"
+    if utilization > attention:
+        return "需要关注"
+    return "严重不足"

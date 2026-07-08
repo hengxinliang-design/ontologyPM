@@ -903,6 +903,130 @@ Content-Type: application/json
 - `hours - approved_hours` 会聚合为项目级客户确认缺口，并触发 `TIME_CONFIRMATION_GAP` 提醒。
 - 建设类、维护类项目按 `reported_person_days / planned_person_days` 计算预算使用率。
 
+### 9.2 查询工时基线配置
+
+```http
+GET /api/v1/worktime-baseline
+```
+
+用途：查询员工工时状况评估使用的统一基线参数。该配置由管理人员人工维护，可被员工工时评估和后续其他表单引用。
+
+默认配置参考当前表格设计：
+
+```json
+{
+  "data": {
+    "config_id": "default",
+    "standard_work_days_per_year": "230.00",
+    "standard_hours_per_day": "8.00",
+    "annual_baseline_hours": "1840.00",
+    "effective_baseline_hours": "1564.00",
+    "monthly_baseline_hours": "153.00",
+    "quarterly_baseline_hours": "460.00",
+    "minimum_utilization_percent": "75.00",
+    "excellent_utilization_percent": "90.00",
+    "attention_utilization_percent": "60.00",
+    "notes": "默认工时基线参数，可在页面人工维护。",
+    "updated_at": "2026-07-08T11:00:00-04:00"
+  }
+}
+```
+
+### 9.3 更新工时基线配置
+
+```http
+PATCH /api/v1/worktime-baseline
+Content-Type: application/json
+```
+
+请求示例：
+
+```json
+{
+  "standard_work_days_per_year": "230",
+  "standard_hours_per_day": "8",
+  "annual_baseline_hours": "1840",
+  "effective_baseline_hours": "1564",
+  "monthly_baseline_hours": "153",
+  "quarterly_baseline_hours": "460",
+  "minimum_utilization_percent": "75",
+  "excellent_utilization_percent": "90",
+  "attention_utilization_percent": "60",
+  "notes": "年度基线=230天*8小时"
+}
+```
+
+### 9.4 查询员工工时状况评估
+
+```http
+GET /api/v1/employee-worktime
+```
+
+查询参数：
+
+| 参数 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `period` | string | 否 | `month` 或 `year`，默认 `month` |
+| `month` | string | 否 | 月度统计，格式 `YYYY-MM` |
+| `year` | string | 否 | 年度汇总，格式 `YYYY` |
+| `employee_name` | string | 否 | 员工姓名 |
+
+当前只做按月统计和年度汇总，不按截图中的项目交付、售前支持、运维服务等维度拆分。现有工时源数据没有“专业方向”，所以员工评估表不伪造该字段。
+
+工时利用率：
+
+```text
+月度：reported_hours / monthly_baseline_hours * 100
+年度：reported_hours / annual_baseline_hours * 100
+```
+
+状态规则：
+
+| 工时利用率 | 状态 |
+|---:|---|
+| `> 90%` | 工时充足 |
+| `> 75%` | 基本达标 |
+| `> 60%` | 需要关注 |
+| 其他 | 严重不足 |
+
+响应示例：
+
+```json
+{
+  "data": [
+    {
+      "employee_id": "EMP-001",
+      "employee_name": "查宏斌",
+      "reported_hours": "152.00",
+      "approved_hours": "152.00",
+      "confirmation_gap_hours": "0.00",
+      "reported_person_days": "19.00",
+      "approved_person_days": "19.00",
+      "baseline_hours": "153.00",
+      "utilization_percent": "99.3",
+      "project_delivery_ratio_percent": "100.0",
+      "entry_count": 19,
+      "project_count": 3,
+      "status": "工时充足"
+    }
+  ],
+  "summary": {
+    "total_employees": 1,
+    "sufficient_count": 1,
+    "qualified_count": 0,
+    "attention_count": 0,
+    "critical_count": 0
+  },
+  "meta": {
+    "period": "month",
+    "period_label": "2026-02",
+    "start_date": "2026-02-01",
+    "end_date": "2026-02-28",
+    "baseline_hours": "153.00"
+  }
+}
+```
+
 ## 10. 同步接口
 
 同步接口负责从配置的数据源读取 CRM 快照，标准化、校验并写入 SQLite。成功后切换当前活跃快照；失败时保留上一份成功快照。
@@ -1076,6 +1200,9 @@ record_id,data_type,project_number,subject,customer,category,signed_at,total_amo
 | `fetchSyncStatus` | `GET /api/v1/sync-status` |
 | `fetchProjects` | `GET /api/v1/projects` |
 | `fetchProjectHealth` | `GET /api/v1/project-health` |
+| `fetchEmployeeWorktime` | `GET /api/v1/employee-worktime` |
+| `fetchWorktimeBaseline` | `GET /api/v1/worktime-baseline` |
+| `updateWorktimeBaseline` | `PATCH /api/v1/worktime-baseline` |
 | `fetchProject` | `GET /api/v1/projects/{project_number}` |
 | `updateProjectSettings` | `PATCH /api/v1/projects/{project_number}/settings` |
 | `createMilestone` | `POST /api/v1/projects/{project_number}/milestones` |

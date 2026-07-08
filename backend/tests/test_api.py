@@ -306,3 +306,48 @@ def test_project_health_filters_by_month_and_project_number(tmp_path):
         assert row["remaining_budget_person_days"] == "-27.62"
         assert row["overrun_warning"] == "已超预算"
         assert row["health_status"] == "已超预算"
+
+
+def test_employee_worktime_assessment_and_baseline_config(tmp_path):
+    fixture_path = Path(__file__).parent / "fixtures" / "time_entries_202601_202602.json"
+    entries = json.loads(fixture_path.read_text(encoding="utf-8"))["entries"]
+
+    with TestClient(create_app(settings(tmp_path))) as client:
+        baseline = client.get("/api/v1/worktime-baseline")
+        assert baseline.status_code == 200
+        assert baseline.json()["data"]["monthly_baseline_hours"] == "153.00"
+
+        assert client.post("/api/v1/time-entries/import", json=entries).status_code == 200
+
+        february = client.get(
+            "/api/v1/employee-worktime?period=month&month=2026-02&employee_name=查宏斌"
+        )
+        assert february.status_code == 200
+        body = february.json()
+        assert body["meta"]["baseline_hours"] == "153.00"
+        row = body["data"][0]
+        assert row["employee_name"] == "查宏斌"
+        assert row["reported_hours"] == "152.00"
+        assert row["reported_person_days"] == "19.00"
+        assert row["utilization_percent"] == "99.3"
+        assert row["status"] == "工时充足"
+
+        yearly = client.get(
+            "/api/v1/employee-worktime?period=year&year=2026&employee_name=查宏斌"
+        )
+        assert yearly.status_code == 200
+        assert yearly.json()["data"][0]["reported_hours"] == "400.00"
+        assert yearly.json()["data"][0]["status"] == "严重不足"
+
+        updated = client.patch(
+            "/api/v1/worktime-baseline",
+            json={"monthly_baseline_hours": "200", "notes": "测试调整"},
+        )
+        assert updated.status_code == 200
+        assert updated.json()["data"]["monthly_baseline_hours"] == "200.00"
+
+        adjusted = client.get(
+            "/api/v1/employee-worktime?period=month&month=2026-02&employee_name=查宏斌"
+        ).json()["data"][0]
+        assert adjusted["utilization_percent"] == "76.0"
+        assert adjusted["status"] == "基本达标"

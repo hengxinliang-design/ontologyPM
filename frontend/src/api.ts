@@ -1,4 +1,4 @@
-import type { ContractType, LifecycleStatus, PortfolioResponse, ProjectDetail, ProjectHealthResponse, RecordsResponse, SyncStatus } from "./types";
+import type { ContractType, EmployeeWorktimeResponse, LifecycleStatus, PortfolioResponse, ProjectDetail, ProjectHealthResponse, RecordsResponse, SyncStatus, WorktimeBaseline } from "./types";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "";
 const API_TOKEN = import.meta.env.VITE_API_TOKEN ?? "";
@@ -73,6 +73,33 @@ export function fetchProjectHealth(filters: {
   if (filters.projectNumber) params.set("project_number", filters.projectNumber);
   const query = params.toString();
   return request(`/api/v1/project-health${query ? `?${query}` : ""}`);
+}
+
+export function fetchEmployeeWorktime(filters: {
+  period: "month" | "year";
+  month?: string;
+  year?: string;
+  employeeName?: string;
+}): Promise<EmployeeWorktimeResponse> {
+  const params = new URLSearchParams({ period: filters.period });
+  if (filters.month) params.set("month", filters.month);
+  if (filters.year) params.set("year", filters.year);
+  if (filters.employeeName) params.set("employee_name", filters.employeeName);
+  return request(`/api/v1/employee-worktime?${params}`);
+}
+
+export async function fetchWorktimeBaseline(): Promise<WorktimeBaseline> {
+  const response = await request<{ data: WorktimeBaseline }>("/api/v1/worktime-baseline");
+  return response.data;
+}
+
+export async function updateWorktimeBaseline(payload: Partial<WorktimeBaseline>): Promise<WorktimeBaseline> {
+  const response = await request<{ data: WorktimeBaseline }>("/api/v1/worktime-baseline", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+  return response.data;
 }
 
 export async function fetchProject(projectNumber: string): Promise<ProjectDetail> {

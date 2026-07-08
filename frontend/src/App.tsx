@@ -4,33 +4,41 @@ import {
   confirmPayment,
   createMilestone,
   downloadExport,
+  fetchEmployeeWorktime,
   fetchProject,
   fetchProjectHealth,
   fetchProjects,
   fetchRecords,
   fetchSyncStatus,
+  fetchWorktimeBaseline,
   triggerSync,
   updateMilestone,
-  updateProjectSettings
+  updateProjectSettings,
+  updateWorktimeBaseline
 } from "./api";
 import type {
   CrmRecord,
+  EmployeeWorktimeResponse,
+  EmployeeWorktimeRow,
   PortfolioResponse,
   ProjectDetail,
   ProjectHealthResponse,
   ProjectHealthRow,
   ProjectSummary,
   RecordsResponse,
-  SyncStatus
+  SyncStatus,
+  WorktimeBaseline
 } from "./types";
 
 const PAGE_SIZE = 20;
-type View = "projects" | "health" | "crm";
+type View = "projects" | "health" | "employeeWorktime" | "crm";
 
 export function App() {
   const [view, setView] = useState<View>("projects");
   const [portfolio, setPortfolio] = useState<PortfolioResponse | null>(null);
   const [health, setHealth] = useState<ProjectHealthResponse | null>(null);
+  const [employeeWorktime, setEmployeeWorktime] = useState<EmployeeWorktimeResponse | null>(null);
+  const [worktimeBaseline, setWorktimeBaseline] = useState<WorktimeBaseline | null>(null);
   const [records, setRecords] = useState<RecordsResponse | null>(null);
   const [sync, setSync] = useState<SyncStatus | null>(null);
   const [selected, setSelected] = useState<ProjectDetail | null>(null);
@@ -42,6 +50,9 @@ export function App() {
   const [healthMonth, setHealthMonth] = useState(new Date().toISOString().slice(0, 7));
   const [healthStartMonth, setHealthStartMonth] = useState("");
   const [healthEndMonth, setHealthEndMonth] = useState("");
+  const [worktimePeriod, setWorktimePeriod] = useState<"month" | "year">("month");
+  const [worktimeMonth, setWorktimeMonth] = useState(new Date().toISOString().slice(0, 7));
+  const [worktimeYear, setWorktimeYear] = useState(new Date().toISOString().slice(0, 4));
   const [dataType, setDataType] = useState("");
   const [status, setStatus] = useState("");
   const [page, setPage] = useState(1);
@@ -64,6 +75,18 @@ export function App() {
           endMonth: healthMode === "range" ? healthEndMonth : undefined,
           projectNumber: query
         }));
+      } else if (view === "employeeWorktime") {
+        const [assessment, baseline] = await Promise.all([
+          fetchEmployeeWorktime({
+            period: worktimePeriod,
+            month: worktimePeriod === "month" ? worktimeMonth : undefined,
+            year: worktimePeriod === "year" ? worktimeYear : undefined,
+            employeeName: query
+          }),
+          fetchWorktimeBaseline()
+        ]);
+        setEmployeeWorktime(assessment);
+        setWorktimeBaseline(baseline);
       } else {
         setRecords(await fetchRecords({ dataType, query, status, page, pageSize: PAGE_SIZE }));
       }
@@ -72,7 +95,7 @@ export function App() {
     } finally {
       setLoading(false);
     }
-  }, [view, query, contractType, riskLevel, dataType, status, page, healthMode, healthMonth, healthStartMonth, healthEndMonth]);
+  }, [view, query, contractType, riskLevel, dataType, status, page, healthMode, healthMonth, healthStartMonth, healthEndMonth, worktimePeriod, worktimeMonth, worktimeYear]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -86,12 +109,17 @@ export function App() {
     { label: "健康", value: health?.summary.healthy_projects ?? "—", tone: "green" },
     { label: "需关注", value: health?.summary.warning_projects ?? "—", tone: "amber" },
     { label: "已超预算", value: health?.summary.critical_projects ?? "—", tone: "violet" }
+  ] : view === "employeeWorktime" ? [
+    { label: "统计员工", value: employeeWorktime?.summary.total_employees ?? "—", tone: "blue" },
+    { label: "工时充足", value: employeeWorktime?.summary.sufficient_count ?? "—", tone: "green" },
+    { label: "需要关注", value: employeeWorktime?.summary.attention_count ?? "—", tone: "amber" },
+    { label: "严重不足", value: employeeWorktime?.summary.critical_count ?? "—", tone: "violet" }
   ] : [
     { label: "有效记录", value: records?.meta.total_records ?? "—", tone: "blue" },
     { label: "合同 / 订单", value: sync?.output_stats.contract_order ?? "—", tone: "green" },
     { label: "销售机会", value: sync?.output_stats.sales_opportunity ?? "—", tone: "amber" },
     { label: "已合并机会", value: sync?.validation.merged_opportunities ?? "—", tone: "violet" }
-  ], [view, portfolio, health, records, sync]);
+  ], [view, portfolio, health, employeeWorktime, records, sync]);
 
   function switchView(next: View) {
     setView(next); setQuery(""); setQueryInput(""); setPage(1); setSelected(null);
@@ -121,6 +149,7 @@ export function App() {
         <nav>
           <button className={`nav-item ${view === "projects" ? "active" : ""}`} onClick={() => switchView("projects")}><span>◫</span> 项目驾驶舱</button>
           <button className={`nav-item ${view === "health" ? "active" : ""}`} onClick={() => switchView("health")}><span>▣</span> 项目健康度</button>
+          <button className={`nav-item ${view === "employeeWorktime" ? "active" : ""}`} onClick={() => switchView("employeeWorktime")}><span>◷</span> 员工工时评估</button>
           <button className={`nav-item ${view === "crm" ? "active" : ""}`} onClick={() => switchView("crm")}><span>⌘</span> CRM 数据</button>
           <a className="nav-item" href="#sync"><span>↻</span> 同步状态</a>
           <a className="nav-item" href="/docs" target="_blank"><span>⌁</span> API 文档</a>
@@ -133,7 +162,7 @@ export function App() {
 
       <main>
         <header className="topbar">
-          <div><p className="eyebrow">PROJECT LIFECYCLE CONTROL</p><h1>{view === "projects" ? "项目组合与生命周期" : view === "health" ? "项目健康度监控" : "CRM 合同与销售机会"}</h1></div>
+          <div><p className="eyebrow">PROJECT LIFECYCLE CONTROL</p><h1>{view === "projects" ? "项目组合与生命周期" : view === "health" ? "项目健康度监控" : view === "employeeWorktime" ? "员工工时状况评估" : "CRM 合同与销售机会"}</h1></div>
           <div className="top-actions">
             <button className="button secondary" onClick={() => void downloadExport("csv")}>导出 CSV</button>
             <button className="button primary" disabled={syncing} onClick={startSync}>{syncing ? "正在创建…" : "立即同步"}</button>
@@ -158,6 +187,16 @@ export function App() {
             startMonth={healthStartMonth} setStartMonth={setHealthStartMonth}
             endMonth={healthEndMonth} setEndMonth={setHealthEndMonth}
             openProject={openProject}
+          />
+        ) : view === "employeeWorktime" ? (
+          <EmployeeWorktime
+            assessment={employeeWorktime} baseline={worktimeBaseline}
+            loading={loading} queryInput={queryInput}
+            setQueryInput={setQueryInput} submitSearch={submitSearch}
+            period={worktimePeriod} setPeriod={setWorktimePeriod}
+            month={worktimeMonth} setMonth={setWorktimeMonth}
+            year={worktimeYear} setYear={setWorktimeYear}
+            refresh={load}
           />
         ) : (
           <CrmRecords
@@ -274,6 +313,93 @@ function ProjectHealthRowView({ row, open }: { row: ProjectHealthRow; open: () =
     <td><span className={`health-tag ${healthClass(row.health_status)}`}>{row.health_status}</span></td>
     <td>{row.completion_forecast}</td>
     <td>{row.remaining_budget_person_days ?? "—"}</td>
+  </tr>;
+}
+
+function EmployeeWorktime(props: {
+  assessment: EmployeeWorktimeResponse | null;
+  baseline: WorktimeBaseline | null;
+  loading: boolean;
+  queryInput: string;
+  setQueryInput: (value: string) => void;
+  submitSearch: (event: FormEvent) => void;
+  period: "month" | "year";
+  setPeriod: (value: "month" | "year") => void;
+  month: string;
+  setMonth: (value: string) => void;
+  year: string;
+  setYear: (value: string) => void;
+  refresh: () => Promise<void>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState<Partial<WorktimeBaseline>>({});
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (props.baseline) setDraft(props.baseline);
+  }, [props.baseline]);
+
+  async function saveBaseline(event: FormEvent) {
+    event.preventDefault();
+    setSaving(true); setMessage(null);
+    try {
+      await updateWorktimeBaseline(draft);
+      await props.refresh();
+      setEditing(false);
+      setMessage("工时基线参数已保存");
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "保存失败");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return <section className="panel">
+    <div className="panel-head"><div><h2>员工工时状况评估</h2><p>按月度或年度汇总员工填报工时，并按人工维护的基线参数计算利用率</p></div><Search value={props.queryInput} setValue={props.setQueryInput} submit={props.submitSearch} /></div>
+    <div className="filters health-filters">
+      <select value={props.period} onChange={e => props.setPeriod(e.target.value as "month" | "year")}><option value="month">按月统计</option><option value="year">年度汇总</option></select>
+      {props.period === "month" ? <label>统计月份<input type="month" value={props.month} onChange={e => props.setMonth(e.target.value)} /></label> : <label>统计年度<input type="number" min="2000" max="2100" value={props.year} onChange={e => props.setYear(e.target.value)} /></label>}
+      <span className="result-count">统计范围：{props.assessment?.meta.start_date ?? "—"} 至 {props.assessment?.meta.end_date ?? "—"} · 基线 {props.assessment?.meta.baseline_hours ?? "—"}h</span>
+    </div>
+    <section className="baseline-box">
+      <div className="section-title"><div><h3>工时基线参数 <span className="manual-tag">人工维护</span></h3><small>作为员工工时利用率评估和后续其他表单引用的统一配置</small></div><button className="button secondary" onClick={() => setEditing(!editing)}>{editing ? "收起配置" : "编辑配置"}</button></div>
+      {message && <div className="inline-message">{message}</div>}
+      {props.baseline && !editing && <div className="baseline-grid"><span>标准工作日/年：<b>{props.baseline.standard_work_days_per_year}</b> 天</span><span>标准工时/天：<b>{props.baseline.standard_hours_per_day}</b> h</span><span>年度基线：<b>{props.baseline.annual_baseline_hours}</b> h</span><span>有效基线：<b>{props.baseline.effective_baseline_hours}</b> h</span><span>月均基线：<b>{props.baseline.monthly_baseline_hours}</b> h</span><span>季度基线：<b>{props.baseline.quarterly_baseline_hours}</b> h</span><span>最低目标：<b>{props.baseline.minimum_utilization_percent}%</b></span><span>优秀目标：<b>{props.baseline.excellent_utilization_percent}%</b></span></div>}
+      {editing && <form className="config-form" onSubmit={saveBaseline}>
+        <label>标准工作日/年<input value={draft.standard_work_days_per_year ?? ""} onChange={e => setDraft({ ...draft, standard_work_days_per_year: e.target.value })} /></label>
+        <label>标准工时/天<input value={draft.standard_hours_per_day ?? ""} onChange={e => setDraft({ ...draft, standard_hours_per_day: e.target.value })} /></label>
+        <label>年度工时基线(h)<input value={draft.annual_baseline_hours ?? ""} onChange={e => setDraft({ ...draft, annual_baseline_hours: e.target.value })} /></label>
+        <label>有效工时基线(h)<input value={draft.effective_baseline_hours ?? ""} onChange={e => setDraft({ ...draft, effective_baseline_hours: e.target.value })} /></label>
+        <label>月均工时基线(h)<input value={draft.monthly_baseline_hours ?? ""} onChange={e => setDraft({ ...draft, monthly_baseline_hours: e.target.value })} /></label>
+        <label>季度工时基线(h)<input value={draft.quarterly_baseline_hours ?? ""} onChange={e => setDraft({ ...draft, quarterly_baseline_hours: e.target.value })} /></label>
+        <label>最低利用率目标(%)<input value={draft.minimum_utilization_percent ?? ""} onChange={e => setDraft({ ...draft, minimum_utilization_percent: e.target.value })} /></label>
+        <label>优秀利用率目标(%)<input value={draft.excellent_utilization_percent ?? ""} onChange={e => setDraft({ ...draft, excellent_utilization_percent: e.target.value })} /></label>
+        <label>关注阈值(%)<input value={draft.attention_utilization_percent ?? ""} onChange={e => setDraft({ ...draft, attention_utilization_percent: e.target.value })} /></label>
+        <label className="span-2">备注<input value={draft.notes ?? ""} onChange={e => setDraft({ ...draft, notes: e.target.value })} /></label>
+        <button className="button primary span-2" disabled={saving}>{saving ? "保存中…" : "保存工时基线配置"}</button>
+      </form>}
+    </section>
+    <div className="table-wrap"><table><thead><tr><th>姓名</th><th>填报工时(h)</th><th>确认工时(h)</th><th>确认缺口(h)</th><th>填报人天</th><th>基线(h)</th><th>工时利用率</th><th>项目交付工时占比</th><th>项目数</th><th>记录数</th><th>工时结构评价</th></tr></thead><tbody>
+      {props.loading ? <LoadingRows colSpan={11} /> : props.assessment?.data.map(row => <EmployeeWorktimeRowView key={row.employee_name} row={row} />)}
+      {!props.loading && props.assessment?.data.length === 0 && <tr><td className="empty" colSpan={11}>暂无员工工时评估数据</td></tr>}
+    </tbody></table></div>
+  </section>;
+}
+
+function EmployeeWorktimeRowView({ row }: { row: EmployeeWorktimeRow }) {
+  return <tr>
+    <td><strong className="project-code">{row.employee_name}</strong></td>
+    <td>{row.reported_hours}</td>
+    <td>{row.approved_hours}</td>
+    <td className={Number(row.confirmation_gap_hours) > 0 ? "danger-text" : ""}>{row.confirmation_gap_hours}</td>
+    <td>{row.reported_person_days}</td>
+    <td>{row.baseline_hours}</td>
+    <td><strong>{row.utilization_percent}%</strong></td>
+    <td>{row.project_delivery_ratio_percent}%</td>
+    <td>{row.project_count}</td>
+    <td>{row.entry_count}</td>
+    <td><span className={`health-tag ${employeeStatusClass(row.status)}`}>{row.status}</span></td>
   </tr>;
 }
 
@@ -414,6 +540,7 @@ function contractTypeLabel(value: ProjectSummary["contract_type"]) { return ({ c
 function lifecycleLabel(value: ProjectSummary["lifecycle_status"]) { return ({ planned: "计划中", active: "执行中", on_hold: "已暂停", completed: "已完成", closed: "已关闭" } as const)[value]; }
 function riskLabel(value: ProjectSummary["risk_level"]) { return ({ healthy: "健康", warning: "关注", critical: "严重" } as const)[value]; }
 function healthClass(value: string) { if (value === "已超预算" || value === "高风险") return "critical"; if (value === "需关注" || value === "待维护预算") return "warning"; if (value === "无基线") return "baseline"; return "healthy"; }
+function employeeStatusClass(value: string) { if (value === "工时充足") return "healthy"; if (value === "基本达标") return "baseline"; if (value === "需要关注") return "warning"; return "critical"; }
 function statusLabel(value?: SyncStatus["status"]) { return ({ succeeded: "同步正常", running: "同步中", failed: "同步失败", auth_required: "需要登录", never_run: "尚未同步" } as const)[value ?? "never_run"]; }
 function syncModeLabel(sync: SyncStatus | null) {
   if (sync?.validation.sync_mode === "incremental") return `增量 +${sync.validation.inserted_records ?? 0} / 更新 ${sync.validation.updated_records ?? 0}`;

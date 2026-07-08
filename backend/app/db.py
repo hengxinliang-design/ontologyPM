@@ -102,6 +102,24 @@ CREATE TABLE IF NOT EXISTS time_entries (
 CREATE INDEX IF NOT EXISTS idx_time_project_date
     ON time_entries(project_number, work_date DESC);
 
+CREATE INDEX IF NOT EXISTS idx_time_employee_date
+    ON time_entries(employee_name, work_date DESC);
+
+CREATE TABLE IF NOT EXISTS worktime_baseline_config (
+    config_id TEXT PRIMARY KEY DEFAULT 'default',
+    standard_work_days_per_year TEXT NOT NULL DEFAULT '230.00',
+    standard_hours_per_day TEXT NOT NULL DEFAULT '8.00',
+    annual_baseline_hours TEXT NOT NULL DEFAULT '1840.00',
+    effective_baseline_hours TEXT NOT NULL DEFAULT '1564.00',
+    monthly_baseline_hours TEXT NOT NULL DEFAULT '153.00',
+    quarterly_baseline_hours TEXT NOT NULL DEFAULT '460.00',
+    minimum_utilization_percent TEXT NOT NULL DEFAULT '75.00',
+    excellent_utilization_percent TEXT NOT NULL DEFAULT '90.00',
+    attention_utilization_percent TEXT NOT NULL DEFAULT '60.00',
+    notes TEXT,
+    updated_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS milestones (
     milestone_id TEXT PRIMARY KEY,
     project_number TEXT NOT NULL,
