@@ -1,4 +1,4 @@
-import type { ContractType, LifecycleStatus, PortfolioResponse, ProjectDetail, RecordsResponse, SyncStatus } from "./types";
+import type { ContractType, LifecycleStatus, PortfolioResponse, ProjectDetail, ProjectHealthResponse, RecordsResponse, SyncStatus } from "./types";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "";
 const API_TOKEN = import.meta.env.VITE_API_TOKEN ?? "";
@@ -58,6 +58,21 @@ export function fetchProjects(filters: {
   if (filters.riskLevel) params.set("risk_level", filters.riskLevel);
   const query = params.toString();
   return request(`/api/v1/projects${query ? `?${query}` : ""}`);
+}
+
+export function fetchProjectHealth(filters: {
+  month?: string;
+  startMonth?: string;
+  endMonth?: string;
+  projectNumber?: string;
+}): Promise<ProjectHealthResponse> {
+  const params = new URLSearchParams();
+  if (filters.month) params.set("month", filters.month);
+  if (filters.startMonth) params.set("start_month", filters.startMonth);
+  if (filters.endMonth) params.set("end_month", filters.endMonth);
+  if (filters.projectNumber) params.set("project_number", filters.projectNumber);
+  const query = params.toString();
+  return request(`/api/v1/project-health${query ? `?${query}` : ""}`);
 }
 
 export async function fetchProject(projectNumber: string): Promise<ProjectDetail> {

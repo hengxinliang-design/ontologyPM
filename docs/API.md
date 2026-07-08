@@ -425,7 +425,109 @@ GET /api/v1/projects/{project_number}
 ]
 ```
 
-### 5.3 查询项目 CRM 记录
+### 5.3 查询项目健康度视图
+
+```http
+GET /api/v1/project-health
+```
+
+用途：按月份或时间范围生成项目健康度监控表，支撑页面中的“项目健康度监控”视图。
+
+查询参数：
+
+| 参数 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `month` | string | 否 | 单月统计，格式 `YYYY-MM` |
+| `start_month` | string | 否 | 时间范围开始月份，格式 `YYYY-MM` |
+| `end_month` | string | 否 | 时间范围结束月份，格式 `YYYY-MM` |
+| `project_number` | string | 否 | 指定项目代码 |
+
+规则：
+
+- 传 `month` 时按单月统计。
+- 传 `start_month/end_month` 时按范围统计。
+- 都不传时默认使用系统当前月份。
+- `累计实际(天)` 统计到 `end_month` 为止。
+- `本期投入(天)` 统计当前单月或范围内工时。
+- `上月投入(天)` 取 `start_month` 的上一个月，用于趋势对比。
+
+响应：
+
+```json
+{
+  "data": [
+    {
+      "project_number": "SEY101",
+      "project_name": "SEY101-项目名称",
+      "pm_owner": "PM Test",
+      "project_status": "active",
+      "planned_start": "2026-01-01",
+      "planned_end": "2026-06-30",
+      "budget_person_days": "120.00",
+      "plan_months": 6,
+      "monthly_budget_person_days": "20.00",
+      "cumulative_actual_person_days": "147.62",
+      "period_actual_hours": "424.00",
+      "period_actual_person_days": "53.00",
+      "previous_month_person_days": "94.62",
+      "participant_count": 4,
+      "burn_rate_percent": "123.0",
+      "overrun_warning": "已超预算",
+      "monthly_trend": "下降",
+      "health_status": "已超预算",
+      "completion_forecast": "已超预算",
+      "remaining_budget_person_days": "-27.62",
+      "current_milestone": null,
+      "payment_summary": {
+        "total_nodes": 0,
+        "paid_nodes": 0,
+        "planned_amount": "0.00",
+        "actual_amount": "0.00",
+        "next_node": null
+      },
+      "risk_reasons": ["尚未设置里程碑"]
+    }
+  ],
+  "summary": {
+    "total_projects": 1,
+    "critical_projects": 1,
+    "warning_projects": 0,
+    "healthy_projects": 0,
+    "no_baseline_projects": 0
+  },
+  "meta": {
+    "start_month": "2026-02",
+    "end_month": "2026-02",
+    "mode": "month"
+  }
+}
+```
+
+项目健康度页面表头与字段映射：
+
+| 页面表头 | API 字段 |
+|---|---|
+| 项目代码 | `project_number` |
+| 项目名称 | `project_name` |
+| PM负责人 | `pm_owner` |
+| 项目状态 | `project_status` |
+| 计划开始 | `planned_start` |
+| 计划结束 | `planned_end` |
+| 预算工时(天) | `budget_person_days` |
+| 计划月数 | `plan_months` |
+| 月均预算(天) | `monthly_budget_person_days` |
+| 累计实际(天) | `cumulative_actual_person_days` |
+| 本期投入(天) | `period_actual_person_days` |
+| 上月投入(天) | `previous_month_person_days` |
+| 参与人数 | `participant_count` |
+| 燃尽率 | `burn_rate_percent` |
+| 超支预警 | `overrun_warning` |
+| 月度趋势 | `monthly_trend` |
+| 综合健康状态 | `health_status` |
+| 预计完工 | `completion_forecast` |
+| 剩余预算(天) | `remaining_budget_person_days` |
+
+### 5.4 查询项目 CRM 记录
 
 ```http
 GET /api/v1/projects/{project_number}/records
@@ -442,7 +544,7 @@ GET /api/v1/projects/{project_number}/records
 }
 ```
 
-### 5.4 更新项目人工配置
+### 5.5 更新项目人工配置
 
 ```http
 PATCH /api/v1/projects/{project_number}/settings
@@ -973,6 +1075,7 @@ record_id,data_type,project_number,subject,customer,category,signed_at,total_amo
 | `fetchRecords` | `GET /api/v1/records` |
 | `fetchSyncStatus` | `GET /api/v1/sync-status` |
 | `fetchProjects` | `GET /api/v1/projects` |
+| `fetchProjectHealth` | `GET /api/v1/project-health` |
 | `fetchProject` | `GET /api/v1/projects/{project_number}` |
 | `updateProjectSettings` | `PATCH /api/v1/projects/{project_number}/settings` |
 | `createMilestone` | `POST /api/v1/projects/{project_number}/milestones` |

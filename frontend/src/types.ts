@@ -232,3 +232,45 @@ export interface PortfolioResponse {
     warning_projects: number;
   };
 }
+
+export interface ProjectHealthRow {
+  project_number: string;
+  project_name: string;
+  pm_owner: string | null;
+  project_status: LifecycleStatus;
+  planned_start: string | null;
+  planned_end: string | null;
+  budget_person_days: string | null;
+  plan_months: number | null;
+  monthly_budget_person_days: string | null;
+  cumulative_actual_person_days: string;
+  period_actual_hours: string;
+  period_actual_person_days: string;
+  previous_month_person_days: string;
+  participant_count: number;
+  burn_rate_percent: string | null;
+  overrun_warning: string;
+  monthly_trend: string;
+  health_status: "健康" | "需关注" | "已超预算" | "无基线";
+  completion_forecast: string;
+  remaining_budget_person_days: string | null;
+  current_milestone: CurrentMilestone | null;
+  payment_summary: PaymentSummary;
+  risk_reasons: string[];
+}
+
+export interface ProjectHealthResponse {
+  data: ProjectHealthRow[];
+  summary: {
+    total_projects: number;
+    critical_projects: number;
+    warning_projects: number;
+    healthy_projects: number;
+    no_baseline_projects: number;
+  };
+  meta: {
+    start_month: string;
+    end_month: string;
+    mode: "month" | "range";
+  };
+}

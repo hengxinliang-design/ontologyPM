@@ -44,6 +44,7 @@ main { padding: 32px 38px 48px; overflow: hidden; }
 .search input:focus { border-color: #6992f8; box-shadow: inset 0 0 0 1px #6992f8; }
 .search button { border: 0; color: #fff; background: #274f9e; padding: 0 18px; border-radius: 0 8px 8px 0; cursor: pointer; }
 .filters { display: flex; align-items: center; gap: 10px; padding: 0 23px 17px; border-bottom: 1px solid #e6ecf3; }
+.filters.health-filters label { color: #65758b; font-size: 11px; display: flex; align-items: center; gap: 7px; }.filters.health-filters input { border: 1px solid #dce4ee; border-radius: 7px; padding: 7px 9px; color: #43546b; background: #fff; }
 .data-boundary { margin: 0 23px 15px; padding: 10px 12px; display: flex; align-items: center; gap: 8px; border: 1px solid #e2e9f2; border-radius: 8px; background: #f8fafc; }.data-boundary p { margin: 0 14px 0 0; color: #718198; font-size: 11px; }
 .source-tag, .manual-tag { display: inline-flex; align-items: center; padding: 3px 7px; border-radius: 999px; font-size: 10px; font-weight: 700; vertical-align: middle; white-space: nowrap; }.source-tag { color: #225ab4; background: #e8f0ff; }.manual-tag { color: #8a5500; background: #fff0cf; }
 .filters select { border: 1px solid #dce4ee; border-radius: 7px; padding: 8px 34px 8px 10px; color: #43546b; background: #fff; }
@@ -61,6 +62,7 @@ tbody tr:hover { background: #fafcff; }
 .project-code { color: #1c4ea9; }.subject { min-width: 260px; max-width: 440px; line-height: 1.45; font-weight: 550; }
 .risk { display: inline-flex; padding: 4px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; white-space: nowrap; }
 .risk.healthy { color: #087a5b; background: #e7f8f2; }.risk.warning { color: #a86405; background: #fff3df; }.risk.critical { color: #b42336; background: #fff0f1; }
+.health-tag { display: inline-flex; padding: 4px 8px; border-radius: 999px; white-space: nowrap; font-weight: 700; font-size: 11px; }.health-tag.healthy { color: #087a5b; background: #e7f8f2; }.health-tag.warning { color: #a86405; background: #fff3df; }.health-tag.critical { color: #b42336; background: #fff0f1; }.health-tag.baseline { color: #52647b; background: #eef3fa; }
 .danger-text { color: #c52c41; }
 .budget { width: 130px; }.budget div { display: flex; justify-content: space-between; gap: 8px; }.budget b { font-size: 11px; color: #586a82; }.budget i { display: block; height: 5px; margin-top: 7px; background: #e8edf4; border-radius: 5px; overflow: hidden; }.budget em { display: block; height: 100%; background: linear-gradient(90deg, #29aa82, #f0b429); border-radius: 5px; }
 td small { display: block; color: #9aa6b5; margin-top: 4px; }.money { white-space: nowrap; font-variant-numeric: tabular-nums; }

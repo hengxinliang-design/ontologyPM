@@ -260,3 +260,49 @@ def test_import_timesheet_fixture_for_2026_january_and_february(tmp_path):
 
         codes = {alert["code"] for alert in project["anomaly_alerts"]}
         assert "TIME_CONFIRMATION_GAP" in codes
+
+
+def test_project_health_filters_by_month_and_project_number(tmp_path):
+    fixture_path = Path(__file__).parent / "fixtures" / "time_entries_202601_202602.json"
+    entries = json.loads(fixture_path.read_text(encoding="utf-8"))["entries"]
+
+    with TestClient(create_app(settings(tmp_path))) as client:
+        assert client.post("/api/v1/time-entries/import", json=entries).status_code == 200
+
+        no_baseline = client.get(
+            "/api/v1/project-health?month=2026-02&project_number=SEY101"
+        )
+        assert no_baseline.status_code == 200
+        row = no_baseline.json()["data"][0]
+        assert row["project_number"] == "SEY101"
+        assert row["period_actual_person_days"] == "53.00"
+        assert row["previous_month_person_days"] == "94.62"
+        assert row["participant_count"] == 4
+        assert row["monthly_trend"] == "下降"
+        assert row["health_status"] == "无基线"
+        assert row["overrun_warning"] == "待维护预算"
+
+        client.patch(
+            "/api/v1/projects/SEY101/settings",
+            json={
+                "contract_type": "construction",
+                "lifecycle_status": "active",
+                "planned_person_days": "120",
+                "planned_start": "2026-01-01",
+                "planned_end": "2026-06-30",
+                "project_manager": "PM Test",
+            },
+        )
+        over_budget = client.get(
+            "/api/v1/project-health?month=2026-02&project_number=SEY101"
+        )
+        assert over_budget.status_code == 200
+        row = over_budget.json()["data"][0]
+        assert row["budget_person_days"] == "120.00"
+        assert row["plan_months"] == 6
+        assert row["monthly_budget_person_days"] == "20.00"
+        assert row["cumulative_actual_person_days"] == "147.62"
+        assert row["burn_rate_percent"] == "123.0"
+        assert row["remaining_budget_person_days"] == "-27.62"
+        assert row["overrun_warning"] == "已超预算"
+        assert row["health_status"] == "已超预算"

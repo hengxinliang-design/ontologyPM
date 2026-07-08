@@ -68,6 +68,37 @@ class ProjectRepository:
                 return project
         return None
 
+    def project_health(
+        self,
+        *,
+        month: str | None = None,
+        start_month: str | None = None,
+        end_month: str | None = None,
+        project_number: str | None = None,
+    ) -> dict[str, Any]:
+        start, end = _health_period(month, start_month, end_month, self._now())
+        rows = []
+        for project in self._build_all_projects(include_details=True):
+            if project_number and project["project_number"] != project_number:
+                continue
+            rows.append(_project_health_row(project, start, end))
+        rows.sort(key=lambda row: (_health_rank(row["health_status"]), row["project_number"]))
+        return {
+            "data": rows,
+            "summary": {
+                "total_projects": len(rows),
+                "critical_projects": sum(row["health_status"] == "已超预算" for row in rows),
+                "warning_projects": sum(row["health_status"] == "需关注" for row in rows),
+                "healthy_projects": sum(row["health_status"] == "健康" for row in rows),
+                "no_baseline_projects": sum(row["health_status"] == "无基线" for row in rows),
+            },
+            "meta": {
+                "start_month": start,
+                "end_month": end,
+                "mode": "month" if start == end else "range",
+            },
+        }
+
     def upsert_settings(self, project_number: str, payload: dict[str, Any]) -> dict[str, Any]:
         now = self._now()
         current = self._settings().get(project_number, {})
@@ -1048,3 +1079,198 @@ def _monthly_time_entries(
             }
         )
     return sorted(months, key=lambda item: item["month"], reverse=True)
+
+
+def _health_period(
+    month: str | None, start_month: str | None, end_month: str | None, now: str
+) -> tuple[str, str]:
+    if month:
+        _validate_month(month)
+        return month, month
+    if start_month or end_month:
+        start = start_month or end_month
+        end = end_month or start_month
+        assert start is not None and end is not None
+        _validate_month(start)
+        _validate_month(end)
+        if start > end:
+            raise ValueError("start_month must be earlier than or equal to end_month")
+        return start, end
+    current = now[:7]
+    _validate_month(current)
+    return current, current
+
+
+def _project_health_row(
+    project: dict[str, Any], start_month: str, end_month: str
+) -> dict[str, Any]:
+    monthly = {item["month"]: item for item in project.get("monthly_time_entries", [])}
+    period_months = _month_range(start_month, end_month)
+    period_hours = sum(
+        (Decimal(monthly[m]["reported_hours"]) for m in period_months if m in monthly),
+        Decimal("0"),
+    )
+    period_days = sum(
+        (Decimal(monthly[m]["reported_person_days"]) for m in period_months if m in monthly),
+        Decimal("0"),
+    )
+    cumulative_days = sum(
+        (
+            Decimal(item["reported_person_days"])
+            for item in monthly.values()
+            if item["month"] <= end_month
+        ),
+        Decimal("0"),
+    )
+    previous_month = _previous_month(start_month)
+    previous_days = (
+        Decimal(monthly[previous_month]["reported_person_days"])
+        if previous_month in monthly else Decimal("0")
+    )
+    participants = {
+        entry["employee_name"]
+        for m in period_months
+        for entry in monthly.get(m, {}).get("entries", [])
+    }
+    planned_days = (
+        Decimal(project["planned_person_days"])
+        if project.get("planned_person_days") is not None else None
+    )
+    remaining_days = (
+        planned_days - cumulative_days if planned_days is not None else None
+    )
+    burn_rate = (
+        cumulative_days / planned_days * Decimal("100")
+        if planned_days and planned_days > 0 else None
+    )
+    plan_months = _plan_months(project.get("planned_start"), project.get("planned_end"))
+    monthly_budget = (
+        planned_days / Decimal(plan_months)
+        if planned_days is not None and plan_months else None
+    )
+    warning = _overrun_warning(burn_rate, planned_days, remaining_days)
+    trend = _monthly_trend(period_days, previous_days)
+    health = _health_status(warning, project)
+    return {
+        "project_number": project["project_number"],
+        "project_name": project["subject"],
+        "pm_owner": project.get("project_manager"),
+        "project_status": project["status"],
+        "planned_start": project.get("planned_start"),
+        "planned_end": project.get("planned_end"),
+        "budget_person_days": (
+            _format_decimal(planned_days) if planned_days is not None else None
+        ),
+        "plan_months": plan_months,
+        "monthly_budget_person_days": (
+            _format_decimal(monthly_budget) if monthly_budget is not None else None
+        ),
+        "cumulative_actual_person_days": _format_decimal(cumulative_days),
+        "period_actual_hours": _format_decimal(period_hours),
+        "period_actual_person_days": _format_decimal(period_days),
+        "previous_month_person_days": _format_decimal(previous_days),
+        "participant_count": len(participants),
+        "burn_rate_percent": (
+            f"{burn_rate.quantize(Decimal('0.1'))}" if burn_rate is not None else None
+        ),
+        "overrun_warning": warning,
+        "monthly_trend": trend,
+        "health_status": health,
+        "completion_forecast": _completion_forecast(remaining_days, period_days),
+        "remaining_budget_person_days": (
+            _format_decimal(remaining_days) if remaining_days is not None else None
+        ),
+        "current_milestone": project.get("current_milestone"),
+        "payment_summary": project.get("payment_summary"),
+        "risk_reasons": project.get("risk_reasons", []),
+    }
+
+
+def _validate_month(value: str) -> None:
+    try:
+        datetime.strptime(value, "%Y-%m")
+    except ValueError as exc:
+        raise ValueError("month must use YYYY-MM format") from exc
+
+
+def _month_range(start: str, end: str) -> list[str]:
+    current = datetime.strptime(start, "%Y-%m")
+    finish = datetime.strptime(end, "%Y-%m")
+    values = []
+    while current <= finish:
+        values.append(current.strftime("%Y-%m"))
+        year = current.year + (1 if current.month == 12 else 0)
+        month = 1 if current.month == 12 else current.month + 1
+        current = current.replace(year=year, month=month)
+    return values
+
+
+def _previous_month(value: str) -> str:
+    current = datetime.strptime(value, "%Y-%m")
+    year = current.year - (1 if current.month == 1 else 0)
+    month = 12 if current.month == 1 else current.month - 1
+    return current.replace(year=year, month=month).strftime("%Y-%m")
+
+
+def _plan_months(planned_start: str | None, planned_end: str | None) -> int | None:
+    if not planned_start or not planned_end:
+        return None
+    start = date.fromisoformat(planned_start)
+    end = date.fromisoformat(planned_end)
+    return max((end.year - start.year) * 12 + end.month - start.month + 1, 1)
+
+
+def _overrun_warning(
+    burn_rate: Decimal | None, planned_days: Decimal | None, remaining_days: Decimal | None
+) -> str:
+    if planned_days is None:
+        return "待维护预算"
+    if remaining_days is not None and remaining_days < 0:
+        return "已超预算"
+    if burn_rate is not None and burn_rate >= Decimal("90"):
+        return "高风险"
+    if burn_rate is not None and burn_rate >= Decimal("75"):
+        return "需关注"
+    return "正常"
+
+
+def _monthly_trend(period_days: Decimal, previous_days: Decimal) -> str:
+    if period_days == 0 and previous_days == 0:
+        return "暂无记录"
+    if previous_days == 0:
+        return "新增投入"
+    change = (period_days - previous_days) / previous_days * Decimal("100")
+    if change >= Decimal("10"):
+        return "上升"
+    if change <= Decimal("-10"):
+        return "下降"
+    return "持平"
+
+
+def _health_status(warning: str, project: dict[str, Any]) -> str:
+    if warning == "已超预算":
+        return "已超预算"
+    if warning == "待维护预算":
+        return "无基线"
+    if warning in {"高风险", "需关注"} or project.get("risk_level") in {"critical", "warning"}:
+        return "需关注"
+    return "健康"
+
+
+def _completion_forecast(
+    remaining_days: Decimal | None, period_days: Decimal
+) -> str:
+    if remaining_days is None:
+        return "无预算基线"
+    if remaining_days < 0:
+        return "已超预算"
+    if period_days == 0:
+        return "暂无投入"
+    if remaining_days <= period_days:
+        return "预计 1 个统计周期内耗尽"
+    cycles = (remaining_days / period_days).quantize(Decimal("0.1"))
+    return f"约 {cycles} 个统计周期"
+
+
+def _health_rank(value: str) -> int:
+    return {"已超预算": 0, "需关注": 1, "无基线": 2, "健康": 3}.get(value, 4)

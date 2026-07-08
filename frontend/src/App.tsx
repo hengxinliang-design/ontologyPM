@@ -5,6 +5,7 @@ import {
   createMilestone,
   downloadExport,
   fetchProject,
+  fetchProjectHealth,
   fetchProjects,
   fetchRecords,
   fetchSyncStatus,
@@ -16,17 +17,20 @@ import type {
   CrmRecord,
   PortfolioResponse,
   ProjectDetail,
+  ProjectHealthResponse,
+  ProjectHealthRow,
   ProjectSummary,
   RecordsResponse,
   SyncStatus
 } from "./types";
 
 const PAGE_SIZE = 20;
-type View = "projects" | "crm";
+type View = "projects" | "health" | "crm";
 
 export function App() {
   const [view, setView] = useState<View>("projects");
   const [portfolio, setPortfolio] = useState<PortfolioResponse | null>(null);
+  const [health, setHealth] = useState<ProjectHealthResponse | null>(null);
   const [records, setRecords] = useState<RecordsResponse | null>(null);
   const [sync, setSync] = useState<SyncStatus | null>(null);
   const [selected, setSelected] = useState<ProjectDetail | null>(null);
@@ -34,6 +38,10 @@ export function App() {
   const [query, setQuery] = useState("");
   const [contractType, setContractType] = useState("");
   const [riskLevel, setRiskLevel] = useState("");
+  const [healthMode, setHealthMode] = useState<"month" | "range">("month");
+  const [healthMonth, setHealthMonth] = useState(new Date().toISOString().slice(0, 7));
+  const [healthStartMonth, setHealthStartMonth] = useState("");
+  const [healthEndMonth, setHealthEndMonth] = useState("");
   const [dataType, setDataType] = useState("");
   const [status, setStatus] = useState("");
   const [page, setPage] = useState(1);
@@ -49,6 +57,13 @@ export function App() {
       setSync(syncResult);
       if (view === "projects") {
         setPortfolio(await fetchProjects({ query, contractType, riskLevel }));
+      } else if (view === "health") {
+        setHealth(await fetchProjectHealth({
+          month: healthMode === "month" ? healthMonth : undefined,
+          startMonth: healthMode === "range" ? healthStartMonth : undefined,
+          endMonth: healthMode === "range" ? healthEndMonth : undefined,
+          projectNumber: query
+        }));
       } else {
         setRecords(await fetchRecords({ dataType, query, status, page, pageSize: PAGE_SIZE }));
       }
@@ -57,7 +72,7 @@ export function App() {
     } finally {
       setLoading(false);
     }
-  }, [view, query, contractType, riskLevel, dataType, status, page]);
+  }, [view, query, contractType, riskLevel, dataType, status, page, healthMode, healthMonth, healthStartMonth, healthEndMonth]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -66,12 +81,17 @@ export function App() {
     { label: "合同总额", value: money(portfolio?.summary.contract_value), tone: "green" },
     { label: "已回款", value: money(portfolio?.summary.received_amount), tone: "amber" },
     { label: "风险项目", value: (portfolio?.summary.critical_projects ?? 0) + (portfolio?.summary.warning_projects ?? 0), tone: "violet" }
+  ] : view === "health" ? [
+    { label: "监控项目", value: health?.summary.total_projects ?? "—", tone: "blue" },
+    { label: "健康", value: health?.summary.healthy_projects ?? "—", tone: "green" },
+    { label: "需关注", value: health?.summary.warning_projects ?? "—", tone: "amber" },
+    { label: "已超预算", value: health?.summary.critical_projects ?? "—", tone: "violet" }
   ] : [
     { label: "有效记录", value: records?.meta.total_records ?? "—", tone: "blue" },
     { label: "合同 / 订单", value: sync?.output_stats.contract_order ?? "—", tone: "green" },
     { label: "销售机会", value: sync?.output_stats.sales_opportunity ?? "—", tone: "amber" },
     { label: "已合并机会", value: sync?.validation.merged_opportunities ?? "—", tone: "violet" }
-  ], [view, portfolio, records, sync]);
+  ], [view, portfolio, health, records, sync]);
 
   function switchView(next: View) {
     setView(next); setQuery(""); setQueryInput(""); setPage(1); setSelected(null);
@@ -100,6 +120,7 @@ export function App() {
         <div className="brand"><span className="brand-mark">PM</span><span>TSG PM</span></div>
         <nav>
           <button className={`nav-item ${view === "projects" ? "active" : ""}`} onClick={() => switchView("projects")}><span>◫</span> 项目驾驶舱</button>
+          <button className={`nav-item ${view === "health" ? "active" : ""}`} onClick={() => switchView("health")}><span>▣</span> 项目健康度</button>
           <button className={`nav-item ${view === "crm" ? "active" : ""}`} onClick={() => switchView("crm")}><span>⌘</span> CRM 数据</button>
           <a className="nav-item" href="#sync"><span>↻</span> 同步状态</a>
           <a className="nav-item" href="/docs" target="_blank"><span>⌁</span> API 文档</a>
@@ -112,7 +133,7 @@ export function App() {
 
       <main>
         <header className="topbar">
-          <div><p className="eyebrow">PROJECT LIFECYCLE CONTROL</p><h1>{view === "projects" ? "项目组合与生命周期" : "CRM 合同与销售机会"}</h1></div>
+          <div><p className="eyebrow">PROJECT LIFECYCLE CONTROL</p><h1>{view === "projects" ? "项目组合与生命周期" : view === "health" ? "项目健康度监控" : "CRM 合同与销售机会"}</h1></div>
           <div className="top-actions">
             <button className="button secondary" onClick={() => void downloadExport("csv")}>导出 CSV</button>
             <button className="button primary" disabled={syncing} onClick={startSync}>{syncing ? "正在创建…" : "立即同步"}</button>
@@ -127,6 +148,16 @@ export function App() {
             setQueryInput={setQueryInput} submitSearch={submitSearch}
             contractType={contractType} setContractType={setContractType}
             riskLevel={riskLevel} setRiskLevel={setRiskLevel} openProject={openProject}
+          />
+        ) : view === "health" ? (
+          <ProjectHealth
+            health={health} loading={loading} queryInput={queryInput}
+            setQueryInput={setQueryInput} submitSearch={submitSearch}
+            mode={healthMode} setMode={setHealthMode}
+            month={healthMonth} setMonth={setHealthMonth}
+            startMonth={healthStartMonth} setStartMonth={setHealthStartMonth}
+            endMonth={healthEndMonth} setEndMonth={setHealthEndMonth}
+            openProject={openProject}
           />
         ) : (
           <CrmRecords
@@ -197,6 +228,53 @@ function PaymentCell({ project }: { project: ProjectSummary }) {
   const summary = project.payment_summary;
   if (!summary.total_nodes) return <span>未设置</span>;
   return <><div>{summary.paid_nodes}/{summary.total_nodes} 已完成</div>{summary.next_node ? <small className={summary.next_node.deadline.urgency === "overdue" ? "danger-text" : ""}>下个：{summary.next_node.name} · {summary.next_node.deadline.label}</small> : <small>全部回款节点完成</small>}</>;
+}
+
+function ProjectHealth(props: {
+  health: ProjectHealthResponse | null; loading: boolean; queryInput: string;
+  setQueryInput: (value: string) => void; submitSearch: (event: FormEvent) => void;
+  mode: "month" | "range"; setMode: (value: "month" | "range") => void;
+  month: string; setMonth: (value: string) => void;
+  startMonth: string; setStartMonth: (value: string) => void;
+  endMonth: string; setEndMonth: (value: string) => void;
+  openProject: (projectNumber: string) => void;
+}) {
+  return <section className="panel">
+    <div className="panel-head"><div><h2>项目健康度监控</h2><p>按月份或时间范围监控预算燃尽、超支风险、月度趋势和剩余预算</p></div><Search value={props.queryInput} setValue={props.setQueryInput} submit={props.submitSearch} /></div>
+    <div className="filters health-filters">
+      <select value={props.mode} onChange={e => props.setMode(e.target.value as "month" | "range")}><option value="month">按单月</option><option value="range">按时间范围</option></select>
+      {props.mode === "month" ? <label>统计月份<input type="month" value={props.month} onChange={e => props.setMonth(e.target.value)} /></label> : <><label>开始月份<input type="month" value={props.startMonth} onChange={e => props.setStartMonth(e.target.value)} /></label><label>结束月份<input type="month" value={props.endMonth} onChange={e => props.setEndMonth(e.target.value)} /></label></>}
+      <span className="result-count">统计范围：{props.health?.meta.start_month ?? "—"} 至 {props.health?.meta.end_month ?? "—"} · 共 {props.health?.summary.total_projects ?? 0} 个项目</span>
+    </div>
+    <div className="table-wrap"><table><thead><tr><th>项目代码</th><th>项目名称</th><th>PM负责人</th><th>项目状态</th><th>计划开始</th><th>计划结束</th><th>预算工时(天)</th><th>计划月数</th><th>月均预算(天)</th><th>累计实际(天)</th><th>本期投入(天)</th><th>上月投入(天)</th><th>参与人数</th><th>燃尽率</th><th>超支预警</th><th>月度趋势</th><th>综合健康状态</th><th>预计完工</th><th>剩余预算(天)</th></tr></thead><tbody>
+      {props.loading ? <LoadingRows colSpan={19} /> : props.health?.data.map(row => <ProjectHealthRowView key={row.project_number} row={row} open={() => props.openProject(row.project_number)} />)}
+      {!props.loading && props.health?.data.length === 0 && <tr><td className="empty" colSpan={19}>没有符合条件的健康度数据</td></tr>}
+    </tbody></table></div>
+  </section>;
+}
+
+function ProjectHealthRowView({ row, open }: { row: ProjectHealthRow; open: () => void }) {
+  return <tr className="clickable" onClick={open}>
+    <td><strong className="project-code">{row.project_number}</strong></td>
+    <td><div className="subject">{row.project_name}</div>{row.risk_reasons.length > 0 && <small className="danger-text">{row.risk_reasons[0]}</small>}</td>
+    <td>{row.pm_owner ?? "请添加PM负责人"}</td>
+    <td>{lifecycleLabel(row.project_status)}</td>
+    <td>{row.planned_start ?? "请填写"}</td>
+    <td>{row.planned_end ?? "请填写"}</td>
+    <td>{row.budget_person_days ?? "请填预算"}</td>
+    <td>{row.plan_months ?? "—"}</td>
+    <td>{row.monthly_budget_person_days ?? "—"}</td>
+    <td><strong>{row.cumulative_actual_person_days}</strong></td>
+    <td>{row.period_actual_person_days}</td>
+    <td>{row.previous_month_person_days}</td>
+    <td>{row.participant_count}</td>
+    <td>{row.burn_rate_percent ? `${row.burn_rate_percent}%` : "—"}</td>
+    <td><span className={`health-tag ${healthClass(row.overrun_warning)}`}>{row.overrun_warning}</span></td>
+    <td>{row.monthly_trend}</td>
+    <td><span className={`health-tag ${healthClass(row.health_status)}`}>{row.health_status}</span></td>
+    <td>{row.completion_forecast}</td>
+    <td>{row.remaining_budget_person_days ?? "—"}</td>
+  </tr>;
 }
 
 function ProjectDrawer({ project, close, refresh }: { project: ProjectDetail; close: () => void; refresh: () => Promise<void> }) {
@@ -330,11 +408,12 @@ function CrmRecords(props: { records: RecordsResponse | null; loading: boolean; 
 
 function Search({ value, setValue, submit }: { value: string; setValue: (value: string) => void; submit: (event: FormEvent) => void }) { return <form className="search" onSubmit={submit}><input value={value} onChange={e => setValue(e.target.value)} placeholder="搜索主题、客户或项目编号" /><button type="submit">搜索</button></form>; }
 function RecordRow({ record }: { record: CrmRecord }) { return <tr><td><span className={`type-pill ${record.data_type}`}>{record.data_type === "contract_order" ? "合同/订单" : "销售机会"}</span></td><td><strong className="project-code">{record.project_number ?? "—"}</strong></td><td><div className="subject">{record.subject}</div>{record.signed_at && <small>{record.signed_at}</small>}</td><td><div>{record.customer ?? "—"}</div><small>{record.category ?? ""}</small></td><td>{record.owner}</td><td className="money">{record.total_amount?.display ?? "—"}</td><td>{record.probability == null ? "—" : `${record.probability}%`}</td><td><span className={`state ${record.status === "成功" ? "success" : "tracking"}`}>{record.status ?? "—"}</span></td></tr>; }
-function LoadingRows() { return <>{Array.from({ length: 5 }, (_, index) => <tr className="skeleton" key={index}><td colSpan={10}><span /></td></tr>)}</>; }
+function LoadingRows({ colSpan = 10 }: { colSpan?: number }) { return <>{Array.from({ length: 5 }, (_, index) => <tr className="skeleton" key={index}><td colSpan={colSpan}><span /></td></tr>)}</>; }
 function money(value?: string | null) { if (value == null) return "—"; return new Intl.NumberFormat("zh-CN", { style: "currency", currency: "CNY", maximumFractionDigits: 0 }).format(Number(value)); }
 function contractTypeLabel(value: ProjectSummary["contract_type"]) { return ({ construction: "建设类", maintenance: "维护类", open_ended: "开口类", sales: "销售类", unknown: "未分类" } as const)[value]; }
 function lifecycleLabel(value: ProjectSummary["lifecycle_status"]) { return ({ planned: "计划中", active: "执行中", on_hold: "已暂停", completed: "已完成", closed: "已关闭" } as const)[value]; }
 function riskLabel(value: ProjectSummary["risk_level"]) { return ({ healthy: "健康", warning: "关注", critical: "严重" } as const)[value]; }
+function healthClass(value: string) { if (value === "已超预算" || value === "高风险") return "critical"; if (value === "需关注" || value === "待维护预算") return "warning"; if (value === "无基线") return "baseline"; return "healthy"; }
 function statusLabel(value?: SyncStatus["status"]) { return ({ succeeded: "同步正常", running: "同步中", failed: "同步失败", auth_required: "需要登录", never_run: "尚未同步" } as const)[value ?? "never_run"]; }
 function syncModeLabel(sync: SyncStatus | null) {
   if (sync?.validation.sync_mode === "incremental") return `增量 +${sync.validation.inserted_records ?? 0} / 更新 ${sync.validation.updated_records ?? 0}`;

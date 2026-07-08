@@ -194,6 +194,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail="project not found")
         return {"data": project}
 
+    @app.get("/api/v1/project-health", dependencies=[auth], tags=["Projects"])
+    def get_project_health(
+        month: str | None = Query(None, pattern=r"^\d{4}-\d{2}$"),
+        start_month: str | None = Query(None, pattern=r"^\d{4}-\d{2}$"),
+        end_month: str | None = Query(None, pattern=r"^\d{4}-\d{2}$"),
+        project_number: str | None = None,
+    ) -> dict[str, Any]:
+        try:
+            return project_repository.project_health(
+                month=month,
+                start_month=start_month,
+                end_month=end_month,
+                project_number=project_number,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
     @app.get(
         "/api/v1/projects/{project_number}/records",
         dependencies=[auth],
