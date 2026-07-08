@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -208,4 +209,34 @@ def test_work_time_budget_and_customer_confirmation_gap_alerts(tmp_path):
         assert project["confirmation_gap_person_days"] == "0.50"
         codes = {alert["code"] for alert in project["anomaly_alerts"]}
         assert "BUDGET_OVERRUN" in codes
+        assert "TIME_CONFIRMATION_GAP" in codes
+
+
+def test_import_timesheet_fixture_for_2026_january_and_february(tmp_path):
+    fixture_path = Path(__file__).parent / "fixtures" / "time_entries_202601_202602.json"
+    fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
+    entries = fixture["entries"]
+    months = {entry["work_date"][:7] for entry in entries}
+    assert len(entries) == 1303
+    assert months == {"2026-01", "2026-02"}
+
+    with TestClient(create_app(settings(tmp_path))) as client:
+        imported = client.post("/api/v1/time-entries/import", json=entries)
+        assert imported.status_code == 200
+        assert imported.json() == {"imported": 1303}
+
+        imported_again = client.post("/api/v1/time-entries/import", json=entries)
+        assert imported_again.status_code == 200
+        assert imported_again.json() == {"imported": 1303}
+
+        project = client.get("/api/v1/projects/SEY101").json()["data"]
+        assert project["reported_hours"] == "1181.00"
+        assert project["customer_confirmed_hours"] == "1141.00"
+        assert project["confirmation_gap_hours"] == "40.00"
+        assert project["confirmation_gap_person_days"] == "5.00"
+        assert project["reported_person_days"] == "147.62"
+        assert project["customer_confirmed_person_days"] == "142.62"
+        assert project["risk_level"] == "warning"
+
+        codes = {alert["code"] for alert in project["anomaly_alerts"]}
         assert "TIME_CONFIRMATION_GAP" in codes
