@@ -48,7 +48,14 @@ def test_project_portfolio(tmp_path):
         body = response.json()
         assert body["summary"]["total_projects"] == 3
         tpl = next(item for item in body["data"] if item["project_number"] == "TPL149")
+        assert tpl["master_category"] == "项目"
         assert tpl["contract_type"] == "construction"
+        assert tpl["status"] == "active"
+        assert tpl["current_milestone"]["name"] == "接口方案确认"
+        assert tpl["payment_summary"]["total_nodes"] == 2
+        assert tpl["payment_summary"]["next_node"]["name"] == "首期款"
+        assert tpl["budget_hours"] == "240.00"
+        assert tpl["actual_hours"] == "20.00"
         assert tpl["budget_utilization"] == 8.3
 
 
@@ -237,6 +244,19 @@ def test_import_timesheet_fixture_for_2026_january_and_february(tmp_path):
         assert project["reported_person_days"] == "147.62"
         assert project["customer_confirmed_person_days"] == "142.62"
         assert project["risk_level"] == "warning"
+        assert project["master_category"] == "项目"
+        assert project["current_milestone"] is None
+        assert project["payment_summary"]["total_nodes"] == 0
+
+        february = next(item for item in project["monthly_time_entries"] if item["month"] == "2026-02")
+        january = next(item for item in project["monthly_time_entries"] if item["month"] == "2026-01")
+        assert february["reported_hours"] == "424.00"
+        assert february["approved_hours"] == "384.00"
+        assert february["confirmation_gap_hours"] == "40.00"
+        assert february["entry_count"] == 53
+        assert january["reported_hours"] == "757.00"
+        assert january["approved_hours"] == "757.00"
+        assert len(february["entries"]) == 53
 
         codes = {alert["code"] for alert in project["anomaly_alerts"]}
         assert "TIME_CONFIRMATION_GAP" in codes

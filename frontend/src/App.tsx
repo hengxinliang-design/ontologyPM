@@ -158,16 +158,16 @@ function ProjectPortfolio(props: {
   openProject: (projectNumber: string) => void;
 }) {
   return <section className="panel">
-    <div className="panel-head"><div><h2>项目组合</h2><p>按项目编号聚合合同、工时、里程碑与回款</p></div><Search value={props.queryInput} setValue={props.setQueryInput} submit={props.submitSearch} /></div>
+    <div className="panel-head"><div><h2>项目主数据库</h2><p>按项目代码汇总 CRM 主数据、员工工时、里程碑与回款状态</p></div><Search value={props.queryInput} setValue={props.setQueryInput} submit={props.submitSearch} /></div>
     <div className="data-boundary"><span className="source-tag">系统接口数据</span><p>合同、商机、金额和工时由接口增量同步，只读</p><span className="manual-tag">人工维护数据</span><p>合同类别、预算人天、里程碑和确认状态由管理人员维护</p></div>
     <div className="filters">
       <select value={props.contractType} onChange={e => props.setContractType(e.target.value)}><option value="">全部合同类型</option><option value="construction">建设类</option><option value="maintenance">维护类</option><option value="open_ended">开口类</option><option value="sales">销售类</option><option value="unknown">未分类</option></select>
       <select value={props.riskLevel} onChange={e => props.setRiskLevel(e.target.value)}><option value="">全部风险</option><option value="critical">严重</option><option value="warning">关注</option><option value="healthy">健康</option></select>
       <span className="result-count">共 {props.portfolio?.summary.total_projects ?? 0} 个项目</span>
     </div>
-    <div className="table-wrap"><table><thead><tr><th>风险</th><th>项目编号</th><th>项目主题</th><th>类型 / 阶段</th><th>项目经理</th><th>合同金额</th><th>人天消耗</th><th>待办 / 里程碑</th><th>回款</th></tr></thead><tbody>
+    <div className="table-wrap"><table><thead><tr><th>风险</th><th>项目代码</th><th>项目名称</th><th>类别</th><th>状态</th><th>里程碑</th><th>项目类型</th><th>回款</th><th>预算工时</th><th>累计实际工时</th></tr></thead><tbody>
       {props.loading ? <LoadingRows /> : props.portfolio?.data.map(project => <ProjectRow key={project.project_number} project={project} open={() => props.openProject(project.project_number)} />)}
-      {!props.loading && props.portfolio?.data.length === 0 && <tr><td className="empty" colSpan={9}>没有符合条件的项目</td></tr>}
+      {!props.loading && props.portfolio?.data.length === 0 && <tr><td className="empty" colSpan={10}>没有符合条件的项目</td></tr>}
     </tbody></table></div>
   </section>;
 }
@@ -177,18 +177,26 @@ function ProjectRow({ project, open }: { project: ProjectSummary; open: () => vo
     <td><span className={`risk ${project.risk_level}`}>{riskLabel(project.risk_level)}</span>{project.anomaly_count > 0 && <small className="danger-text">{project.anomaly_count} 项提醒</small>}</td>
     <td><strong className="project-code">{project.project_number}</strong></td>
     <td><div className="subject">{project.subject}</div><small>{project.customer ?? "—"}</small></td>
-    <td><div>{contractTypeLabel(project.contract_type)}</div><small>{lifecycleLabel(project.lifecycle_status)}</small></td>
-    <td>{project.project_manager ?? "—"}</td><td className="money">{money(project.contract_value)}</td>
+    <td><span className="category-pill">{project.master_category}</span></td>
+    <td><div>{lifecycleLabel(project.status)}</div><small>{project.project_manager ?? "未设置负责人"}</small></td>
+    <td>{project.current_milestone ? <><div>{project.current_milestone.name}</div><small className={project.current_milestone.deadline.urgency === "overdue" ? "danger-text" : ""}>{project.current_milestone.deadline.label}</small></> : <span>未设置</span>}</td>
+    <td>{contractTypeLabel(project.contract_type)}</td>
+    <td><PaymentCell project={project} /></td>
     <td><Budget project={project} /></td>
-    <td><div>{project.pending_todos ?? 0} 项待办 · {project.milestone_completed}/{project.milestone_total}</div>{project.maintenance_complete === false && <small className="danger-text">待维护：{(project.maintenance_reasons ?? []).join("、")}</small>}{project.next_todo && project.maintenance_complete && <small className={project.next_todo.urgency === "overdue" ? "danger-text" : ""}>{project.next_todo.name} · {project.next_todo.label}</small>}</td>
-    <td><div>{money(project.received_amount)}</div>{Number(project.contract_value) > 0 && <small>{Math.round(Number(project.received_amount) / Number(project.contract_value) * 100)}%</small>}</td>
+    <td><div>{project.actual_hours}h</div><small>{project.actual_person_days} 人天</small></td>
   </tr>;
 }
 
 function Budget({ project }: { project: ProjectSummary }) {
   if (project.contract_type === "open_ended") return <><div>{project.billable_person_days} 人天</div><small>可结算</small></>;
-  if (project.planned_person_days == null) return <span>未设置</span>;
-  return <div className="budget"><div><span>{project.actual_person_days}/{project.planned_person_days} 人天</span><b>{project.budget_utilization}%</b></div><i><em style={{ width: `${Math.min(project.budget_utilization ?? 0, 100)}%` }} /></i></div>;
+  if (project.planned_person_days == null || project.budget_hours == null) return <span>未设置</span>;
+  return <div className="budget"><div><span>{project.actual_hours}/{project.budget_hours}h</span><b>{project.budget_utilization}%</b></div><i><em style={{ width: `${Math.min(project.budget_utilization ?? 0, 100)}%` }} /></i><small>{project.actual_person_days}/{project.planned_person_days} 人天</small></div>;
+}
+
+function PaymentCell({ project }: { project: ProjectSummary }) {
+  const summary = project.payment_summary;
+  if (!summary.total_nodes) return <span>未设置</span>;
+  return <><div>{summary.paid_nodes}/{summary.total_nodes} 已完成</div>{summary.next_node ? <small className={summary.next_node.deadline.urgency === "overdue" ? "danger-text" : ""}>下个：{summary.next_node.name} · {summary.next_node.deadline.label}</small> : <small>全部回款节点完成</small>}</>;
 }
 
 function ProjectDrawer({ project, close, refresh }: { project: ProjectDetail; close: () => void; refresh: () => Promise<void> }) {
@@ -204,9 +212,11 @@ function ProjectDrawer({ project, close, refresh }: { project: ProjectDetail; cl
   });
   const [milestone, setMilestone] = useState({ name: "", planned_start: "", planned_end: "", owner: project.project_manager ?? "", deliverable: "", is_payment_node: false, payment_date: "", payment_amount: "" });
   const [editingMilestoneId, setEditingMilestoneId] = useState<string | null>(null);
+  const [expandedMonth, setExpandedMonth] = useState(project.monthly_time_entries[0]?.month ?? "");
 
   useEffect(() => {
     setSettings({ contract_type: project.contract_type, lifecycle_status: project.lifecycle_status, planned_person_days: project.planned_person_days ?? "", hours_per_person_day: project.settings.hours_per_person_day ?? "8.00", project_manager: project.project_manager ?? "" });
+    setExpandedMonth(project.monthly_time_entries[0]?.month ?? "");
   }, [project]);
 
   async function run(action: () => Promise<void>, success: string) {
@@ -270,7 +280,12 @@ function ProjectDrawer({ project, close, refresh }: { project: ProjectDetail; cl
     {project.risk_reasons.length > 0 && <section className="risk-box"><strong>管理关注</strong>{project.risk_reasons.map(reason => <p key={reason}>• {reason}</p>)}</section>}
     {(project.anomaly_alerts ?? []).length > 0 && <section className="alert-stack"><div className="section-title"><div><h3>异常与临期提醒</h3><small>里程碑、工时预算和客户确认缺口</small></div></div>{project.anomaly_alerts.map((alert, index) => <article className={`anomaly-alert ${alert.severity}`} key={`${alert.code}-${index}`}><div><strong>{alert.title}</strong><span>{alert.severity === "critical" ? "严重" : "提醒"}</span></div><p>{alert.detail}</p></article>)}</section>}
     {message && <div className="inline-message">{message}</div>}
-    <section className="detail-section source-section"><div className="section-title"><div><h3>合同与工时数据 <span className="source-tag">系统接口 · 只读</span></h3><small>增量同步仅更新发生变化的源数据</small></div></div><div className="detail-metrics six"><article><span>合同金额</span><b>{money(project.contract_value)}</b></article><article><span>已开票</span><b>{money(project.invoiced_amount)}</b></article><article><span>已回款</span><b>{money(project.received_amount)}</b></article><article><span>员工填报工时</span><b>{project.reported_person_days} 人天</b></article><article><span>客户确认工时</span><b>{project.customer_confirmed_person_days} 人天</b></article><article className={Number(project.confirmation_gap_person_days) > 0 ? "metric-alert" : ""}><span>待客户确认缺口</span><b>{project.confirmation_gap_person_days} 人天</b></article></div></section>
+    <section className="detail-section source-section"><div className="section-title"><div><h3>项目主数据库汇总 <span className="source-tag">系统接口 · 只读</span></h3><small>由 CRM 主数据、员工工时、里程碑和人工维护字段汇总生成</small></div></div><div className="detail-metrics six"><article><span>合同金额</span><b>{money(project.contract_value)}</b></article><article><span>已开票</span><b>{money(project.invoiced_amount)}</b></article><article><span>已回款</span><b>{money(project.received_amount)}</b></article><article><span>预算工时</span><b>{project.budget_hours ? `${project.budget_hours}h` : "未设置"}</b></article><article><span>累计实际工时</span><b>{project.actual_hours}h</b></article><article className={Number(project.confirmation_gap_person_days) > 0 ? "metric-alert" : ""}><span>待客户确认缺口</span><b>{project.confirmation_gap_hours}h</b></article></div></section>
+
+    <section className="detail-section"><div className="section-title"><div><h3>月度工时清单 <span className="source-tag">系统接口 · 只读</span></h3><small>点击月份展开员工填报明细</small></div></div>
+      <div className="month-list">{project.monthly_time_entries.map(month => <article className="month-card" key={month.month}><button type="button" onClick={() => setExpandedMonth(expandedMonth === month.month ? "" : month.month)}><strong>{month.month}</strong><span>{month.entry_count} 条 · 填报 {month.reported_hours}h · 确认 {month.approved_hours}h</span><b>{expandedMonth === month.month ? "收起" : "展开"}</b></button>{expandedMonth === month.month && <div className="month-entries">{month.entries.map(item => <div className="detail-row compact" key={item.external_id}><div><strong>{item.employee_name} · 填报 {item.hours}h / 确认 {item.approved_hours}h</strong><small>{item.work_content}</small></div><time>{item.work_date}</time></div>)}</div>}</article>)}</div>
+      {project.monthly_time_entries.length === 0 && <p className="detail-empty">暂无月度工时数据</p>}
+    </section>
 
     <section className="detail-section todo-section"><div className="section-title"><div><h3>待办提醒</h3><small>按当前日期自动计算，逾期未确认将持续提醒</small></div><label>当前确认人<input value={confirmedBy} onChange={e => setConfirmedBy(e.target.value)} placeholder="管理人员姓名" /></label></div>
       <div className="todo-grid">{project.todo_events.filter(item => !item.completed).map(item => <article className={`todo-card ${item.urgency}`} key={`${item.event_type}-${item.event_id}`}><div><span>{item.event_type === "payment" ? "回款" : "里程碑"}</span><b>{item.label}</b></div><h4>{item.name}</h4><p>{item.due_date}{item.amount && ` · ${money(item.amount)}`}{item.deliverable && ` · 输出物：${item.deliverable}`}</p>{item.event_type === "milestone" ? <button disabled={saving} onClick={() => { const name = actor(); if (name) void run(() => confirmMilestone(project.project_number, item.event_id, name), "里程碑已确认完成"); }}>确认完成</button> : <button disabled={saving} onClick={() => { const name = actor(); if (name) void run(() => confirmPayment(project.project_number, item.event_id, name), "回款已确认到账"); }}>确认到账</button>}</article>)}</div>
@@ -315,7 +330,7 @@ function CrmRecords(props: { records: RecordsResponse | null; loading: boolean; 
 
 function Search({ value, setValue, submit }: { value: string; setValue: (value: string) => void; submit: (event: FormEvent) => void }) { return <form className="search" onSubmit={submit}><input value={value} onChange={e => setValue(e.target.value)} placeholder="搜索主题、客户或项目编号" /><button type="submit">搜索</button></form>; }
 function RecordRow({ record }: { record: CrmRecord }) { return <tr><td><span className={`type-pill ${record.data_type}`}>{record.data_type === "contract_order" ? "合同/订单" : "销售机会"}</span></td><td><strong className="project-code">{record.project_number ?? "—"}</strong></td><td><div className="subject">{record.subject}</div>{record.signed_at && <small>{record.signed_at}</small>}</td><td><div>{record.customer ?? "—"}</div><small>{record.category ?? ""}</small></td><td>{record.owner}</td><td className="money">{record.total_amount?.display ?? "—"}</td><td>{record.probability == null ? "—" : `${record.probability}%`}</td><td><span className={`state ${record.status === "成功" ? "success" : "tracking"}`}>{record.status ?? "—"}</span></td></tr>; }
-function LoadingRows() { return <>{Array.from({ length: 5 }, (_, index) => <tr className="skeleton" key={index}><td colSpan={9}><span /></td></tr>)}</>; }
+function LoadingRows() { return <>{Array.from({ length: 5 }, (_, index) => <tr className="skeleton" key={index}><td colSpan={10}><span /></td></tr>)}</>; }
 function money(value?: string | null) { if (value == null) return "—"; return new Intl.NumberFormat("zh-CN", { style: "currency", currency: "CNY", maximumFractionDigits: 0 }).format(Number(value)); }
 function contractTypeLabel(value: ProjectSummary["contract_type"]) { return ({ construction: "建设类", maintenance: "维护类", open_ended: "开口类", sales: "销售类", unknown: "未分类" } as const)[value]; }
 function lifecycleLabel(value: ProjectSummary["lifecycle_status"]) { return ({ planned: "计划中", active: "执行中", on_hold: "已暂停", completed: "已完成", closed: "已关闭" } as const)[value]; }

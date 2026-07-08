@@ -251,11 +251,18 @@ GET /api/v1/records/{record_id}
 
 项目以 `project_number` 为主键聚合 CRM 合同/商机、人工维护配置、工时、里程碑、回款节点和风险提醒。
 
-### 5.1 查询项目组合
+### 5.1 查询项目主数据库视图
 
 ```http
 GET /api/v1/projects
 ```
+
+该接口是“项目主数据库”的查询视图，不额外复制一份主表数据。后端按 `project_number` 实时聚合：
+
+- CRM 合同/商机主数据。
+- 员工工时主数据。
+- 人工维护的合同类型、生命周期、预算工时。
+- 里程碑和回款节点。
 
 查询参数：
 
@@ -277,8 +284,10 @@ GET /api/v1/projects
       "customer": "〖TPL〗",
       "owner": "Li Qiang",
       "project_manager": "Li Qiang",
+      "master_category": "项目",
       "contract_type": "construction",
       "lifecycle_status": "active",
+      "status": "active",
       "planned_start": "2026-06-16",
       "planned_end": "2026-08-31",
       "contract_count": 1,
@@ -287,6 +296,7 @@ GET /api/v1/projects
       "received_amount": "0.00",
       "invoiced_amount": "74950.00",
       "planned_person_days": "30.00",
+      "budget_hours": "240.00",
       "reported_hours": "20.00",
       "reported_person_days": "2.50",
       "customer_confirmed_hours": "20.00",
@@ -300,8 +310,38 @@ GET /api/v1/projects
       "milestone_total": 2,
       "milestone_completed": 0,
       "overdue_milestones": 0,
+      "current_milestone": {
+        "milestone_id": "ms_xxx",
+        "name": "接口方案确认",
+        "status": "in_progress",
+        "planned_start": "2026-07-10",
+        "planned_end": "2026-07-10",
+        "deadline": {
+          "days_remaining": 2,
+          "urgency": "due_soon",
+          "label": "还有 2 天"
+        }
+      },
       "payment_node_total": 2,
       "overdue_payment_nodes": 0,
+      "payment_summary": {
+        "total_nodes": 2,
+        "paid_nodes": 0,
+        "planned_amount": "149900.00",
+        "actual_amount": "0.00",
+        "next_node": {
+          "payment_node_id": "pay_xxx",
+          "name": "首期款",
+          "planned_date": "2026-07-20",
+          "planned_amount": "74950.00",
+          "status": "invoiced",
+          "deadline": {
+            "days_remaining": 12,
+            "urgency": "upcoming",
+            "label": "还有 12 天"
+          }
+        }
+      },
       "open_interventions": 0,
       "maintenance_complete": true,
       "maintenance_reasons": [],
@@ -324,6 +364,20 @@ GET /api/v1/projects
 }
 ```
 
+项目主数据库建议表头与 API 字段映射：
+
+| 页面表头 | API 字段 | 说明 |
+|---|---|---|
+| 项目代码 | `project_number` | 跨 CRM 与工时的业务主键 |
+| 项目名称 | `subject` | 优先取合同/商机主题，无源数据时取项目代码 |
+| 类别 | `master_category` | 有合同为“项目”，仅有商机为“商机” |
+| 状态 | `status` / `lifecycle_status` | 人工维护生命周期状态 |
+| 里程碑 | `current_milestone` | 当前未完成的最近里程碑；全部完成则返回最后完成节点 |
+| 项目类型 | `contract_type` | 建设类、维护类、开口类、销售类、未分类 |
+| 回款 | `payment_summary` | 回款节点完成数、计划金额、实收金额、下个节点 |
+| 预算工时 | `budget_hours` | `planned_person_days * hours_per_person_day` |
+| 累计实际工时 | `actual_hours` / `reported_hours` | 员工填报工时汇总 |
+
 ### 5.2 查询项目详情
 
 ```http
@@ -341,6 +395,35 @@ GET /api/v1/projects/{project_number}
 | `interventions` | 管理干预记录 |
 | `settings` | 人工维护配置 |
 | `todo_events` | 里程碑和回款待办 |
+| `monthly_time_entries` | 按 `YYYY-MM` 聚合的月度工时清单，可用于点击月份展开明细 |
+
+`monthly_time_entries` 示例：
+
+```json
+[
+  {
+    "month": "2026-02",
+    "entry_count": 53,
+    "reported_hours": "424.00",
+    "approved_hours": "384.00",
+    "confirmation_gap_hours": "40.00",
+    "reported_person_days": "53.00",
+    "approved_person_days": "48.00",
+    "confirmation_gap_person_days": "5.00",
+    "entries": [
+      {
+        "external_id": "TIMESHEET-202601-202602-0001",
+        "employee_name": "唐旋",
+        "work_date": "2026-02-28",
+        "hours": "8.0000",
+        "approved_hours": "8.0000",
+        "approval_status": "approved",
+        "work_content": "1.研发领料取值逻辑变更#100%#8h"
+      }
+    ]
+  }
+]
+```
 
 ### 5.3 查询项目 CRM 记录
 

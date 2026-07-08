@@ -60,14 +60,62 @@ export type ContractType = "construction" | "maintenance" | "open_ended" | "sale
 export type LifecycleStatus = "planned" | "active" | "on_hold" | "completed" | "closed";
 export type RiskLevel = "healthy" | "warning" | "critical";
 
+export interface CurrentMilestone {
+  milestone_id: string;
+  name: string;
+  status: string;
+  planned_start: string | null;
+  planned_end: string;
+  deadline: Deadline;
+}
+
+export interface PaymentSummary {
+  total_nodes: number;
+  paid_nodes: number;
+  planned_amount: string;
+  actual_amount: string;
+  next_node: {
+    payment_node_id: string;
+    name: string;
+    planned_date: string;
+    planned_amount: string;
+    status: string;
+    deadline: Deadline;
+  } | null;
+}
+
+export interface TimeEntry {
+  external_id: string;
+  employee_name: string;
+  work_date: string;
+  hours: string;
+  approved_hours: string;
+  approval_status: string;
+  work_content: string;
+}
+
+export interface MonthlyTimeEntries {
+  month: string;
+  entry_count: number;
+  reported_hours: string;
+  approved_hours: string;
+  confirmation_gap_hours: string;
+  reported_person_days: string;
+  approved_person_days: string;
+  confirmation_gap_person_days: string;
+  entries: TimeEntry[];
+}
+
 export interface ProjectSummary {
   project_number: string;
   subject: string;
   customer: string | null;
   owner: string | null;
   project_manager: string | null;
+  master_category: "项目" | "商机";
   contract_type: ContractType;
   lifecycle_status: LifecycleStatus;
+  status: LifecycleStatus;
   planned_start: string | null;
   planned_end: string | null;
   contract_count: number;
@@ -76,6 +124,7 @@ export interface ProjectSummary {
   received_amount: string;
   invoiced_amount: string;
   planned_person_days: string | null;
+  budget_hours: string | null;
   actual_hours: string;
   actual_person_days: string;
   reported_hours: string;
@@ -89,8 +138,10 @@ export interface ProjectSummary {
   milestone_total: number;
   milestone_completed: number;
   overdue_milestones: number;
+  current_milestone: CurrentMilestone | null;
   payment_node_total: number;
   overdue_payment_nodes: number;
+  payment_summary: PaymentSummary;
   open_interventions: number;
   maintenance_complete: boolean;
   maintenance_reasons: string[];
@@ -110,15 +161,8 @@ export interface ProjectSummary {
 
 export interface ProjectDetail extends ProjectSummary {
   crm_records: CrmRecord[];
-  time_entries: Array<{
-    external_id: string;
-    employee_name: string;
-    work_date: string;
-    hours: string;
-    approved_hours: string;
-    approval_status: string;
-    work_content: string;
-  }>;
+  time_entries: TimeEntry[];
+  monthly_time_entries: MonthlyTimeEntries[];
   milestones: Array<{
     milestone_id: string;
     sequence_no: number | null;

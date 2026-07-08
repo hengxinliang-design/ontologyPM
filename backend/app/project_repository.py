@@ -602,6 +602,9 @@ class ProjectRepository:
             if settings.get("planned_person_days")
             else None
         )
+        budget_hours = (
+            planned_days * hours_per_day if planned_days is not None else None
+        )
         utilization = (
             reported_days / planned_days * 100 if planned_days and planned_days > 0 else None
         )
@@ -678,6 +681,10 @@ class ProjectRepository:
         todo_events.sort(
             key=lambda event: (event["completed"], event["due_date"], event["event_type"])
         )
+        current_milestone = _current_milestone(enriched_milestones, today_date)
+        payment_summary = _payment_summary(payments, today_date)
+        master_category = "项目" if contracts else "商机" if opportunities else "项目"
+        monthly_time_entries = _monthly_time_entries(time_entries, hours_per_day)
         if confirmation_gap_hours > 0:
             risk_reasons.append(
                 f"已填报工时与客户确认工时相差 {_format_decimal(confirmation_gap_days)} 人天"
@@ -748,8 +755,10 @@ class ProjectRepository:
             "customer": primary.get("customer"),
             "owner": primary.get("owner"),
             "project_manager": settings.get("project_manager") or primary.get("owner"),
+            "master_category": master_category,
             "contract_type": contract_type,
             "lifecycle_status": lifecycle,
+            "status": lifecycle,
             "planned_start": settings.get("planned_start"),
             "planned_end": settings.get("planned_end"),
             "contract_count": len(contracts),
@@ -758,6 +767,7 @@ class ProjectRepository:
             "received_amount": _format_decimal(received_amount),
             "invoiced_amount": _format_decimal(invoiced_amount),
             "planned_person_days": _format_decimal(planned_days) if planned_days is not None else None,
+            "budget_hours": _format_decimal(budget_hours) if budget_hours is not None else None,
             "reported_hours": _format_decimal(reported_hours),
             "reported_person_days": _format_decimal(reported_days),
             "customer_confirmed_hours": _format_decimal(customer_confirmed_hours),
@@ -771,8 +781,10 @@ class ProjectRepository:
             "milestone_total": len(milestones),
             "milestone_completed": sum(row["status"] == "completed" for row in milestones),
             "overdue_milestones": overdue_milestones,
+            "current_milestone": current_milestone,
             "payment_node_total": len(payments),
             "overdue_payment_nodes": overdue_payments,
+            "payment_summary": payment_summary,
             "open_interventions": sum(row["status"] != "closed" for row in interventions),
             "maintenance_complete": not maintenance_reasons,
             "maintenance_reasons": maintenance_reasons,
@@ -798,6 +810,7 @@ class ProjectRepository:
                     "interventions": interventions,
                     "settings": settings,
                     "todo_events": todo_events,
+                    "monthly_time_entries": monthly_time_entries,
                 }
             )
         return project
@@ -922,3 +935,116 @@ def _todo_event(
         "completed": completed,
         **deadline,
     }
+
+
+def _current_milestone(
+    milestones: list[dict[str, Any]], today: date
+) -> dict[str, Any] | None:
+    if not milestones:
+        return None
+    open_items = [item for item in milestones if item["status"] != "completed"]
+    if open_items:
+        item = min(open_items, key=lambda row: row["planned_end"])
+        return {
+            "milestone_id": item["milestone_id"],
+            "name": item["name"],
+            "status": item["status"],
+            "planned_start": item.get("planned_start"),
+            "planned_end": item.get("planned_end"),
+            "deadline": _deadline(item["planned_end"], False, today),
+        }
+    item = max(milestones, key=lambda row: row["planned_end"])
+    return {
+        "milestone_id": item["milestone_id"],
+        "name": item["name"],
+        "status": "completed",
+        "planned_start": item.get("planned_start"),
+        "planned_end": item.get("planned_end"),
+        "deadline": _deadline(item["planned_end"], True, today),
+    }
+
+
+def _payment_summary(
+    payments: list[dict[str, Any]], today: date
+) -> dict[str, Any]:
+    paid = [row for row in payments if row["status"] == "paid"]
+    open_items = [row for row in payments if row["status"] != "paid"]
+    next_payment = min(open_items, key=lambda row: row["planned_date"]) if open_items else None
+    planned_amount = sum(
+        (Decimal(row["planned_amount"]) for row in payments),
+        Decimal("0"),
+    )
+    actual_amount = sum(
+        (Decimal(row["actual_amount"] or "0") for row in payments),
+        Decimal("0"),
+    )
+    return {
+        "total_nodes": len(payments),
+        "paid_nodes": len(paid),
+        "planned_amount": _format_decimal(planned_amount),
+        "actual_amount": _format_decimal(actual_amount),
+        "next_node": (
+            {
+                "payment_node_id": next_payment["payment_node_id"],
+                "name": next_payment["name"],
+                "planned_date": next_payment["planned_date"],
+                "planned_amount": next_payment["planned_amount"],
+                "status": next_payment["status"],
+                "deadline": _deadline(next_payment["planned_date"], False, today),
+            }
+            if next_payment else None
+        ),
+    }
+
+
+def _monthly_time_entries(
+    time_entries: list[dict[str, Any]], hours_per_day: Decimal
+) -> list[dict[str, Any]]:
+    grouped: dict[str, dict[str, Any]] = {}
+    for row in time_entries:
+        month = row["work_date"][:7]
+        item = grouped.setdefault(
+            month,
+            {
+                "month": month,
+                "reported_hours": Decimal("0"),
+                "approved_hours": Decimal("0"),
+                "entry_count": 0,
+                "entries": [],
+            },
+        )
+        hours = Decimal(row["hours"])
+        approved = (
+            Decimal(row["approved_hours"])
+            if row["approval_status"] == "approved"
+            else Decimal("0")
+        )
+        item["reported_hours"] += hours
+        item["approved_hours"] += approved
+        item["entry_count"] += 1
+        item["entries"].append(row)
+
+    months: list[dict[str, Any]] = []
+    for item in grouped.values():
+        gap = max(item["reported_hours"] - item["approved_hours"], Decimal("0"))
+        reported_days = item["reported_hours"] / hours_per_day if hours_per_day else Decimal("0")
+        approved_days = item["approved_hours"] / hours_per_day if hours_per_day else Decimal("0")
+        gap_days = gap / hours_per_day if hours_per_day else Decimal("0")
+        months.append(
+            {
+                "month": item["month"],
+                "entry_count": item["entry_count"],
+                "reported_hours": _format_decimal(item["reported_hours"]),
+                "approved_hours": _format_decimal(item["approved_hours"]),
+                "confirmation_gap_hours": _format_decimal(gap),
+                "reported_person_days": _format_decimal(reported_days),
+                "approved_person_days": _format_decimal(approved_days),
+                "confirmation_gap_person_days": _format_decimal(gap_days),
+                "entries": sorted(
+                    item["entries"],
+                    key=lambda row: (row["work_date"], row["external_id"]),
+                    reverse=True,
+                ),
+            }
+        )
+    return sorted(months, key=lambda item: item["month"], reverse=True)
