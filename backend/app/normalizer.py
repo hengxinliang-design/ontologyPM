@@ -26,7 +26,7 @@ def normalize_snapshot(
     _validate_required(records)
 
     source_stats = _source_stats(payload, records)
-    merged_records, merge_result = _merge_converted_opportunities(records)
+    stored_records, merge_result = _mark_converted_opportunities(records)
 
     # A previously normalized 2.2 snapshot may already have removed converted rows.
     prior_merge = payload.get("conversion_merge") or {}
@@ -34,7 +34,7 @@ def normalize_snapshot(
         expected = int(prior_merge["updated_contract_rows"])
         candidates = [
             r
-            for r in merged_records
+            for r in stored_records
             if r["data_type"] == "contract_order"
             and r.get("probability") == 100
             and r.get("status") == "成功"
@@ -45,15 +45,19 @@ def normalize_snapshot(
             merge_result["merged_opportunities"] = expected
 
     output_stats = {
-        "contract_order": sum(r["data_type"] == "contract_order" for r in merged_records),
+        "contract_order": sum(r["data_type"] == "contract_order" for r in stored_records),
         "sales_opportunity": sum(
-            r["data_type"] == "sales_opportunity" for r in merged_records
+            r["data_type"] == "sales_opportunity" for r in stored_records
         ),
     }
-    duplicate_record_ids = len(merged_records) - len(
-        {record["record_id"] for record in merged_records}
+    duplicate_record_ids = len(stored_records) - len(
+        {record["record_id"] for record in stored_records}
     )
-    cross_type_duplicates = _cross_type_duplicate_count(merged_records)
+    # A contract and a successful opportunity with one project number are a
+    # normal conversion relationship, not a data-quality duplicate.  Keep both
+    # source records for the CRM audit view while the project repository groups
+    # them into one project.
+    cross_type_duplicates = 0
     validation = {
         "complete": duplicate_record_ids == 0 and cross_type_duplicates == 0,
         "missing_required_values": 0,
@@ -71,7 +75,7 @@ def normalize_snapshot(
         "source_stats": source_stats,
         "output_stats": output_stats,
         "validation": validation,
-        "records": merged_records,
+        "records": stored_records,
     }
 
 
@@ -117,13 +121,29 @@ def _normalize_record(
     signed_at = _nullable_text(item.get("签约时间") if chinese else item.get("signed_at"))
     probability = _probability(item.get("可能性") if chinese else item.get("probability"))
     status = _nullable_text(item.get("状态") if chinese else item.get("status"))
-
-    identity = item.get("crm_internal_id") or item.get("record_id")
-    if not identity:
-        identity = "|".join([data_type, project_number or "", subject, signed_at or ""])
-    record_id = item.get("record_id") or _record_id(
-        str(identity), secret=record_id_secret
+    total_amount = _money(item.get("总金额") if chinese else item.get("total_amount"))
+    received_amount = _money(
+        item.get("回款金额") if chinese else item.get("received_amount")
     )
+    invoiced_amount = _money(
+        item.get("开票金额") if chinese else item.get("invoiced_amount")
+    )
+    if data_type == "contract_order":
+        status = _contract_completion_status(total_amount, received_amount, invoiced_amount)
+
+    provided_record_id = item.get("record_id")
+    crm_internal_id = item.get("crm_internal_id")
+    if provided_record_id:
+        record_id = str(provided_record_id)
+    else:
+        identity = f"{data_type}|{crm_internal_id}" if crm_internal_id else None
+    if not provided_record_id and not identity:
+        # The user templates include CRM ID. If it is absent, retain subject
+        # and date in the fallback key so contract addenda under one project
+        # are not collapsed into one source row.
+        identity = "|".join([data_type, project_number or "", subject, signed_at or ""])
+    if not provided_record_id:
+        record_id = _record_id(str(identity), secret=record_id_secret)
 
     return {
         "record_id": record_id,
@@ -135,13 +155,9 @@ def _normalize_record(
         ),
         "category": _nullable_text(item.get("分类") if chinese else item.get("category")),
         "signed_at": signed_at,
-        "total_amount": _money(item.get("总金额") if chinese else item.get("total_amount")),
-        "received_amount": _money(
-            item.get("回款金额") if chinese else item.get("received_amount")
-        ),
-        "invoiced_amount": _money(
-            item.get("开票金额") if chinese else item.get("invoiced_amount")
-        ),
+        "total_amount": total_amount,
+        "received_amount": received_amount,
+        "invoiced_amount": invoiced_amount,
         "owner": owner,
         "probability": probability,
         "status": status,
@@ -150,7 +166,7 @@ def _normalize_record(
     }
 
 
-def _merge_converted_opportunities(
+def _mark_converted_opportunities(
     records: list[dict[str, Any]],
 ) -> tuple[list[dict[str, Any]], dict[str, int]]:
     contracts: dict[str, list[dict[str, Any]]] = {}
@@ -163,49 +179,19 @@ def _merge_converted_opportunities(
         target.setdefault(project, []).append(record)
 
     matches = sorted(set(contracts) & set(opportunities))
-    anomalies = []
-    for project in matches:
-        contract_rows = contracts[project]
-        opportunity_rows = opportunities[project]
-        if (
-            len(contract_rows) != 1
-            or len(opportunity_rows) != 1
-            or opportunity_rows[0].get("probability") != 100
-            or opportunity_rows[0].get("status") != "成功"
-        ):
-            anomalies.append(project)
-    if anomalies:
-        raise SnapshotValidationError(
-            "ambiguous or non-successful contract conversion: " + ", ".join(anomalies)
-        )
-
+    # 项目编号是项目主数据的主键。合同可因追加、分项或变更而有多行；
+    # 只要同编号已有合同，商机即视为已转化。CRM 数据页仍需保留该商机
+    # 原始记录用于审计，项目主数据层再按项目编号汇总，避免重复项目。
     matched = set(matches)
     output = []
     for record in records:
         project = record.get("project_number")
-        if record["data_type"] == "sales_opportunity" and project in matched:
-            continue
         if record["data_type"] == "contract_order" and project in matched:
             record = dict(record)
             record["probability"] = 100
-            record["status"] = "成功"
             record["merged_from_opportunity"] = True
         output.append(record)
     return output, {"merged_opportunities": len(matches)}
-
-
-def _cross_type_duplicate_count(records: list[dict[str, Any]]) -> int:
-    contracts = {
-        r["project_number"]
-        for r in records
-        if r["data_type"] == "contract_order" and r.get("project_number")
-    }
-    opportunities = {
-        r["project_number"]
-        for r in records
-        if r["data_type"] == "sales_opportunity" and r.get("project_number")
-    }
-    return len(contracts & opportunities)
 
 
 def _source_stats(
@@ -272,6 +258,22 @@ def _money(value: Any) -> dict[str, str] | None:
     except InvalidOperation as exc:
         raise SnapshotValidationError(f"invalid money value: {value!r}") from exc
     return {"amount": f"{amount:.2f}", "currency": "CNY", "display": display}
+
+
+def _contract_completion_status(
+    total_amount: dict[str, str] | None,
+    received_amount: dict[str, str] | None,
+    invoiced_amount: dict[str, str] | None,
+) -> str:
+    """Contract completion is derived only from the three imported amounts."""
+    if not total_amount or not received_amount or not invoiced_amount:
+        return "未完成"
+    amounts = {
+        total_amount["amount"],
+        received_amount["amount"],
+        invoiced_amount["amount"],
+    }
+    return "已完成" if len(amounts) == 1 else "未完成"
 
 
 def _text(value: Any) -> str:

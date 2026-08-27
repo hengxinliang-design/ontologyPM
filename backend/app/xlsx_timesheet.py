@@ -33,10 +33,7 @@ def parse_timesheet_xlsx_base64(content_base64: str) -> list[dict[str, Any]]:
 
 
 def parse_timesheet_xlsx(workbook_bytes: bytes) -> list[dict[str, Any]]:
-    with zipfile.ZipFile(io.BytesIO(workbook_bytes)) as archive:
-        shared_strings = _shared_strings(archive)
-        sheet_xml = archive.read(_first_sheet_path(archive))
-    rows = _sheet_rows(sheet_xml, shared_strings)
+    rows = parse_xlsx_rows(workbook_bytes)
     if not rows:
         raise ValueError("Excel does not contain rows")
     headers = [str(value).strip() if value is not None else "" for value in rows[0]]
@@ -91,6 +88,13 @@ def parse_timesheet_xlsx(workbook_bytes: bytes) -> list[dict[str, Any]]:
     if not entries:
         raise ValueError("Excel does not contain importable timesheet rows")
     return entries
+
+
+def parse_xlsx_rows(workbook_bytes: bytes) -> list[list[Any]]:
+    with zipfile.ZipFile(io.BytesIO(workbook_bytes)) as archive:
+        shared_strings = _shared_strings(archive)
+        sheet_xml = archive.read(_first_sheet_path(archive))
+    return _sheet_rows(sheet_xml, shared_strings)
 
 
 def _shared_strings(archive: zipfile.ZipFile) -> list[str]:

@@ -970,7 +970,16 @@ class ProjectRepository:
         current_milestone = _current_milestone(enriched_milestones, today_date)
         payment_summary = _payment_summary(payments, today_date)
         received_amount = Decimal(payment_summary["actual_amount"])
-        master_category = "项目" if contracts else "商机" if opportunities else "项目"
+        successful_opportunities = [
+            record for record in opportunities if record.get("status") == "成功"
+        ]
+        # “阶段”是销售过程的描述，不作为项目转换依据；CRM 明确状态为
+        # “成功”即表示商机已签约并进入项目管理范围。
+        master_category = (
+            "项目"
+            if contracts or successful_opportunities
+            else "商机" if opportunities else "项目"
+        )
         monthly_time_entries = _monthly_time_entries(time_entries, hours_per_day)
         if confirmation_gap_hours > 0:
             risk_reasons.append(

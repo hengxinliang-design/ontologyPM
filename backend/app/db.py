@@ -64,6 +64,21 @@ CREATE TABLE IF NOT EXISTS sync_jobs (
     validation_json TEXT
 );
 
+CREATE TABLE IF NOT EXISTS crm_import_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    snapshot_id INTEGER NOT NULL REFERENCES snapshots(id) ON DELETE CASCADE,
+    data_type TEXT NOT NULL CHECK (data_type IN ('contract_order', 'sales_opportunity')),
+    filename TEXT NOT NULL,
+    parsed_rows INTEGER NOT NULL,
+    inserted_records INTEGER NOT NULL DEFAULT 0,
+    updated_records INTEGER NOT NULL DEFAULT 0,
+    unchanged_records INTEGER NOT NULL DEFAULT 0,
+    imported_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_crm_import_logs_imported_at
+    ON crm_import_logs(imported_at DESC, id DESC);
+
 CREATE TABLE IF NOT EXISTS service_state (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -304,6 +319,51 @@ class Database:
             )
             connection.commit()
             return snapshot_id
+
+    def save_crm_import_log(
+        self,
+        *,
+        snapshot_id: int,
+        data_type: str,
+        filename: str,
+        parsed_rows: int,
+        inserted_records: int,
+        updated_records: int,
+        unchanged_records: int,
+        imported_at: str,
+    ) -> dict[str, Any]:
+        with self.connect() as connection:
+            cursor = connection.execute(
+                """
+                INSERT INTO crm_import_logs (
+                    snapshot_id, data_type, filename, parsed_rows,
+                    inserted_records, updated_records, unchanged_records, imported_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    snapshot_id,
+                    data_type,
+                    filename,
+                    parsed_rows,
+                    inserted_records,
+                    updated_records,
+                    unchanged_records,
+                    imported_at,
+                ),
+            )
+            log_id = int(cursor.lastrowid)
+            connection.commit()
+        return {
+            "log_id": log_id,
+            "snapshot_id": snapshot_id,
+            "data_type": data_type,
+            "filename": filename,
+            "parsed_rows": parsed_rows,
+            "inserted_records": inserted_records,
+            "updated_records": updated_records,
+            "unchanged_records": unchanged_records,
+            "imported_at": imported_at,
+        }
 
 
 def _money_value(value: dict[str, str] | None) -> str | None:

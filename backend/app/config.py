@@ -40,7 +40,7 @@ class Settings:
             api_token=os.getenv("XTCRM_API_TOKEN"),
             record_id_secret=os.getenv("XTCRM_RECORD_ID_SECRET", "local-development-only"),
             cors_origins=tuple(x.strip() for x in origins.split(",") if x.strip()),
-            auto_import_on_empty=os.getenv("XTCRM_AUTO_IMPORT_ON_EMPTY", "true").lower()
+            auto_import_on_empty=os.getenv("XTCRM_AUTO_IMPORT_ON_EMPTY", "false").lower()
             in {"1", "true", "yes"},
             scheduler_enabled=os.getenv("XTCRM_SCHEDULER_ENABLED", "false").lower()
             in {"1", "true", "yes"},

@@ -5,12 +5,10 @@ FastAPI + SQLite 后端与 React 前端，用于把 CRM 合同/销售机会、�
 ## 架构
 
 ```text
-CRM 自动化或数据源 API
+CRM 手工导入文件
           │
           ▼
-   SnapshotSource Adapter
-   ├─ file: 已验证 JSON 快照
-   └─ http: 内部数据源 REST API
+  合同 / 销售机会导入解析
           │
           ▼
  Normalize + Validate + Merge
@@ -28,8 +26,8 @@ CRM 自动化或数据源 API
 
 - React 不接触 CRM 登录态或密码。
 - 查询请求只读 SQLite，不实时抓取 CRM。
-- 同步先写新快照；全部校验成功后才切换当前快照。
-- 第一次同步为全量；以后默认按 `record_id` 增量合并，并支持 `deleted_record_ids` 明确删除。
+- 每次上传先校验后写入新快照；全部校验成功后才切换当前快照。
+- 合同与销售机会分别手工上传；系统按 CRM 内部 ID 或项目编号判断新增、更新、无变化。
 - CRM/工时接口表与人工维护表物理分离，增量同步不会覆盖合同类别、预算人天、项目经理、里程碑或确认状态。
 - 登录失败、来源异常、跨类型一对多或状态冲突时保留上一份成功快照。
 - SQLite 保留历史快照，当前查询始终绑定一个 `active_snapshot_id`。
@@ -56,7 +54,7 @@ python3 -m venv .venv
 
 接口文档：`http://127.0.0.1:8000/docs`
 
-默认会在数据库为空时导入 `backend/data/source_snapshot.example.json`，并为本地演示补充项目配置、工时、里程碑和回款节点数据。生产数据源不会写入这些演示数据。
+默认不会自动导入 CRM 数据。通过“数据导入”页面分别上传合同/订单与销售机会文件；开发测试可设置 `XTCRM_AUTO_IMPORT_ON_EMPTY=true`，以导入 `backend/data/source_snapshot.example.json`。
 
 ## 启动前端
 
@@ -68,32 +66,16 @@ npm run dev
 
 访问：`http://127.0.0.1:5173`
 
-## 接入真实数据源 API
+## CRM 手工导入
 
-后端支持服务端主动调用内部 JSON API：
+“数据导入”页面支持 `.xlsx`、`.csv`、`.json`。合同/订单与销售机会必须分别上传；系统会识别常用字段别名，每行至少需要“主题”和“所有者/负责人”。
 
-```bash
-export XTCRM_SOURCE_KIND=http
-export XTCRM_SOURCE_URL=https://internal.example.com/xtcrm/export
-export XTCRM_SOURCE_TOKEN=your-source-token
-export XTCRM_RECORD_ID_SECRET=replace-with-a-long-random-secret
-```
-
-数据源需返回包含 `records[]` 的 JSON。记录可以使用当前中文字段，也可以使用 REST API 英文字段。推荐数据源额外提供 `crm_internal_id`，后端使用 HMAC 生成稳定且不可逆的 `record_id`。
-
-如果当前 CRM 只能通过浏览器登录抓取，应由现有浏览器自动化先产出已验证 JSON，再让后端使用 `file` 适配器导入；不要把浏览器 Cookie 或密码存入 SQLite。
-
-## 定时同步
-
-内置调度默认关闭，避免与 Codex 每日任务重复。若后续由服务自身负责每天 03:00 同步：
-
-```bash
-export XTCRM_SCHEDULER_ENABLED=true
-export XTCRM_SYNC_HOUR=3
-export XTCRM_TIMEZONE=America/Detroit
-```
-
-只保留一个调度责任方，避免重复抓取。
+- 同一 CRM 内部 ID 优先判定为同一记录；未提供内部 ID 时，以数据类型 + 项目编号判定。
+- 文件中未包含的字段视为“不变”，不会清空已存在的 CRM 值。
+- 无法从主题识别项目编号的行仍保留在 CRM 审计数据中，但不会进入项目主数据库；建议在模板中补充“项目编号”列。
+- CRM 数据审计页会保留全部成功入库的合同和销售机会；已转化为合同的销售机会会让对应合同标记为 `100% / 成功`，项目主数据库再按项目编号归并，不重复生成项目。
+- 商机 `状态=成功` 即使暂未导入同编号合同，也会在项目主数据库归类为“项目”；“阶段”只作描述，不参与转换判断。
+- CRM 上传不会覆盖合同类别、预算人天、项目经理、里程碑和回款确认等人工维护数据。
 
 ## API 鉴权
 
@@ -152,8 +134,8 @@ CRM 查询与同步：
 - `GET /api/v1/records`
 - `GET /api/v1/records/{record_id}`
 - `GET /api/v1/sync-status`
-- `POST /api/v1/sync-jobs`
-- `GET /api/v1/sync-jobs/{job_id}`
+- `POST /api/v1/crm-imports`
+- `GET /api/v1/crm-imports/template?data_type=contract_order`
 - `GET /api/v1/exports/latest?format=json|csv`
 
 完整、可执行的 OpenAPI 文档由 FastAPI 在 `http://127.0.0.1:8000/docs` 自动生成。

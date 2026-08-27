@@ -1,4 +1,4 @@
-import type { ContractType, EmployeeWorktimeResponse, LifecycleStatus, PortfolioResponse, ProjectDetail, ProjectHealthResponse, RecordsResponse, SyncStatus, WorktimeBaseline } from "./types";
+import type { ContractType, CrmImportLog, EmployeeWorktimeResponse, LifecycleStatus, PortfolioResponse, ProjectDetail, ProjectHealthResponse, RecordsResponse, SyncStatus, WorktimeBaseline } from "./types";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "";
 const API_TOKEN = import.meta.env.VITE_API_TOKEN ?? "";
@@ -43,6 +43,11 @@ export function fetchRecords(filters: RecordFilters): Promise<RecordsResponse> {
 
 export function fetchSyncStatus(): Promise<SyncStatus> {
   return request("/api/v1/sync-status");
+}
+
+export async function fetchCrmImportLogs(): Promise<CrmImportLog[]> {
+  const response = await request<{ data: CrmImportLog[] }>("/api/v1/crm-imports");
+  return response.data;
 }
 
 export function fetchProjects(filters: {
@@ -213,8 +218,33 @@ export async function confirmPayment(projectNumber: string, paymentNodeId: strin
   });
 }
 
-export function triggerSync(): Promise<{ job_id: string; status: string }> {
-  return request("/api/v1/sync-jobs", { method: "POST" });
+export interface CrmImportResult {
+  filename: string;
+  format: string;
+  parsed_rows: number;
+  importable_rows: number;
+  recognized_fields: string[];
+  unmatched_project_rows: number;
+  unmatched_project_subjects: string[];
+  mode: "full" | "incremental";
+  imported_at: string;
+  validation: {
+    inserted_records?: number;
+    updated_records?: number;
+    unchanged_records?: number;
+    deleted_records?: number;
+    merged_opportunities?: number;
+  };
+}
+
+export async function importCrmFile(dataType: "contract_order" | "sales_opportunity", file: File): Promise<CrmImportResult> {
+  const content_base64 = await fileToBase64(file);
+  const response = await request<{ data: CrmImportResult }>("/api/v1/crm-imports", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ data_type: dataType, filename: file.name, content_base64 })
+  });
+  return response.data;
 }
 
 export function exportUrl(format: "json" | "csv"): string {

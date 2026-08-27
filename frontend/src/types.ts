@@ -49,11 +49,26 @@ export interface SyncStatus {
     merged_opportunities: number;
     cross_type_duplicate_project_ids: number;
     sync_mode?: "full" | "incremental";
+    import_kind?: "manual_upload";
+    import_data_type?: DataType;
+    import_filename?: string;
     inserted_records?: number;
     updated_records?: number;
     deleted_records?: number;
     unchanged_records?: number;
   };
+}
+
+export interface CrmImportLog {
+  log_id: number;
+  snapshot_id: number;
+  data_type: DataType;
+  filename: string;
+  parsed_rows: number;
+  inserted_records: number;
+  updated_records: number;
+  unchanged_records: number;
+  imported_at: string;
 }
 
 export type ContractType = "construction" | "maintenance" | "open_ended" | "sales" | "unknown";

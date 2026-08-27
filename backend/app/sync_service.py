@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo
 
 from .config import Settings
 from .db import Database
-from .normalizer import normalize_records, normalize_snapshot
+from .normalizer import _record_id, normalize_records, normalize_snapshot
 from .repository import SnapshotRepository
 from .source import SnapshotSource
 
@@ -59,6 +59,79 @@ class SyncService:
                 message=str(exc),
             )
 
+    def import_manual_records(
+        self, *, data_type: str, records: list[dict[str, Any]], filename: str
+    ) -> dict[str, Any]:
+        """Import one user-uploaded CRM dataset without touching manual project fields."""
+        now = self._now()
+        active = self.records.export_records()
+        normalized_incoming, _ = normalize_records(
+            {"updated_at": now, "records": records},
+            record_id_secret=self.settings.record_id_secret,
+            timezone=self.settings.timezone,
+        )
+        active_by_id = {row["record_id"]: row for row in active["records"]} if active else {}
+        imported_changes = {"inserted_records": 0, "updated_records": 0, "unchanged_records": 0}
+        prepared_records: list[dict[str, Any]] = []
+        for source_record, record in zip(records, normalized_incoming, strict=True):
+            previous = active_by_id.get(record["record_id"])
+            if previous is None and source_record.get("crm_internal_id"):
+                # Compatibility with snapshots created before CRM IDs were
+                # type-scoped. Never match a legacy key across data types.
+                legacy_id = _record_id(
+                    str(source_record["crm_internal_id"]),
+                    secret=self.settings.record_id_secret,
+                )
+                legacy = active_by_id.get(legacy_id)
+                if legacy and legacy["data_type"] == record["data_type"]:
+                    previous = legacy
+                    record = {**record, "record_id": legacy["record_id"]}
+            present_fields = set(source_record.get("__present_fields") or ())
+            if previous:
+                record = _preserve_missing_upload_fields(record, previous, present_fields)
+            if previous is None:
+                imported_changes["inserted_records"] += 1
+            else:
+                if previous.get("merged_from_opportunity") and record["data_type"] == "contract_order":
+                    record = {**record, "probability": 100, "merged_from_opportunity": True}
+                if _record_business_data(previous) == _record_business_data(record):
+                    imported_changes["unchanged_records"] += 1
+                else:
+                    imported_changes["updated_records"] += 1
+            prepared_records.append(record)
+        snapshot, mode = self._build_snapshot(
+            {
+                "sync_mode": "incremental",
+                "updated_at": now,
+                "records": prepared_records,
+            }
+        )
+        snapshot["validation"].update(
+            {
+                **imported_changes,
+                "import_kind": "manual_upload",
+                "import_data_type": data_type,
+                "import_filename": filename,
+            }
+        )
+        snapshot_id = self.database.save_snapshot(snapshot)
+        import_log = self.database.save_crm_import_log(
+            snapshot_id=snapshot_id,
+            data_type=data_type,
+            filename=filename,
+            parsed_rows=len(records),
+            inserted_records=imported_changes["inserted_records"],
+            updated_records=imported_changes["updated_records"],
+            unchanged_records=imported_changes["unchanged_records"],
+            imported_at=snapshot["imported_at"],
+        )
+        return {
+            "mode": mode,
+            "imported_at": snapshot["imported_at"],
+            "validation": snapshot["validation"],
+            "import_log": import_log,
+        }
+
     def _build_snapshot(self, payload: dict[str, Any]) -> tuple[dict[str, Any], str]:
         active = self.records.export_records()
         requested_mode = str(payload.get("sync_mode") or "auto").lower()
@@ -92,6 +165,17 @@ class SyncService:
         for record_id in deleted_ids:
             existing_by_id.pop(record_id, None)
         for record in incoming:
+            previous = existing_by_id.get(record["record_id"])
+            # Converted opportunities are intentionally hidden from the active
+            # project view. Preserve their success marker while a later manual
+            # contract upload updates the same project.
+            if (
+                previous
+                and previous.get("merged_from_opportunity")
+                and record["data_type"] == "contract_order"
+            ):
+                record["probability"] = 100
+                record["merged_from_opportunity"] = True
             existing_by_id[record["record_id"]] = record
 
         combined_payload = {
@@ -204,3 +288,27 @@ def _record_business_data(record: dict[str, Any]) -> dict[str, Any]:
         for key, value in record.items()
         if key not in {"updated_at", "merged_from_opportunity"}
     }
+
+
+def _preserve_missing_upload_fields(
+    record: dict[str, Any], previous: dict[str, Any], present_fields: set[str]
+) -> dict[str, Any]:
+    """A template may omit columns; omitted columns are not blanking operations."""
+    field_map = {
+        "project_number": "project_number",
+        "subject": "subject",
+        "customer": "customer",
+        "category": "category",
+        "signed_at": "signed_at",
+        "total_amount": "total_amount",
+        "received_amount": "received_amount",
+        "invoiced_amount": "invoiced_amount",
+        "owner": "owner",
+        "probability": "probability",
+        "status": "status",
+    }
+    merged = dict(record)
+    for source_field, record_field in field_map.items():
+        if source_field not in present_fields:
+            merged[record_field] = previous.get(record_field)
+    return merged

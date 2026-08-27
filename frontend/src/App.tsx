@@ -6,6 +6,7 @@ import {
   deleteMilestone,
   deletePaymentNode,
   downloadExport,
+  fetchCrmImportLogs,
   fetchEmployeeWorktime,
   fetchProject,
   fetchProjectHealth,
@@ -14,7 +15,7 @@ import {
   fetchSyncStatus,
   fetchWorktimeBaseline,
   importTimeEntriesXlsx,
-  triggerSync,
+  importCrmFile,
   updateMilestone,
   updatePaymentNode,
   updateProjectSettings,
@@ -22,6 +23,7 @@ import {
 } from "./api";
 import type {
   CrmRecord,
+  CrmImportLog,
   EmployeeWorktimeResponse,
   EmployeeWorktimeRow,
   PortfolioResponse,
@@ -45,6 +47,7 @@ export function App() {
   const [worktimeBaseline, setWorktimeBaseline] = useState<WorktimeBaseline | null>(null);
   const [records, setRecords] = useState<RecordsResponse | null>(null);
   const [sync, setSync] = useState<SyncStatus | null>(null);
+  const [crmImportLogs, setCrmImportLogs] = useState<CrmImportLog[]>([]);
   const [selected, setSelected] = useState<ProjectDetail | null>(null);
   const [queryInput, setQueryInput] = useState("");
   const [query, setQuery] = useState("");
@@ -62,7 +65,6 @@ export function App() {
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [syncing, setSyncing] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -91,8 +93,10 @@ export function App() {
         ]);
         setEmployeeWorktime(assessment);
         setWorktimeBaseline(baseline);
-      } else {
+      } else if (view === "crm") {
         setRecords(await fetchRecords({ dataType, query, status, page, pageSize: PAGE_SIZE }));
+      } else if (view === "sync") {
+        setCrmImportLogs(await fetchCrmImportLogs());
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "数据加载失败");
@@ -119,15 +123,15 @@ export function App() {
     { label: "需要关注", value: employeeWorktime?.summary.attention_count ?? "—", tone: "amber" },
     { label: "严重不足", value: employeeWorktime?.summary.critical_count ?? "—", tone: "violet" }
   ] : view === "sync" ? [
-    { label: "同步状态", value: statusLabel(sync?.status), tone: sync?.status === "succeeded" ? "green" : "amber" },
-    { label: "合同 / 订单", value: sync?.output_stats.contract_order ?? "—", tone: "blue" },
-    { label: "销售机会", value: sync?.output_stats.sales_opportunity ?? "—", tone: "amber" },
-    { label: "已合并机会", value: sync?.validation.merged_opportunities ?? "—", tone: "violet" }
+    { label: "导入状态", value: statusLabel(sync?.status), tone: sync?.status === "succeeded" ? "green" : "amber" },
+    { label: "合同 / 订单源记录", value: sync?.source_stats.contract_order ?? "—", tone: "blue" },
+    { label: "销售机会源记录", value: sync?.source_stats.sales_opportunity ?? "—", tone: "amber" },
+    { label: "转项目已合并", value: sync?.validation.merged_opportunities ?? "—", tone: "violet" }
   ] : [
     { label: "有效记录", value: records?.meta.total_records ?? "—", tone: "blue" },
-    { label: "合同 / 订单", value: sync?.output_stats.contract_order ?? "—", tone: "green" },
-    { label: "销售机会", value: sync?.output_stats.sales_opportunity ?? "—", tone: "amber" },
-    { label: "已合并机会", value: sync?.validation.merged_opportunities ?? "—", tone: "violet" }
+    { label: "合同 / 订单", value: sync?.source_stats.contract_order ?? "—", tone: "green" },
+    { label: "销售机会", value: sync?.source_stats.sales_opportunity ?? "—", tone: "amber" },
+    { label: "转项目商机", value: sync?.validation.merged_opportunities ?? "—", tone: "violet" }
   ], [view, portfolio, health, employeeWorktime, records, sync]);
 
   function switchView(next: View) {
@@ -144,13 +148,6 @@ export function App() {
     catch (err) { setError(err instanceof Error ? err.message : "项目加载失败"); }
   }
 
-  async function startSync() {
-    setSyncing(true); setError(null);
-    try { await triggerSync(); window.setTimeout(() => void load(), 800); }
-    catch (err) { setError(err instanceof Error ? err.message : "同步任务创建失败"); }
-    finally { setSyncing(false); }
-  }
-
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -160,22 +157,21 @@ export function App() {
           <button className={`nav-item ${view === "health" ? "active" : ""}`} onClick={() => switchView("health")}><span>▣</span> 项目健康度</button>
           <button className={`nav-item ${view === "employeeWorktime" ? "active" : ""}`} onClick={() => switchView("employeeWorktime")}><span>◷</span> 员工工时评估</button>
           <button className={`nav-item ${view === "crm" ? "active" : ""}`} onClick={() => switchView("crm")}><span>⌘</span> CRM 数据</button>
-          <button className={`nav-item ${view === "sync" ? "active" : ""}`} onClick={() => switchView("sync")}><span>↻</span> 同步状态</button>
+          <button className={`nav-item ${view === "sync" ? "active" : ""}`} onClick={() => switchView("sync")}><span>⇧</span> 数据导入</button>
           <a className="nav-item" href="/docs" target="_blank"><span>⌁</span> API 文档</a>
         </nav>
         <div className="sidebar-foot">
           <span className={`status-dot ${sync?.status === "succeeded" ? "ok" : "warn"}`} />
-          <div><strong>{statusLabel(sync?.status)}</strong><small>{syncModeLabel(sync)} · 每日 03:00</small></div>
+          <div><strong>{statusLabel(sync?.status)}</strong><small>{syncModeLabel(sync)} · 手工导入</small></div>
         </div>
       </aside>
 
       <main>
         <header className="topbar">
-          <div><p className="eyebrow">PROJECT LIFECYCLE CONTROL</p><h1>{view === "projects" ? "项目组合与生命周期" : view === "health" ? "项目健康度监控" : view === "employeeWorktime" ? "员工工时状况评估" : view === "sync" ? "数据同步状态" : "CRM 合同与销售机会"}</h1></div>
-          <div className="top-actions">
+          <div><p className="eyebrow">PROJECT LIFECYCLE CONTROL</p><h1>{view === "projects" ? "项目组合与生命周期" : view === "health" ? "项目健康度监控" : view === "employeeWorktime" ? "员工工时状况评估" : view === "sync" ? "CRM 数据导入" : "CRM 合同与销售机会"}</h1></div>
+          {view === "crm" && <div className="top-actions">
             <button className="button secondary" onClick={() => void downloadExport("csv")}>导出 CSV</button>
-            <button className="button primary" disabled={syncing} onClick={startSync}>{syncing ? "正在创建…" : "立即同步"}</button>
-          </div>
+          </div>}
         </header>
         {error && <div className="error-banner">{error}</div>}
         <section className="metrics">{cards.map(card => <article className={`metric ${card.tone}`} key={card.label}><span>{card.label}</span><strong>{card.value}</strong></article>)}</section>
@@ -208,7 +204,7 @@ export function App() {
             refresh={load}
           />
         ) : view === "sync" ? (
-          <SyncStatusPanel sync={sync} syncing={syncing} startSync={startSync} refresh={load} />
+          <SyncStatusPanel sync={sync} logs={crmImportLogs} refresh={load} reportError={setError} />
         ) : (
           <CrmRecords
             records={records} loading={loading} queryInput={queryInput}
@@ -575,7 +571,7 @@ function ProjectDrawer({ project, close, refresh }: { project: ProjectDetail; cl
     <div className="drawer-badges"><span>{contractTypeLabel(project.contract_type)}</span><span>{lifecycleLabel(project.lifecycle_status)}</span><span className={`risk ${project.risk_level}`}>{riskLabel(project.risk_level)}</span></div>
     {!project.maintenance_complete && <section className="maintenance-box"><strong>同步后待人工维护</strong><p>{(project.maintenance_reasons ?? []).join("、")}</p></section>}
     {project.risk_reasons.length > 0 && <section className="risk-box"><strong>管理关注</strong>{project.risk_reasons.map(reason => <p key={reason}>• {reason}</p>)}</section>}
-    {(project.anomaly_alerts ?? []).length > 0 && <section className="alert-stack"><div className="section-title"><div><h3>异常与临期提醒</h3><small>里程碑、工时预算和客户确认缺口</small></div></div>{project.anomaly_alerts.map((alert, index) => <article className={`anomaly-alert ${alert.severity}`} key={`${alert.code}-${index}`}><div><strong>{alert.title}</strong><span>{alert.severity === "critical" ? "严重" : "提醒"}</span></div><p>{alert.detail}</p></article>)}</section>}
+    {(project.anomaly_alerts ?? []).length > 0 && <section className="alert-stack" aria-label="异常与临期提醒"><div className="alert-stack-head"><div className="alert-stack-icon" aria-hidden="true">!</div><div><p className="alert-stack-kicker">ACTION CENTER</p><h3>异常与临期提醒</h3><small>需要管理人员介入处理；项目资料与数据汇总位于下方</small></div><span className="alert-stack-count">{project.anomaly_alerts.length} 项待处理</span></div>{project.anomaly_alerts.map((alert, index) => <article className={`anomaly-alert ${alert.severity}`} key={`${alert.code}-${index}`}><span className="anomaly-alert-icon" aria-hidden="true">{alert.severity === "critical" ? "!" : "◷"}</span><div className="anomaly-alert-content"><div><strong>{alert.title}</strong><span>{alert.severity === "critical" ? "需要处理" : "请关注"}</span></div><p>{alert.detail}</p></div></article>)}</section>}
     {message && <div className="inline-message">{message}</div>}
     <section className="detail-section source-section"><div className="section-title"><div><h3>项目主数据库汇总 <span className="source-tag">系统接口 · 只读</span></h3><small>由 CRM 主数据、员工工时、里程碑和人工维护字段汇总生成</small></div></div><div className="detail-metrics six"><article><span>合同金额</span><b>{money(project.contract_value)}</b></article><article><span>已开票</span><b>{money(project.invoiced_amount)}</b></article><article><span>已回款</span><b>{money(project.received_amount)}</b></article><article><span>预算人天</span><b>{project.planned_person_days ? `${project.planned_person_days} 人天` : "未设置"}</b></article><article><span>累计实际人天</span><b>{project.actual_person_days} 人天</b></article><article className={Number(project.confirmation_gap_person_days) > 0 ? "metric-alert" : ""}><span>待客户确认缺口</span><b>{project.confirmation_gap_person_days} 人天</b></article></div></section>
 
@@ -584,7 +580,7 @@ function ProjectDrawer({ project, close, refresh }: { project: ProjectDetail; cl
       {project.monthly_time_entries.length === 0 && <p className="detail-empty">暂无月度工时数据</p>}
     </section>
 
-    <section className="detail-section todo-section"><div className="section-title"><div><h3>待办提醒</h3><small>按当前日期自动计算，逾期未确认将持续提醒</small></div><label>当前确认人<input value={confirmedBy} onChange={e => setConfirmedBy(e.target.value)} placeholder="管理人员姓名" /></label></div>
+    <section className="detail-section todo-section"><div className="todo-section-head"><div><p className="todo-section-kicker">TO-DO</p><h3>待办处理区</h3><small>按当前日期自动计算；请在完成后确认，逾期事项会持续提示</small></div><label>当前确认人<input value={confirmedBy} onChange={e => setConfirmedBy(e.target.value)} placeholder="管理人员姓名" /></label></div>
       <div className="todo-grid">{project.todo_events.filter(item => !item.completed).map(item => {
         const linkedMilestone = item.event_type === "milestone" ? project.milestones.find(milestoneItem => milestoneItem.milestone_id === item.event_id) : null;
         const linkedPayment = item.event_type === "payment" ? project.payment_nodes.find(paymentItem => paymentItem.payment_node_id === item.event_id) : null;
@@ -649,45 +645,76 @@ function DetailSection({ title, empty, children }: { title: string; empty: strin
   return <section className="detail-section"><h3>{title}</h3>{count ? children : <p className="detail-empty">{empty}</p>}</section>;
 }
 
-function SyncStatusPanel({ sync, syncing, startSync, refresh }: { sync: SyncStatus | null; syncing: boolean; startSync: () => Promise<void>; refresh: () => Promise<void> }) {
+function SyncStatusPanel({ sync, logs, refresh, reportError }: { sync: SyncStatus | null; logs: CrmImportLog[]; refresh: () => Promise<void>; reportError: (message: string | null) => void }) {
+  const [importing, setImporting] = useState<"contract_order" | "sales_opportunity" | null>(null);
+  const [result, setResult] = useState<{ dataType: "contract_order" | "sales_opportunity"; value: Awaited<ReturnType<typeof importCrmFile>> } | null>(null);
+  async function upload(dataType: "contract_order" | "sales_opportunity", event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    setImporting(dataType); reportError(null);
+    try {
+      const value = await importCrmFile(dataType, file);
+      setResult({ dataType, value });
+      await refresh();
+    } catch (err) {
+      reportError(err instanceof Error ? err.message : "CRM 数据导入失败");
+    } finally {
+      setImporting(null);
+    }
+  }
   return <section className="panel">
     <div className="panel-head">
-      <div><h2>同步状态</h2><p>查看 CRM 合同/商机同步结果、校验统计和下次计划执行时间</p></div>
+      <div><h2>手工导入 CRM 数据</h2><p>分别上传合同/订单与销售机会文件；系统按 CRM 内部 ID 或项目编号识别新增、更新和无变化记录。</p></div>
       <div className="panel-actions">
         <button className="button secondary" onClick={() => void refresh()}>刷新状态</button>
-        <button className="button primary" disabled={syncing} onClick={() => void startSync()}>{syncing ? "正在创建…" : "立即同步"}</button>
       </div>
     </div>
-    <div className="sync-grid">
-      <article><span>当前状态</span><strong>{statusLabel(sync?.status)}</strong><small>{syncModeLabel(sync)}</small></article>
-      <article><span>上次成功时间</span><strong>{sync?.last_success_at ?? "—"}</strong><small>时区：{sync?.timezone ?? "—"}</small></article>
-      <article><span>下次计划时间</span><strong>{sync?.next_scheduled_at ?? "—"}</strong><small>每日 03:00 自动执行</small></article>
-      <article><span>校验结果</span><strong>{sync?.validation.complete ? "通过" : "需检查"}</strong><small>合并机会 {sync?.validation.merged_opportunities ?? 0} 条</small></article>
+    <div className="import-grid">
+      <ImportCard dataType="contract_order" importing={importing} upload={upload} />
+      <ImportCard dataType="sales_opportunity" importing={importing} upload={upload} />
     </div>
-    <div className="table-wrap">
-      <table>
-        <thead><tr><th>数据类型</th><th>源记录数</th><th>输出记录数</th><th>说明</th></tr></thead>
-        <tbody>
-          <tr><td>合同 / 订单</td><td>{sync?.source_stats.contract_order ?? 0}</td><td>{sync?.output_stats.contract_order ?? 0}</td><td>CRM 合同主数据，用于项目名称、客户、金额和签约信息</td></tr>
-          <tr><td>销售机会</td><td>{sync?.source_stats.sales_opportunity ?? 0}</td><td>{sync?.output_stats.sales_opportunity ?? 0}</td><td>销售机会与合同项目编号相同会合并，不重复展示</td></tr>
-        </tbody>
-      </table>
-    </div>
+    {result && <div className="import-result"><strong>{result.dataType === "contract_order" ? "合同 / 订单" : "销售机会"}已导入</strong><span>{result.value.filename} · 解析 {result.value.parsed_rows} 行</span><b>新增 {result.value.validation.inserted_records ?? 0}</b><b>更新 {result.value.validation.updated_records ?? 0}</b><b>无变化 {result.value.validation.unchanged_records ?? 0}</b>{result.value.unmatched_project_rows > 0 && <em>待补充项目编号 {result.value.unmatched_project_rows} 条</em>}</div>}
+    <section className="import-log-section">
+      <div className="section-heading"><div><h3>导入记录日志</h3><p>仅记录已成功解析并保存的数据文件，最新上传显示在最前。</p></div></div>
+      <div className="table-wrap">
+        <table>
+          <thead><tr><th>上传成功时间</th><th>数据类型</th><th>文件名称</th><th>解析成功</th><th>新增</th><th>更新</th><th>无变化</th></tr></thead>
+          <tbody>{logs.length ? logs.map(log => <tr key={log.log_id}><td>{formatImportTime(log.imported_at)}</td><td><span className={`type-pill ${log.data_type}`}>{log.data_type === "contract_order" ? "合同 / 订单" : "销售机会"}</span></td><td className="file-name">{log.filename}</td><td>{log.parsed_rows}</td><td>{log.inserted_records}</td><td>{log.updated_records}</td><td>{log.unchanged_records}</td></tr>) : <tr><td colSpan={7} className="empty-cell">暂无成功上传记录</td></tr>}</tbody>
+        </table>
+      </div>
+    </section>
     <div className="sync-note">
-      <span className="source-tag">项目名称来源</span>
-      <p>项目名称优先使用 CRM 主数据主题。仅存在工时数据、但 CRM 未同步到对应项目编号时，项目名称只能临时显示项目代码，并标注“未匹配 CRM 主数据”。</p>
+      <span className="manual-tag">导入规则</span>
+      <p>系统只更新 CRM 主数据字段；合同类别、预算人天、项目经理、里程碑、回款确认等人工维护信息始终保留。当前可上传 Excel、CSV 或 JSON；待你确认首版模板后，可将字段别名锁定为固定模板。</p>
     </div>
   </section>;
 }
 
+function ImportCard(props: { dataType: "contract_order" | "sales_opportunity"; importing: "contract_order" | "sales_opportunity" | null; upload: (dataType: "contract_order" | "sales_opportunity", event: ChangeEvent<HTMLInputElement>) => Promise<void> }) {
+  const isContract = props.dataType === "contract_order";
+  const active = props.importing === props.dataType;
+  return <article className={`import-card ${props.dataType}`}>
+    <span className="import-icon">{isContract ? "▤" : "◎"}</span>
+    <div><h3>{isContract ? "合同 / 订单数据" : "销售机会数据"}</h3><p>{isContract ? "主题、客户、金额、签约时间、所有者" : "机会主题、负责人、可能性、状态"}</p></div>
+    <label className={`button ${isContract ? "primary" : "secondary"} ${active ? "disabled" : ""}`}>{active ? "导入中…" : "选择文件上传"}<input type="file" accept=".xlsx,.csv,.json" hidden disabled={props.importing !== null} onChange={event => void props.upload(props.dataType, event)} /></label>
+  </article>;
+}
+
 function CrmRecords(props: { records: RecordsResponse | null; loading: boolean; queryInput: string; setQueryInput: (value: string) => void; submitSearch: (event: FormEvent) => void; dataType: string; setDataType: (value: string) => void; status: string; setStatus: (value: string) => void; page: number; setPage: React.Dispatch<React.SetStateAction<number>>; }) {
-  return <section className="panel"><div className="panel-head"><div><h2>CRM 数据记录</h2><p>合同与销售机会审计视图</p></div><Search value={props.queryInput} setValue={props.setQueryInput} submit={props.submitSearch} /></div><div className="filters"><select value={props.dataType} onChange={e => { props.setDataType(e.target.value); props.setPage(1); }}><option value="">全部数据类型</option><option value="contract_order">合同 / 订单</option><option value="sales_opportunity">销售机会</option></select><select value={props.status} onChange={e => { props.setStatus(e.target.value); props.setPage(1); }}><option value="">全部状态</option><option value="成功">成功</option><option value="跟踪">跟踪</option></select><span className="result-count">共 {props.records?.meta.total_records ?? 0} 条结果</span></div><div className="table-wrap"><table><thead><tr><th>类型</th><th>项目编号</th><th>主题</th><th>客户 / 分类</th><th>所有者</th><th>金额</th><th>可能性</th><th>状态</th></tr></thead><tbody>{props.loading ? <LoadingRows /> : props.records?.data.map(record => <RecordRow key={record.record_id} record={record} />)}</tbody></table></div><div className="pagination"><button disabled={props.page <= 1} onClick={() => props.setPage(value => value - 1)}>上一页</button><span>第 {props.records?.meta.page ?? props.page} / {props.records?.meta.total_pages || 1} 页</span><button disabled={!props.records || props.page >= props.records.meta.total_pages} onClick={() => props.setPage(value => value + 1)}>下一页</button></div></section>;
+  return <section className="panel"><div className="panel-head"><div><h2>CRM 数据记录</h2><p>展示全部成功解析并入库的合同与销售机会；项目主数据库另按项目编号汇总</p></div><Search value={props.queryInput} setValue={props.setQueryInput} submit={props.submitSearch} /></div><div className="filters"><select value={props.dataType} onChange={e => { props.setDataType(e.target.value); props.setPage(1); }}><option value="">全部数据类型</option><option value="contract_order">合同 / 订单</option><option value="sales_opportunity">销售机会</option></select><select value={props.status} onChange={e => { props.setStatus(e.target.value); props.setPage(1); }}><option value="">全部状态</option><option value="已完成">合同已完成</option><option value="未完成">合同未完成</option><option value="成功">商机成功</option><option value="跟踪">商机跟踪</option></select><span className="result-count">共 {props.records?.meta.total_records ?? 0} 条成功入库记录</span></div><div className="table-wrap"><table><thead><tr><th>类型</th><th>项目编号</th><th>主题</th><th>客户 / 分类</th><th>所有者</th><th>金额</th><th>可能性</th><th>状态</th></tr></thead><tbody>{props.loading ? <LoadingRows /> : props.records?.data.map(record => <RecordRow key={record.record_id} record={record} />)}</tbody></table></div><div className="pagination"><button disabled={props.page <= 1} onClick={() => props.setPage(value => value - 1)}>上一页</button><span>第 {props.records?.meta.page ?? props.page} / {props.records?.meta.total_pages || 1} 页</span><button disabled={!props.records || props.page >= props.records.meta.total_pages} onClick={() => props.setPage(value => value + 1)}>下一页</button></div></section>;
 }
 
 function Search({ value, setValue, submit }: { value: string; setValue: (value: string) => void; submit: (event: FormEvent) => void }) { return <form className="search" onSubmit={submit}><input value={value} onChange={e => setValue(e.target.value)} placeholder="搜索主题、客户或项目编号" /><button type="submit">搜索</button></form>; }
-function RecordRow({ record }: { record: CrmRecord }) { return <tr><td><span className={`type-pill ${record.data_type}`}>{record.data_type === "contract_order" ? "合同/订单" : "销售机会"}</span></td><td><strong className="project-code">{record.project_number ?? "—"}</strong></td><td><div className="subject">{record.subject}</div>{record.signed_at && <small>{record.signed_at}</small>}</td><td><div>{record.customer ?? "—"}</div><small>{record.category ?? ""}</small></td><td>{record.owner}</td><td className="money">{record.total_amount?.display ?? "—"}</td><td>{record.probability == null ? "—" : `${record.probability}%`}</td><td><span className={`state ${record.status === "成功" ? "success" : "tracking"}`}>{record.status ?? "—"}</span></td></tr>; }
+function RecordRow({ record }: { record: CrmRecord }) { return <tr><td><span className={`type-pill ${record.data_type}`}>{record.data_type === "contract_order" ? "合同/订单" : "销售机会"}</span></td><td><strong className="project-code">{record.project_number ?? "—"}</strong></td><td><div className="subject">{record.subject}</div>{record.signed_at && <small>{record.signed_at}</small>}</td><td><div>{record.customer ?? "—"}</div><small>{record.category ?? ""}</small></td><td>{record.owner}</td><td className="money">{record.total_amount?.display ?? "—"}</td><td>{record.probability == null ? "—" : `${record.probability}%`}</td><td><span className={`state ${record.status === "成功" || record.status === "已完成" ? "success" : record.status === "未完成" ? "unfinished" : "tracking"}`}>{record.status ?? "—"}</span></td></tr>; }
 function LoadingRows({ colSpan = 10 }: { colSpan?: number }) { return <>{Array.from({ length: 5 }, (_, index) => <tr className="skeleton" key={index}><td colSpan={colSpan}><span /></td></tr>)}</>; }
 function money(value?: string | null) { if (value == null) return "—"; return new Intl.NumberFormat("zh-CN", { style: "currency", currency: "CNY", maximumFractionDigits: 0 }).format(Number(value)); }
+function formatImportTime(value: string) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat("zh-CN", {
+    year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false
+  }).format(date).replace(/\//g, "-");
+}
 function hoursToDays(value?: string | null) {
   if (value == null || value === "") return "—";
   return (Number(value) / 8).toFixed(2);
@@ -702,9 +729,10 @@ function lifecycleLabel(value: ProjectSummary["lifecycle_status"]) { return ({ p
 function riskLabel(value: ProjectSummary["risk_level"]) { return ({ healthy: "健康", warning: "关注", critical: "严重" } as const)[value]; }
 function healthClass(value: string) { if (value === "已超预算" || value === "高风险") return "critical"; if (value === "需关注" || value === "待维护预算") return "warning"; if (value === "无基线") return "baseline"; return "healthy"; }
 function employeeStatusClass(value: string) { if (value === "工时充足") return "healthy"; if (value === "基本达标") return "baseline"; if (value === "需要关注") return "warning"; return "critical"; }
-function statusLabel(value?: SyncStatus["status"]) { return ({ succeeded: "同步正常", running: "同步中", failed: "同步失败", auth_required: "需要登录", never_run: "尚未同步" } as const)[value ?? "never_run"]; }
+function statusLabel(value?: SyncStatus["status"]) { return ({ succeeded: "数据可用", running: "处理中", failed: "导入失败", auth_required: "需要登录", never_run: "尚未导入" } as const)[value ?? "never_run"]; }
 function syncModeLabel(sync: SyncStatus | null) {
-  if (sync?.validation.sync_mode === "incremental") return `增量 +${sync.validation.inserted_records ?? 0} / 更新 ${sync.validation.updated_records ?? 0}`;
-  if (sync?.validation.sync_mode === "full") return "首次全量同步";
-  return "增量同步模式";
+  if (sync?.validation.import_kind === "manual_upload") return `手工导入 · 新增 ${sync.validation.inserted_records ?? 0} / 更新 ${sync.validation.updated_records ?? 0}`;
+  if (sync?.validation.sync_mode === "incremental") return `历史导入 · 新增 ${sync.validation.inserted_records ?? 0} / 更新 ${sync.validation.updated_records ?? 0}`;
+  if (sync?.validation.sync_mode === "full") return "初始数据已导入";
+  return "等待手工上传";
 }

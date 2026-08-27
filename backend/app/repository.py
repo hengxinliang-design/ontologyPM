@@ -45,12 +45,25 @@ class SnapshotRepository:
             ("data_type", data_type),
             ("project_number", project_number),
             ("owner", owner),
-            ("status", status),
             ("probability", probability),
         ):
             if value is not None:
                 clauses.append(f"{column} = ?")
                 params.append(value)
+        if status == "已完成":
+            clauses.append(
+                "data_type = 'contract_order' AND total_amount IS NOT NULL "
+                "AND total_amount = received_amount AND total_amount = invoiced_amount"
+            )
+        elif status == "未完成":
+            clauses.append(
+                "data_type = 'contract_order' AND (total_amount IS NULL OR "
+                "received_amount IS NULL OR invoiced_amount IS NULL OR "
+                "total_amount != received_amount OR total_amount != invoiced_amount)"
+            )
+        elif status is not None:
+            clauses.append("status = ?")
+            params.append(status)
         if query:
             clauses.append("(subject LIKE ? OR customer LIKE ? OR project_number LIKE ?)")
             needle = f"%{query}%"
@@ -153,6 +166,33 @@ class SnapshotRepository:
             "validation": json.loads(snapshot["validation_json"]),
         }
 
+    def list_crm_import_logs(self, *, limit: int = 50) -> list[dict[str, Any]]:
+        with self.database.connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT id, snapshot_id, data_type, filename, parsed_rows,
+                       inserted_records, updated_records, unchanged_records, imported_at
+                FROM crm_import_logs
+                ORDER BY imported_at DESC, id DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        return [
+            {
+                "log_id": row["id"],
+                "snapshot_id": row["snapshot_id"],
+                "data_type": row["data_type"],
+                "filename": row["filename"],
+                "parsed_rows": row["parsed_rows"],
+                "inserted_records": row["inserted_records"],
+                "updated_records": row["updated_records"],
+                "unchanged_records": row["unchanged_records"],
+                "imported_at": row["imported_at"],
+            }
+            for row in rows
+        ]
+
     def export_records(self) -> dict[str, Any] | None:
         snapshot_id = self.database.active_snapshot_id()
         if snapshot_id is None:
@@ -196,7 +236,7 @@ def _serialize_record(row: Any) -> dict[str, Any]:
         ),
         "owner": row["owner"],
         "probability": row["probability"],
-        "status": row["status"],
+        "status": _record_status(row),
         "merged_from_opportunity": bool(row["merged_from_opportunity"]),
         "updated_at": row["updated_at"],
     }
@@ -206,6 +246,13 @@ def _money(amount: str | None, display: str | None) -> dict[str, str] | None:
     if amount is None:
         return None
     return {"amount": amount, "currency": "CNY", "display": display or amount}
+
+
+def _record_status(row: Any) -> str | None:
+    if row["data_type"] != "contract_order":
+        return row["status"]
+    amounts = (row["total_amount"], row["received_amount"], row["invoiced_amount"])
+    return "已完成" if all(amount is not None for amount in amounts) and len(set(amounts)) == 1 else "未完成"
 
 
 def _empty_validation() -> dict[str, Any]:

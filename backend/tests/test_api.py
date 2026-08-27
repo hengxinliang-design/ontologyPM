@@ -34,11 +34,16 @@ def test_records_and_project_endpoints(tmp_path):
         response = client.get("/api/v1/records")
         assert response.status_code == 200
         body = response.json()
-        assert body["meta"]["total_records"] == 3
+        assert body["meta"]["total_records"] == 4
+        converted_opportunity = next(
+            row for row in body["data"]
+            if row["data_type"] == "sales_opportunity" and row["project_number"] == "TPL149"
+        )
+        assert converted_opportunity["status"] == "成功"
         project = client.get("/api/v1/projects/TPL149").json()["data"]
         contract = project["crm_records"][0]
         assert contract["probability"] == 100
-        assert contract["status"] == "成功"
+        assert contract["status"] == "未完成"
         assert contract["merged_from_opportunity"] is True
         assert project["planned_person_days"] == "30.00"
         assert project["actual_person_days"] == "2.50"
@@ -264,7 +269,138 @@ def test_incremental_sync_preserves_manual_fields(tmp_path):
         assert project["project_manager"] == "Manual Manager"
         assert project["contract_type"] == "maintenance"
         assert project["planned_person_days"] == "88.00"
-        assert client.get("/api/v1/records").json()["meta"]["total_records"] == 3
+        assert client.get("/api/v1/records").json()["meta"]["total_records"] == 4
+
+
+def test_manual_crm_upload_classifies_new_update_and_unchanged_rows(tmp_path):
+    with TestClient(create_app(settings(tmp_path))) as client:
+        def upload(csv_text: str) -> dict:
+            response = client.post(
+                "/api/v1/crm-imports",
+                json={
+                    "data_type": "contract_order",
+                    "filename": "contracts.csv",
+                    "content_base64": base64.b64encode(csv_text.encode()).decode(),
+                },
+            )
+            assert response.status_code == 200, response.text
+            return response.json()["data"]
+
+        unchanged = upload(
+            "crm_internal_id,项目编号,主题,所有者,总金额\n"
+            "contract-149,TPL149,TPL149-天津鹏翎集团股份有限公司ERP/MOM与SRM接口项目,Li Qiang,\"￥149,900.00\"\n"
+        )
+        assert unchanged["validation"]["unchanged_records"] == 1
+        assert unchanged["validation"]["updated_records"] == 0
+
+        updated = upload(
+            "crm_internal_id,项目编号,主题,所有者,总金额\n"
+            "contract-149,TPL149,TPL149-天津鹏翎集团股份有限公司ERP/MOM与SRM接口项目,Li Qiang,\"￥150,000.00\"\n"
+        )
+        assert updated["validation"]["updated_records"] == 1
+        assert client.get("/api/v1/projects/TPL149").json()["data"]["contract_value"] == "150000.00"
+
+        inserted = upload(
+            "项目编号,主题,所有者,总金额\n"
+            "NEW101,NEW101-手工导入合同,Manager Wang,\"￥8,000.00\"\n"
+        )
+        assert inserted["validation"]["inserted_records"] == 1
+        logs = client.get("/api/v1/crm-imports").json()["data"]
+        assert len(logs) == 3
+        assert logs[0]["data_type"] == "contract_order"
+        assert logs[0]["filename"] == "contracts.csv"
+        assert logs[0]["parsed_rows"] == 1
+        assert logs[0]["inserted_records"] == 1
+        assert logs[0]["imported_at"]
+        project = client.get("/api/v1/projects/NEW101").json()["data"]
+        assert project["subject"] == "NEW101-手工导入合同"
+
+
+def test_manual_crm_upload_rejects_template_without_required_headers(tmp_path):
+    with TestClient(create_app(settings(tmp_path))) as client:
+        response = client.post(
+            "/api/v1/crm-imports",
+            json={
+                "data_type": "sales_opportunity",
+                "filename": "opportunities.csv",
+                "content_base64": base64.b64encode("项目编号,金额\nABC101,100\n".encode()).decode(),
+            },
+        )
+        assert response.status_code == 422
+        assert "主题" in response.json()["detail"]
+
+
+def test_manual_opportunity_upload_normalizes_decimal_probability_and_expected_columns(tmp_path):
+    with TestClient(create_app(settings(tmp_path))) as client:
+        csv_text = (
+            "ID,机会主题,客户,负责人,预期金额,预计签单日期,可能性,状态,类型\n"
+            "9001,OPP901-导入测试,〖OPP〗,Li Qiang,8800,2026-09-30,0.2,跟踪,ISL\n"
+        )
+        response = client.post(
+            "/api/v1/crm-imports",
+            json={
+                "data_type": "sales_opportunity",
+                "filename": "opportunities.csv",
+                "content_base64": base64.b64encode(csv_text.encode()).decode(),
+            },
+        )
+        assert response.status_code == 200, response.text
+        record = client.get("/api/v1/records?project_number=OPP901").json()["data"][0]
+        assert record["probability"] == 20
+        assert record["signed_at"] == "2026-09-30"
+        assert record["total_amount"]["amount"] == "8800.00"
+        assert record["category"] == "ISL"
+
+
+def test_manual_crm_upload_preserves_project_maintenance_fields(tmp_path):
+    with TestClient(create_app(settings(tmp_path))) as client:
+        client.patch(
+            "/api/v1/projects/TPL149/settings",
+            json={
+                "contract_type": "maintenance",
+                "planned_person_days": "88",
+                "project_manager": "Manual Manager",
+            },
+        )
+        csv_text = (
+            "ID,主题,所有者,总金额\n"
+            "contract-149,TPL149-天津鹏翎集团股份有限公司ERP/MOM与SRM接口项目,CRM Owner,160000\n"
+        )
+        response = client.post(
+            "/api/v1/crm-imports",
+            json={
+                "data_type": "contract_order",
+                "filename": "contracts.csv",
+                "content_base64": base64.b64encode(csv_text.encode()).decode(),
+            },
+        )
+        assert response.status_code == 200, response.text
+        project = client.get("/api/v1/projects/TPL149").json()["data"]
+        assert project["contract_value"] == "160000.00"
+        assert project["contract_type"] == "maintenance"
+        assert project["planned_person_days"] == "88.00"
+        assert project["project_manager"] == "Manual Manager"
+
+
+def test_successful_opportunity_is_a_project_without_contract_row(tmp_path):
+    with TestClient(create_app(settings(tmp_path))) as client:
+        csv_text = (
+            "ID,机会主题,负责人,可能性,状态,阶段\n"
+            "9002,SUC901-已签约但合同待导入,Li Qiang,1,成功,商务谈判仍显示\n"
+        )
+        response = client.post(
+            "/api/v1/crm-imports",
+            json={
+                "data_type": "sales_opportunity",
+                "filename": "successful-opportunity.csv",
+                "content_base64": base64.b64encode(csv_text.encode()).decode(),
+            },
+        )
+        assert response.status_code == 200, response.text
+        project = client.get("/api/v1/projects/SUC901").json()["data"]
+        assert project["contract_count"] == 0
+        assert project["opportunity_count"] == 1
+        assert project["master_category"] == "项目"
 
 
 def test_work_time_budget_and_customer_confirmation_gap_alerts(tmp_path):

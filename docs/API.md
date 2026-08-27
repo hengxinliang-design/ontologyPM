@@ -141,6 +141,7 @@ GET /health
 ## 4. CRM 记录接口
 
 CRM 记录是系统接口同步后的只读事实数据。人工维护字段不写入 CRM 记录表。
+列表会返回全部成功解析并已入库的合同与销售机会原始记录；项目主数据库才按项目编号执行汇总。
 
 ### 4.1 查询 CRM 记录列表
 
@@ -207,7 +208,7 @@ GET /api/v1/records?data_type=contract_order&page=1&page_size=50&sort=-signed_at
       },
       "owner": "Li Qiang",
       "probability": 100,
-      "status": "成功",
+      "status": "未完成",
       "merged_from_opportunity": true,
       "updated_at": "2026-07-01T16:01:22-04:00"
     }
@@ -1100,7 +1101,7 @@ GET /api/v1/sync-status
   "validation": {
     "complete": true,
     "merged_opportunities": 1,
-    "cross_type_duplicate_project_ids": 1,
+    "cross_type_duplicate_project_ids": 0,
     "sync_mode": "incremental",
     "inserted_records": 0,
     "updated_records": 1,
@@ -1110,49 +1111,51 @@ GET /api/v1/sync-status
 }
 ```
 
-### 10.2 创建同步任务
+### 10.2 查询手工导入日志
 
 ```http
-POST /api/v1/sync-jobs
-```
-
-响应状态码：`202`
-
-响应：
-
-```json
-{
-  "job_id": "job_xxx",
-  "status": "queued",
-  "created_at": "2026-07-06T03:00:00-04:00"
-}
-```
-
-说明：
-
-- 同步任务在后台执行。
-- 若已有任务运行，返回 `409`。
-- 调度时间由 `XTCRM_SYNC_HOUR` 和 `XTCRM_TIMEZONE` 决定。
-
-### 10.3 查询同步任务
-
-```http
-GET /api/v1/sync-jobs/{job_id}
+GET /api/v1/crm-imports?limit=50
 ```
 
 响应：
 
 ```json
 {
-  "job_id": "job_xxx",
-  "status": "succeeded",
-  "created_at": "2026-07-06T03:00:00-04:00",
-  "started_at": "2026-07-06T03:00:01-04:00",
-  "completed_at": "2026-07-06T03:00:02-04:00",
-  "message": null,
-  "validation_json": "{}"
+  "data": [
+    {
+      "log_id": 12,
+      "snapshot_id": 18,
+      "data_type": "contract_order",
+      "filename": "合同数据.xlsx",
+      "parsed_rows": 82,
+      "inserted_records": 2,
+      "updated_records": 0,
+      "unchanged_records": 80,
+      "imported_at": "2026-08-01T14:30:00+08:00"
+    }
+  ]
 }
 ```
+
+仅成功解析且已写入 SQLite 的上传会生成一条日志；返回顺序为最新优先。
+
+### 10.3 上传 CRM 文件
+
+```http
+POST /api/v1/crm-imports
+```
+
+请求体：
+
+```json
+{
+  "data_type": "contract_order",
+  "filename": "合同数据.xlsx",
+  "content_base64": "..."
+}
+```
+
+`data_type` 支持 `contract_order`、`sales_opportunity`。上传成功的响应会包含 `import_log`，其中 `imported_at` 即本次上传成功时间。
 
 ## 11. 导出接口
 
@@ -1218,8 +1221,10 @@ record_id,data_type,project_number,subject,customer,category,signed_at,total_amo
 
 - `project_number` 是 CRM 与工时的业务主键。
 - 若销售机会与合同/订单存在相同 `project_number`，说明机会已转化为合同。
-- 输出中保留合同/订单记录，不重复展示对应销售机会。
-- 合同/订单记录的 `probability` 填充为 `100`，`status` 填充为 `成功`，并标记 `merged_from_opportunity=true`。
+- CRM 数据接口保留合同/订单和销售机会两条成功入库的原始记录，便于审计、导出和追溯。
+- 项目主数据库按 `project_number` 汇总，因此不会因对应销售机会重复生成项目。
+- 已由商机转化的合同/订单记录会将 `probability` 填充为 `100`，并标记 `merged_from_opportunity=true`。
+- 合同/订单的 `status` 为系统推导字段：仅当 `total_amount`、`received_amount`、`invoiced_amount` 三者均有值且相等时为 `已完成`；否则为 `未完成`。销售机会仍保留导入数据中的状态。
 
 ### 12.4 风险提醒规则
 

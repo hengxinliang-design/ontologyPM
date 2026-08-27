@@ -1,15 +1,11 @@
 from __future__ import annotations
 
-import asyncio
 import csv
 import io
 from contextlib import asynccontextmanager
-from datetime import datetime, timedelta
 from typing import Annotated, Any
-from zoneinfo import ZoneInfo
 
 from fastapi import (
-    BackgroundTasks,
     Body,
     Depends,
     FastAPI,
@@ -23,6 +19,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 
 from .config import Settings
+from .crm_import import CrmImportValidationError, parse_crm_import_base64, template_fields
 from .db import Database
 from .repository import SnapshotRepository
 from .project_repository import ProjectRepository
@@ -47,12 +44,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             await sync_service.run_job(job["job_id"])
         if settings.source_file.name.endswith(".example.json"):
             project_repository.ensure_demo_data()
-        scheduler_task = None
-        if settings.scheduler_enabled:
-            scheduler_task = asyncio.create_task(sync_service.scheduler_loop())
         yield
-        if scheduler_task:
-            scheduler_task.cancel()
 
     app = FastAPI(
         title="TSG PM Data API",
@@ -452,8 +444,41 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def get_sync_status() -> dict[str, Any]:
         status = repository.sync_status()
         status["timezone"] = settings.timezone
-        status["next_scheduled_at"] = _next_run(settings)
+        status["next_scheduled_at"] = None
         return status
+
+    @app.get("/api/v1/crm-imports/template", dependencies=[auth], tags=["CRM Imports"])
+    def get_crm_import_template(
+        data_type: str = Query(..., pattern="^(contract_order|sales_opportunity)$"),
+    ) -> dict[str, Any]:
+        return template_fields(data_type)
+
+    @app.get("/api/v1/crm-imports", dependencies=[auth], tags=["CRM Imports"])
+    def list_crm_imports(limit: int = Query(50, ge=1, le=200)) -> dict[str, Any]:
+        """List successful manual CRM uploads, newest first."""
+        return {"data": repository.list_crm_import_logs(limit=limit)}
+
+    @app.post("/api/v1/crm-imports", dependencies=[auth], tags=["CRM Imports"])
+    def import_crm_file(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
+        data_type = str(payload.get("data_type") or "")
+        filename = str(payload.get("filename") or "")
+        content_base64 = str(payload.get("content_base64") or "")
+        if not filename or not content_base64:
+            raise HTTPException(status_code=422, detail="filename and content_base64 are required")
+        try:
+            records, summary = parse_crm_import_base64(
+                content_base64=content_base64,
+                filename=filename,
+                data_type=data_type,
+            )
+            result = sync_service.import_manual_records(
+                data_type=data_type,
+                records=records,
+                filename=filename,
+            )
+        except (CrmImportValidationError, ValueError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return {"data": {**summary, **result}}
 
     @app.post(
         "/api/v1/sync-jobs",
@@ -461,13 +486,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         dependencies=[auth],
         tags=["Sync"],
     )
-    async def create_sync_job(background_tasks: BackgroundTasks) -> dict[str, Any]:
-        try:
-            job = sync_service.create_job()
-        except RuntimeError as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
-        background_tasks.add_task(sync_service.run_job, job["job_id"])
-        return job
+    async def create_sync_job() -> dict[str, Any]:
+        raise HTTPException(
+            status_code=410,
+            detail="automatic source synchronization has been retired; upload contract or opportunity data manually",
+        )
 
     @app.get(
         "/api/v1/sync-jobs/{job_id}", dependencies=[auth], tags=["Sync"]
@@ -521,14 +544,6 @@ def _page_link(request: Request, page: int) -> str:
     params["page"] = str(page)
     query = "&".join(f"{key}={value}" for key, value in params.items())
     return f"{request.url.path}?{query}"
-
-
-def _next_run(settings: Settings) -> str:
-    now = datetime.now(ZoneInfo(settings.timezone))
-    next_run = now.replace(hour=settings.sync_hour, minute=0, second=0, microsecond=0)
-    if next_run <= now:
-        next_run += timedelta(days=1)
-    return next_run.isoformat(timespec="seconds")
 
 
 def _problem(
