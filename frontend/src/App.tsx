@@ -305,7 +305,7 @@ export function App() {
     <div className="app-shell">
       <aside className="sidebar">
         <div className="brand"><span className="brand-mark">PM</span><span>TSG PM</span></div>
-        <nav>
+        <nav className="sidebar-nav" aria-label="主菜单">
           <div className="nav-group">
             <p>查询与运营监控</p>
             {canAccess("projects") && <button className={`nav-item ${view === "projects" ? "active" : ""}`} onClick={() => switchView("projects")}><span>◫</span> 项目总览</button>}
