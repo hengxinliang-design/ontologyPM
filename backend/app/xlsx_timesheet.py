@@ -12,13 +12,21 @@ from xml.etree import ElementTree as ET
 
 
 NS = {"a": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
-REQUIRED_HEADERS = {
+LEGACY_REQUIRED_HEADERS = {
     "姓名",
     "日期",
     "项目代码",
     "天数",
     "工作内容",
     "流程状态",
+}
+EXPORTED_DETAIL_REQUIRED_HEADERS = {
+    "姓名",
+    "项目代码",
+    "时间",
+    "天数",
+    "加班天数",
+    "工作内容",
 }
 
 
@@ -33,52 +41,56 @@ def parse_timesheet_xlsx_base64(content_base64: str) -> list[dict[str, Any]]:
 
 
 def parse_timesheet_xlsx(workbook_bytes: bytes) -> list[dict[str, Any]]:
-    rows = parse_xlsx_rows(workbook_bytes)
-    if not rows:
-        raise ValueError("Excel does not contain rows")
-    headers = [str(value).strip() if value is not None else "" for value in rows[0]]
-    missing = REQUIRED_HEADERS - set(headers)
-    if missing:
-        raise ValueError(f"Excel missing required columns: {', '.join(sorted(missing))}")
+    selected = _find_timesheet_sheet(parse_xlsx_sheets(workbook_bytes))
+    if selected is None:
+        raise ValueError(
+            "Excel missing required columns: "
+            "姓名, 项目代码, 日期/时间, 天数, 加班天数(导出明细), 工作内容"
+        )
+    rows, header_row, source_kind = selected
+    headers = [str(value).strip() if value is not None else "" for value in rows[header_row]]
     indexes = {header: headers.index(header) for header in headers if header}
 
     entries: list[dict[str, Any]] = []
-    for row_number, row in enumerate(rows[1:], start=2):
+    for row_number, row in enumerate(rows[header_row + 1 :], start=header_row + 2):
         raw_name = _value(row, indexes["姓名"])
         raw_project = _value(row, indexes["项目代码"])
-        raw_date = _value(row, indexes["日期"])
+        raw_date = _value(row, indexes["日期"] if source_kind == "legacy" else indexes["时间"])
         raw_days = _value(row, indexes["天数"])
+        raw_overtime_days = _value(row, indexes["加班天数"]) if source_kind == "exported_detail" else None
         raw_content = _value(row, indexes["工作内容"])
-        raw_status = _value(row, indexes["流程状态"])
-        if not any([raw_name, raw_project, raw_date, raw_days, raw_content, raw_status]):
+        raw_status = _value(row, indexes["流程状态"]) if source_kind == "legacy" else "流转完成"
+        if not any([raw_name, raw_project, raw_date, raw_days, raw_overtime_days, raw_content, raw_status]):
             continue
-        if not all([raw_name, raw_project, raw_date, raw_days]):
+        if not all([raw_name, raw_project, raw_date, raw_content]):
             raise ValueError(f"row {row_number} missing required timesheet values")
 
         employee_name = str(raw_name).strip()
         project_number = str(raw_project).strip()
         work_date = _date_text(raw_date)
-        hours = Decimal(str(raw_days)) * Decimal("8")
-        if hours < 0 or hours > 24:
-            raise ValueError(f"row {row_number} hours must be between 0 and 24")
+        work_days = _days(raw_days, row_number, "天数")
+        overtime_days = _days(raw_overtime_days, row_number, "加班天数")
+        if work_days + overtime_days <= 0:
+            raise ValueError(f"row {row_number} requires 天数 or 加班天数")
+        hours = work_days * Decimal("8")
+        overtime_hours = overtime_days * Decimal("8")
+        if hours + overtime_hours > 24:
+            raise ValueError(f"row {row_number} total hours must be between 0 and 24")
         approval_status = _approval_status(str(raw_status or "").strip())
-        approved_hours = hours if approval_status == "approved" else Decimal("0")
+        approved_hours = hours + overtime_hours if approval_status == "approved" else Decimal("0")
         work_content = str(raw_content or "").strip()
+        identity_parts = [employee_name, project_number, work_date, str(raw_days), work_content, str(raw_status or "")]
+        if source_kind == "exported_detail":
+            identity_parts.insert(4, str(raw_overtime_days or "0"))
         entries.append(
             {
-                "external_id": _external_id(
-                    employee_name,
-                    project_number,
-                    work_date,
-                    str(raw_days),
-                    work_content,
-                    str(raw_status or ""),
-                ),
+                "external_id": _external_id(*identity_parts),
                 "project_number": project_number,
                 "employee_id": _employee_id(employee_name),
                 "employee_name": employee_name,
                 "work_date": work_date,
                 "hours": f"{hours:.4f}",
+                "overtime_hours": f"{overtime_hours:.4f}",
                 "approved_hours": f"{approved_hours:.4f}",
                 "approval_status": approval_status,
                 "work_content": work_content,
@@ -95,6 +107,29 @@ def parse_xlsx_rows(workbook_bytes: bytes) -> list[list[Any]]:
         shared_strings = _shared_strings(archive)
         sheet_xml = archive.read(_first_sheet_path(archive))
     return _sheet_rows(sheet_xml, shared_strings)
+
+
+def parse_xlsx_sheets(workbook_bytes: bytes) -> list[list[list[Any]]]:
+    with zipfile.ZipFile(io.BytesIO(workbook_bytes)) as archive:
+        shared_strings = _shared_strings(archive)
+        paths = sorted(
+            name for name in archive.namelist()
+            if name.startswith("xl/worksheets/sheet") and name.endswith(".xml")
+        )
+        return [_sheet_rows(archive.read(path), shared_strings) for path in paths]
+
+
+def _find_timesheet_sheet(
+    sheets: list[list[list[Any]]],
+) -> tuple[list[list[Any]], int, str] | None:
+    for rows in sheets:
+        for index, row in enumerate(rows):
+            headers = {str(value).strip() for value in row if value is not None}
+            if LEGACY_REQUIRED_HEADERS <= headers:
+                return rows, index, "legacy"
+            if EXPORTED_DETAIL_REQUIRED_HEADERS <= headers:
+                return rows, index, "exported_detail"
+    return None
 
 
 def _shared_strings(archive: zipfile.ZipFile) -> list[str]:
@@ -177,6 +212,18 @@ def _approval_status(status: str) -> str:
     if "驳回" in status or "拒绝" in status:
         return "rejected"
     return "submitted"
+
+
+def _days(value: Any, row_number: int, column_name: str) -> Decimal:
+    if value in (None, ""):
+        return Decimal("0")
+    try:
+        days = Decimal(str(value))
+    except Exception as exc:
+        raise ValueError(f"row {row_number} has invalid {column_name}") from exc
+    if days < 0:
+        raise ValueError(f"row {row_number} {column_name} must be non-negative")
+    return days
 
 
 def _employee_id(employee_name: str) -> str:

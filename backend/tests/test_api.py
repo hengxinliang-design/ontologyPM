@@ -2,12 +2,15 @@ import json
 import base64
 import io
 import zipfile
+from dataclasses import replace
 from pathlib import Path
 
+import httpx
 from fastapi.testclient import TestClient
 
 from app.config import Settings
 from app.main import create_app
+from app.pm_assistant import _project_analysis_context, _provider_error
 
 
 def settings(tmp_path: Path) -> Settings:
@@ -26,7 +29,123 @@ def settings(tmp_path: Path) -> Settings:
         scheduler_enabled=False,
         sync_hour=3,
         timezone="America/Detroit",
+        openai_api_key=None,
+        pm_assistant_model="gpt-5.2",
+        auth_enabled=False,
+        require_crm_project_match=False,
     )
+
+
+def test_local_login_and_menu_permissions(tmp_path):
+    secure_settings = replace(settings(tmp_path), auth_enabled=True)
+    with TestClient(create_app(secure_settings)) as client:
+        assert client.get("/docs").status_code == 404
+        assert client.get("/api/v1/projects").status_code == 401
+        assert client.post(
+            "/api/v1/auth/login", json={"username": "admin", "password": "wrong-password"}
+        ).status_code == 401
+
+        admin_login = client.post(
+            "/api/v1/auth/login", json={"username": "admin", "password": "Tsnt@2026"}
+        )
+        assert admin_login.status_code == 200
+        admin_token = admin_login.json()["data"]["token"]
+        admin_headers = {"Authorization": f"Bearer {admin_token}"}
+        assert client.get("/api/v1/auth/me", headers=admin_headers).json()["data"]["is_admin"] is True
+
+        created = client.post(
+            "/api/v1/users",
+            headers=admin_headers,
+            json={
+                "username": "viewer",
+                "password": "viewer-pass-1",
+                "permissions": ["projects"],
+            },
+        )
+        assert created.status_code == 201
+        viewer_token = client.post(
+            "/api/v1/auth/login", json={"username": "viewer", "password": "viewer-pass-1"}
+        ).json()["data"]["token"]
+        viewer_headers = {"Authorization": f"Bearer {viewer_token}"}
+        assert client.get("/api/v1/projects", headers=viewer_headers).status_code == 200
+        assert client.get("/api/v1/records", headers=viewer_headers).status_code == 403
+        assert client.get("/api/v1/users", headers=viewer_headers).status_code == 403
+        assert client.post("/api/v1/pm-assistant/chat", headers=viewer_headers, json={"message": "项目风险"}).status_code == 503
+
+        restricted = client.post(
+            "/api/v1/users",
+            headers=admin_headers,
+            json={"username": "importer", "password": "importer-pass-1", "permissions": ["sync"]},
+        )
+        assert restricted.status_code == 201
+        importer_token = client.post(
+            "/api/v1/auth/login", json={"username": "importer", "password": "importer-pass-1"}
+        ).json()["data"]["token"]
+        importer_headers = {"Authorization": f"Bearer {importer_token}"}
+        assert client.post("/api/v1/pm-assistant/chat", headers=importer_headers, json={"message": "项目风险"}).status_code == 403
+
+        updated = client.patch(
+            "/api/v1/users/viewer",
+            headers=admin_headers,
+            json={"permissions": ["crm"], "is_active": False},
+        )
+        assert updated.status_code == 200
+        assert updated.json()["data"]["is_active"] is False
+        assert client.get("/api/v1/auth/me", headers=viewer_headers).status_code == 401
+        assert client.patch(
+            "/api/v1/users/admin", headers=admin_headers, json={"is_active": False}
+        ).status_code == 422
+
+        assert client.post("/api/v1/auth/logout", headers=importer_headers).status_code == 200
+        assert client.get("/api/v1/auth/me", headers=importer_headers).status_code == 401
+
+
+def test_pm_assistant_reports_missing_server_configuration(tmp_path):
+    with TestClient(create_app(settings(tmp_path))) as client:
+        response = client.post("/api/v1/pm-assistant/chat", json={"message": "有哪些风险项目？"})
+        project_response = client.post("/api/v1/projects/TPL149/ai-analysis")
+    assert response.status_code == 503
+    assert "尚未配置模型服务" in response.json()["detail"]
+    assert project_response.status_code == 503
+    assert "尚未配置模型服务" in project_response.json()["detail"]
+
+
+def test_pm_assistant_quota_error_is_actionable():
+    response = httpx.Response(
+        429,
+        json={"error": {"code": "insufficient_quota"}},
+        request=httpx.Request("POST", "https://api.openai.com/v1/responses"),
+    )
+    assert "额度不足" in _provider_error(response)
+
+
+def test_project_analysis_context_aggregates_people_and_does_not_use_cost_rate():
+    context = _project_analysis_context(
+        {
+            "project_number": "TEST001",
+            "monthly_time_entries": [
+                {
+                    "month": "2026-08",
+                    "reported_person_days": "2.00",
+                    "overtime_person_days": "0.50",
+                    "approved_person_days": "2.00",
+                    "confirmation_gap_person_days": "0.50",
+                    "entry_count": 2,
+                    "entries": [
+                        {"employee_name": "张三", "hours": "8", "overtime_hours": "4"},
+                        {"employee_name": "李四", "hours": "8", "overtime_hours": "0"},
+                    ],
+                }
+            ],
+            "milestones": [],
+            "payment_nodes": [],
+            "crm_records": [],
+        }
+    )
+    assert context["worktime"]["team_top_by_reported_days"][0] == {
+        "employee_name": "张三", "reported_person_days": 1.5
+    }
+    assert "成本单价" in context["data_limitations"]
 
 
 def test_records_and_project_endpoints(tmp_path):
@@ -45,8 +164,13 @@ def test_records_and_project_endpoints(tmp_path):
         assert contract["probability"] == 100
         assert contract["status"] == "未完成"
         assert contract["merged_from_opportunity"] is True
+        assert contract["signed_at"] == "2026-06-16"
+        assert contract["total_amount"]["amount"] == "149900.00"
+        assert contract["received_amount"]["amount"] == "0.00"
+        assert contract["invoiced_amount"]["amount"] == "74950.00"
         assert project["planned_person_days"] == "30.00"
-        assert project["actual_person_days"] == "2.50"
+        assert project["actual_person_days"] == "0.00"
+        assert project["crm_received_amount"] == "0.00"
 
 
 def test_project_portfolio(tmp_path):
@@ -59,12 +183,146 @@ def test_project_portfolio(tmp_path):
         assert tpl["master_category"] == "项目"
         assert tpl["contract_type"] == "construction"
         assert tpl["status"] == "active"
+        assert tpl["contract_status"] == "进行中"
+        assert tpl["outstanding_receivable_amount"] == "149900.00"
         assert tpl["current_milestone"]["name"] == "接口方案确认"
         assert tpl["payment_summary"]["total_nodes"] == 2
         assert tpl["payment_summary"]["next_node"]["name"] == "首期款"
         assert tpl["budget_hours"] == "240.00"
-        assert tpl["actual_hours"] == "20.00"
-        assert tpl["budget_utilization"] == 8.3
+        assert tpl["actual_hours"] == "0.00"
+        assert tpl["budget_utilization"] == 0.0
+
+
+def test_project_portfolio_fuzzy_search_matches_code_name_and_linked_customer(tmp_path):
+    with TestClient(create_app(settings(tmp_path))) as client:
+        response = client.post(
+            "/api/v1/crm-imports",
+            json={
+                "data_type": "contract_order",
+                "filename": "fuzzy-search-contract.csv",
+                "content_base64": base64.b64encode(
+                    (
+                        "项目编号,主题,客户,所有者,总金额\n"
+                        "FZY901,FZY901-智能制造平台改造,北辰精密制造有限公司,Manager Wang,1000\n"
+                    ).encode()
+                ).decode(),
+            },
+        )
+        assert response.status_code == 200, response.text
+
+        for query in ("fzy", "制造平台", "北辰精密"):
+            body = client.get("/api/v1/projects", params={"q": query}).json()
+            assert [row["project_number"] for row in body["data"]] == ["FZY901"]
+
+            health = client.get(
+                "/api/v1/project-health", params={"month": "2026-08", "q": query}
+            ).json()
+            assert [row["project_number"] for row in health["data"]] == ["FZY901"]
+
+
+def test_contract_status_and_outstanding_receivable_use_imported_crm_amounts(tmp_path):
+    with TestClient(create_app(settings(tmp_path))) as client:
+        response = client.post(
+            "/api/v1/crm-imports",
+            json={
+                "data_type": "contract_order",
+                "filename": "completed-contract.csv",
+                "content_base64": base64.b64encode(
+                    (
+                        "crm_internal_id,项目编号,主题,所有者,签约时间,总金额,回款金额,开票金额\n"
+                        "done-contract,DONE101,DONE101-已结束合同,Manager Wang,2026-08-01,100.00,100.00,100.00\n"
+                    ).encode()
+                ).decode(),
+            },
+        )
+        assert response.status_code == 200, response.text
+
+        completed = client.get("/api/v1/projects/DONE101").json()["data"]
+        assert completed["contract_status"] == "已结束"
+        assert completed["outstanding_receivable_amount"] is None
+
+        ongoing = client.get("/api/v1/projects/TPL149").json()["data"]
+        assert ongoing["contract_status"] == "进行中"
+        assert ongoing["outstanding_receivable_amount"] == "149900.00"
+
+        health = client.get(
+            "/api/v1/project-health?month=2026-08&project_number=DONE101"
+        ).json()["data"]
+        assert health[0]["contract_status"] == "已结束"
+        assert health[0]["outstanding_receivable_amount"] is None
+
+
+def test_project_portfolio_filters_by_contract_status(tmp_path):
+    with TestClient(create_app(settings(tmp_path))) as client:
+        response = client.post(
+            "/api/v1/crm-imports",
+            json={
+                "data_type": "contract_order",
+                "filename": "completed-contract.csv",
+                "content_base64": base64.b64encode(
+                    (
+                        "crm_internal_id,项目编号,主题,所有者,签约时间,总金额,回款金额,开票金额\n"
+                        "done-filter,DONEFILTER,DONEFILTER-已结束合同,Manager Wang,2026-08-01,100.00,100.00,100.00\n"
+                    ).encode()
+                ).decode(),
+            },
+        )
+        assert response.status_code == 200, response.text
+
+        completed = client.get(
+            "/api/v1/projects", params={"contract_status": "已结束"}
+        ).json()["data"]
+        assert {row["project_number"] for row in completed} == {"DONEFILTER"}
+
+        ongoing = client.get(
+            "/api/v1/projects", params={"contract_status": "进行中"}
+        ).json()["data"]
+        assert ongoing
+        assert all(row["contract_status"] == "进行中" for row in ongoing)
+
+        unsigned = client.get(
+            "/api/v1/projects", params={"contract_status": "未签约"}
+        ).json()["data"]
+        assert unsigned
+        assert all(row["contract_status"] is None for row in unsigned)
+
+
+def test_project_health_filters_by_contract_status(tmp_path):
+    with TestClient(create_app(settings(tmp_path))) as client:
+        response = client.post(
+            "/api/v1/crm-imports",
+            json={
+                "data_type": "contract_order",
+                "filename": "health-completed-contract.csv",
+                "content_base64": base64.b64encode(
+                    (
+                        "crm_internal_id,项目编号,主题,所有者,签约时间,总金额,回款金额,开票金额\n"
+                        "done-health,DONEHEALTH,DONEHEALTH-已结束合同,Manager Wang,2026-08-01,100.00,100.00,100.00\n"
+                    ).encode()
+                ).decode(),
+            },
+        )
+        assert response.status_code == 200, response.text
+
+        completed = client.get(
+            "/api/v1/project-health",
+            params={"month": "2026-08", "contract_status": "已结束"},
+        ).json()["data"]
+        assert {row["project_number"] for row in completed} == {"DONEHEALTH"}
+
+        ongoing = client.get(
+            "/api/v1/project-health",
+            params={"month": "2026-08", "contract_status": "进行中"},
+        ).json()["data"]
+        assert ongoing
+        assert all(row["contract_status"] == "进行中" for row in ongoing)
+
+        unsigned = client.get(
+            "/api/v1/project-health",
+            params={"month": "2026-08", "contract_status": "未签约"},
+        ).json()["data"]
+        assert unsigned
+        assert all(row["contract_status"] is None for row in unsigned)
 
 
 def test_csv_export(tmp_path):
@@ -305,8 +563,10 @@ def test_manual_crm_upload_classifies_new_update_and_unchanged_rows(tmp_path):
             "NEW101,NEW101-手工导入合同,Manager Wang,\"￥8,000.00\"\n"
         )
         assert inserted["validation"]["inserted_records"] == 1
-        logs = client.get("/api/v1/crm-imports").json()["data"]
+        logs_response = client.get("/api/v1/crm-imports").json()
+        logs = logs_response["data"]
         assert len(logs) == 3
+        assert logs_response["meta"]["total_records"] == 3
         assert logs[0]["data_type"] == "contract_order"
         assert logs[0]["filename"] == "contracts.csv"
         assert logs[0]["parsed_rows"] == 1
@@ -314,6 +574,40 @@ def test_manual_crm_upload_classifies_new_update_and_unchanged_rows(tmp_path):
         assert logs[0]["imported_at"]
         project = client.get("/api/v1/projects/NEW101").json()["data"]
         assert project["subject"] == "NEW101-手工导入合同"
+
+
+def test_crm_import_logs_paginate_after_ten_rows(tmp_path):
+    with TestClient(create_app(settings(tmp_path))) as client:
+        for index in range(12):
+            response = client.post(
+                "/api/v1/crm-imports",
+                json={
+                    "data_type": "contract_order",
+                    "filename": f"import-{index:02d}.csv",
+                    "content_base64": base64.b64encode(
+                        (
+                            "crm_internal_id,项目编号,主题,所有者\n"
+                            f"contract-{index},LOG{index:03d},LOG{index:03d}-导入日志测试,Li Qiang\n"
+                        ).encode()
+                    ).decode(),
+                },
+            )
+            assert response.status_code == 200, response.text
+
+        first_page = client.get("/api/v1/crm-imports?page=1&page_size=10").json()
+        assert len(first_page["data"]) == 10
+        assert first_page["meta"] == {
+            "page": 1,
+            "page_size": 10,
+            "total_records": 12,
+            "total_pages": 2,
+        }
+        assert first_page["data"][0]["filename"] == "import-11.csv"
+
+        second_page = client.get("/api/v1/crm-imports?page=2&page_size=10").json()
+        assert len(second_page["data"]) == 2
+        assert second_page["meta"]["page"] == 2
+        assert second_page["data"][0]["filename"] == "import-01.csv"
 
 
 def test_manual_crm_upload_rejects_template_without_required_headers(tmp_path):
@@ -407,7 +701,7 @@ def test_work_time_budget_and_customer_confirmation_gap_alerts(tmp_path):
     with TestClient(create_app(settings(tmp_path))) as client:
         client.patch(
             "/api/v1/projects/TPL149/settings",
-            json={"contract_type": "construction", "planned_person_days": "3"},
+            json={"contract_type": "construction", "planned_person_days": "0.5"},
         )
         client.post(
             "/api/v1/time-entries/import",
@@ -425,8 +719,8 @@ def test_work_time_budget_and_customer_confirmation_gap_alerts(tmp_path):
             }],
         )
         project = client.get("/api/v1/projects/TPL149").json()["data"]
-        assert project["reported_person_days"] == "3.50"
-        assert project["customer_confirmed_person_days"] == "3.00"
+        assert project["reported_person_days"] == "1.00"
+        assert project["customer_confirmed_person_days"] == "0.50"
         assert project["confirmation_gap_person_days"] == "0.50"
         codes = {alert["code"] for alert in project["anomaly_alerts"]}
         assert "BUDGET_OVERRUN" in codes
@@ -444,11 +738,11 @@ def test_import_timesheet_fixture_for_2026_january_and_february(tmp_path):
     with TestClient(create_app(settings(tmp_path))) as client:
         imported = client.post("/api/v1/time-entries/import", json=entries)
         assert imported.status_code == 200
-        assert imported.json() == {"imported": 1303}
+        assert imported.json() == {"imported": 1303, "unchanged": 0}
 
         imported_again = client.post("/api/v1/time-entries/import", json=entries)
         assert imported_again.status_code == 200
-        assert imported_again.json() == {"imported": 1303}
+        assert imported_again.json() == {"imported": 0, "unchanged": 1303}
 
         project = client.get("/api/v1/projects/SEY101").json()["data"]
         assert project["reported_hours"] == "1181.00"
@@ -476,6 +770,30 @@ def test_import_timesheet_fixture_for_2026_january_and_february(tmp_path):
         assert "TIME_CONFIRMATION_GAP" in codes
 
 
+def test_unmatched_worktime_code_does_not_create_project_master_record(tmp_path):
+    strict_settings = replace(settings(tmp_path), require_crm_project_match=True)
+    with TestClient(create_app(strict_settings)) as client:
+        imported = client.post(
+            "/api/v1/time-entries/import",
+            json=[{
+                "external_id": "UNMATCHED-WORKTIME-001",
+                "project_number": "ORPHAN001",
+                "employee_id": "E001",
+                "employee_name": "测试人员",
+                "work_date": "2026-07-01",
+                "hours": "8",
+                "approved_hours": "8",
+                "approval_status": "approved",
+                "work_content": "等待 CRM 主数据关联",
+                "source_updated_at": "2026-07-01T08:00:00+08:00",
+            }],
+        )
+        assert imported.status_code == 200
+        assert client.get("/api/v1/projects/ORPHAN001").status_code == 404
+        project_codes = {row["project_number"] for row in client.get("/api/v1/projects").json()["data"]}
+        assert "ORPHAN001" not in project_codes
+
+
 def test_import_timesheet_xlsx_upload(tmp_path):
     workbook = _minimal_timesheet_xlsx(
         [
@@ -498,6 +816,8 @@ def test_import_timesheet_xlsx_upload(tmp_path):
         assert response.status_code == 200
         assert response.json()["parsed"] == 2
         assert response.json()["imported"] == 2
+        assert response.json()["unchanged"] == 0
+        assert response.json()["date_range"] == {"start": "2026-01-13", "end": "2026-02-28"}
 
         imported_again = client.post(
             "/api/v1/time-entries/import-xlsx",
@@ -507,7 +827,8 @@ def test_import_timesheet_xlsx_upload(tmp_path):
             },
         )
         assert imported_again.status_code == 200
-        assert imported_again.json()["imported"] == 2
+        assert imported_again.json()["imported"] == 0
+        assert imported_again.json()["unchanged"] == 2
 
         project = client.get("/api/v1/projects/JJY117").json()["data"]
         assert project["reported_hours"] == "8.00"
@@ -517,6 +838,90 @@ def test_import_timesheet_xlsx_upload(tmp_path):
         assert pending["reported_hours"] == "4.00"
         assert pending["customer_confirmed_hours"] == "0.00"
         assert pending["confirmation_gap_hours"] == "4.00"
+
+
+def test_existing_time_entry_is_preserved_without_overwrite(tmp_path):
+    original = {
+        "external_id": "IMMUTABLE-001",
+        "project_number": "LOCK901",
+        "employee_id": "E901",
+        "employee_name": "原始员工",
+        "work_date": "2026-07-11",
+        "hours": "8",
+        "approved_hours": "8",
+        "approval_status": "approved",
+        "work_content": "首次填报",
+        "source_updated_at": "2026-07-11T18:00:00+08:00",
+    }
+    changed = {**original, "hours": "16", "approved_hours": "16", "work_content": "尝试覆盖"}
+    with TestClient(create_app(settings(tmp_path))) as client:
+        assert client.post("/api/v1/time-entries/import", json=[original]).json() == {
+            "imported": 1,
+            "unchanged": 0,
+        }
+        assert client.post("/api/v1/time-entries/import", json=[changed]).json() == {
+            "imported": 0,
+            "unchanged": 1,
+        }
+        project = client.get("/api/v1/projects/LOCK901").json()["data"]
+        entry = project["monthly_time_entries"][0]["entries"][0]
+        assert entry["hours"] == "8.00"
+        assert entry["work_content"] == "首次填报"
+
+
+def test_import_exported_timesheet_detail_sheet_with_overtime(tmp_path):
+    workbook = _multi_sheet_timesheet_xlsx(
+        [
+            [["项目代码", "汇总人天"], ["OT901", "1.50"]],
+            [
+                ["姓名", "所属部门", "项目代码", "时间", "天数", "加班天数", "工作内容", "提交时间"],
+                ["员工甲", "TSG", "OT901", "2026-07-24", "1", "0.5", "接口联调", "2026-07-25 09:00"],
+            ],
+        ]
+    )
+    with TestClient(create_app(settings(tmp_path))) as client:
+        response = client.post(
+            "/api/v1/time-entries/import-xlsx",
+            json={"filename": "TSG-工时.xlsx", "content_base64": base64.b64encode(workbook).decode("ascii")},
+        )
+        assert response.status_code == 200
+        assert response.json()["parsed"] == 1
+        assert response.json()["date_range"] == {"start": "2026-07-24", "end": "2026-07-24"}
+
+        project = client.get("/api/v1/projects/OT901").json()["data"]
+        assert project["reported_hours"] == "12.00"
+        assert project["customer_confirmed_hours"] == "12.00"
+        assert project["confirmation_gap_hours"] == "0.00"
+        july = project["monthly_time_entries"][0]
+        assert july["reported_person_days"] == "1.50"
+        assert july["overtime_person_days"] == "0.50"
+        assert july["entries"][0]["overtime_hours"] == "4.00"
+
+        resource_summary = project["pmo_resource_summary"]
+        assert resource_summary == {
+            "cost_basis": "人天",
+            "monetary_cost_available": False,
+            "participant_count": 1,
+            "normal_person_days": "1.00",
+            "overtime_person_days": "0.50",
+            "reported_person_days": "1.50",
+            "approved_person_days": "1.50",
+            "confirmation_gap_person_days": "0.00",
+        }
+        resource_row = project["pmo_resource_rows"][0]
+        assert resource_row["employee_name"] == "员工甲"
+        assert resource_row["normal_person_days"] == "1.00"
+        assert resource_row["overtime_person_days"] == "0.50"
+        assert resource_row["reported_person_days"] == "1.50"
+        assert resource_row["project_effort_share_percent"] == 100.0
+        assert resource_row["overtime_ratio_percent"] == 33.3
+        assert resource_row["monthly_average_person_days"] == "1.50"
+
+        employee = client.get(
+            "/api/v1/employee-worktime?period=month&month=2026-07&employee_name=员工甲"
+        ).json()["data"][0]
+        assert employee["reported_person_days"] == "1.50"
+        assert employee["overtime_person_days"] == "0.50"
 
 
 def test_project_health_filters_by_month_and_project_number(tmp_path):
@@ -571,8 +976,22 @@ def test_query_parameters_and_manual_config_validation(tmp_path):
         assert client.get("/api/v1/projects?contract_type=invalid").status_code == 422
         assert client.get("/api/v1/projects?lifecycle_status=active").status_code == 200
         assert client.get("/api/v1/projects?risk_level=warning").status_code == 200
+        assert client.get("/api/v1/projects?contract_status=进行中").status_code == 200
+        assert client.get("/api/v1/projects?contract_status=invalid").status_code == 422
         assert client.get("/api/v1/project-health?month=2026-02").status_code == 200
         assert client.get("/api/v1/project-health?month=2026-2").status_code == 422
+        assert (
+            client.get(
+                "/api/v1/project-health?month=2026-02&contract_status=进行中"
+            ).status_code
+            == 200
+        )
+        assert (
+            client.get(
+                "/api/v1/project-health?month=2026-02&contract_status=invalid"
+            ).status_code
+            == 422
+        )
         assert client.get("/api/v1/employee-worktime?period=month&month=2026-02").status_code == 200
         assert client.get("/api/v1/employee-worktime?period=week").status_code == 422
         assert client.patch(
@@ -598,6 +1017,7 @@ def test_employee_worktime_assessment_and_baseline_config(tmp_path):
         assert february.status_code == 200
         body = february.json()
         assert body["meta"]["baseline_hours"] == "153.00"
+        assert body["meta"]["latest_work_month"] == "2026-02"
         row = body["data"][0]
         assert row["employee_name"] == "查宏斌"
         assert row["reported_hours"] == "152.00"
@@ -627,7 +1047,169 @@ def test_employee_worktime_assessment_and_baseline_config(tmp_path):
         assert adjusted["status"] == "基本达标"
 
 
+def test_resource_operations_identifies_capacity_and_project_staffing_gap(tmp_path):
+    entries = [
+        {
+            "external_id": "RESOURCE-001",
+            "project_number": "RESOURCE901",
+            "employee_id": "E901",
+            "employee_name": "资源员工",
+            "work_date": "2026-07-08",
+            "hours": "8",
+            "overtime_hours": "4",
+            "approved_hours": "12",
+            "approval_status": "approved",
+            "work_content": "计划投入",
+            "source_updated_at": "2026-07-08T18:00:00+08:00",
+        },
+        {
+            "external_id": "RESOURCE-INTERNAL-001",
+            "project_number": "TSG999",
+            "employee_id": "E902",
+            "employee_name": "非项目员工",
+            "work_date": "2026-07-08",
+            "hours": "8",
+            "overtime_hours": "4",
+            "approved_hours": "12",
+            "approval_status": "approved",
+            "work_content": "内部非项目工时",
+            "source_updated_at": "2026-07-08T18:00:00+08:00",
+        },
+    ]
+    with TestClient(create_app(settings(tmp_path))) as client:
+        assert client.post("/api/v1/time-entries/import", json=entries).status_code == 200
+        settings_response = client.patch(
+            "/api/v1/projects/RESOURCE901/settings",
+            json={
+                "contract_type": "construction",
+                "lifecycle_status": "active",
+                "planned_person_days": "20",
+                "planned_start": "2026-07-01",
+                "planned_end": "2026-07-31",
+                "project_manager": "PM Test",
+            },
+        )
+        assert settings_response.status_code == 200
+
+        response = client.get("/api/v1/resource-operations?month=2026-07")
+        assert response.status_code == 200
+        body = response.json()
+        assert body["meta"]["month"] == "2026-07"
+        assert body["summary"]["total_employees"] == 2
+        assert body["summary"]["available_count"] == 2
+        assert body["summary"]["projects_needing_support"] >= 1
+        assert body["meta"]["excluded_internal_nonproject_entries"] == 1
+
+        employee = next(
+            row for row in body["data"] if row["employee_name"] == "资源员工"
+        )
+        assert employee["allocation_status"] == "可优先调剂"
+        assert employee["available_person_days"] == "12.84"
+        assert employee["assignments"] == [
+            {
+                "project_number": "RESOURCE901",
+                "project_name": "RESOURCE901",
+                "reported_person_days": "1.50",
+                "overtime_person_days": "0.50",
+            }
+        ]
+        assert "suggested_projects" not in employee
+
+        unassigned_employee = next(
+            row for row in body["data"] if row["employee_name"] == "非项目员工"
+        )
+        assert unassigned_employee["reported_person_days"] == "0.00"
+        assert unassigned_employee["overtime_person_days"] == "0.00"
+        assert unassigned_employee["project_count"] == 0
+        assert unassigned_employee["internal_nonproject_person_days"] == "1.50"
+        assert unassigned_employee["available_person_days"] == "14.34"
+        assert unassigned_employee["assignments"] == [
+            {
+                "project_number": "TSG999",
+                "project_name": "内部非项目工时（可调剂）",
+                "reported_person_days": "1.50",
+                "overtime_person_days": "0.50",
+                "is_internal_nonproject": True,
+            }
+        ]
+        assert unassigned_employee["allocation_status"] == "可优先调剂"
+
+        candidate = next(
+            row
+            for row in body["staffing_candidates"]
+            if row["project_number"] == "RESOURCE901"
+        )
+        assert candidate["resource_gap_person_days"] == "18.50"
+        assert candidate["monthly_budget_person_days"] == "20.00"
+        assert candidate["period_actual_person_days"] == "1.50"
+
+        projects = client.get("/api/v1/projects").json()["data"]
+        assert all(project["project_number"] != "TSG999" for project in projects)
+
+
+def test_resource_operations_filters_one_employee_over_a_month_range(tmp_path):
+    entries = [
+        {
+            "external_id": "RESOURCE-RANGE-001", "project_number": "RANGE101",
+            "employee_id": "E201", "employee_name": "范围员工", "work_date": "2026-06-30",
+            "hours": "8", "approved_hours": "8", "approval_status": "approved",
+            "work_content": "六月项目投入", "source_updated_at": "2026-06-30T18:00:00+08:00",
+        },
+        {
+            "external_id": "RESOURCE-RANGE-002", "project_number": "RANGE102",
+            "employee_id": "E201", "employee_name": "范围员工", "work_date": "2026-07-01",
+            "hours": "16", "overtime_hours": "8", "approved_hours": "24", "approval_status": "approved",
+            "work_content": "七月项目投入", "source_updated_at": "2026-07-01T18:00:00+08:00",
+        },
+        {
+            "external_id": "RESOURCE-RANGE-003", "project_number": "RANGE103",
+            "employee_id": "E202", "employee_name": "其他员工", "work_date": "2026-07-01",
+            "hours": "8", "approved_hours": "8", "approval_status": "approved",
+            "work_content": "不应匹配", "source_updated_at": "2026-07-01T18:00:00+08:00",
+        },
+    ]
+    with TestClient(create_app(settings(tmp_path))) as client:
+        assert client.post("/api/v1/time-entries/import", json=entries).status_code == 200
+        response = client.get(
+            "/api/v1/resource-operations?start_month=2026-06&end_month=2026-07&employee_name=范围"
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["meta"]["start_date"] == "2026-06-01"
+        assert body["meta"]["end_date"] == "2026-07-31"
+        assert body["meta"]["employee_name"] == "范围"
+        assert len(body["data"]) == 1
+        assert body["data"][0]["employee_name"] == "范围员工"
+        assert body["data"][0]["reported_person_days"] == "4.00"
+        assert {item["project_number"] for item in body["data"][0]["assignments"]} == {"RANGE101", "RANGE102"}
+
+
 def _minimal_timesheet_xlsx(rows: list[list[str]]) -> bytes:
+    return _multi_sheet_timesheet_xlsx([rows])
+
+
+def _multi_sheet_timesheet_xlsx(sheets: list[list[list[str]]]) -> bytes:
+    sheet_xmls = [_timesheet_sheet_xml(rows) for rows in sheets]
+    sheet_nodes = "".join(
+        f'<sheet name="sheet{index}" sheetId="{index}" r:id="rId{index}" '
+        'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"/>'
+        for index in range(1, len(sheet_xmls) + 1)
+    )
+    workbook_xml = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+        f"<sheets>{sheet_nodes}</sheets></workbook>"
+    )
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, "w") as archive:
+        archive.writestr("[Content_Types].xml", "")
+        archive.writestr("xl/workbook.xml", workbook_xml)
+        for index, sheet_xml in enumerate(sheet_xmls, start=1):
+            archive.writestr(f"xl/worksheets/sheet{index}.xml", sheet_xml)
+    return output.getvalue()
+
+
+def _timesheet_sheet_xml(rows: list[list[str]]) -> str:
     sheet_rows = []
     for row_index, row in enumerate(rows, start=1):
         cells = []
@@ -643,19 +1225,7 @@ def _minimal_timesheet_xlsx(rows: list[list[str]]) -> bytes:
         f'<sheetData>{"".join(sheet_rows)}</sheetData>'
         "</worksheet>"
     )
-    workbook_xml = (
-        '<?xml version="1.0" encoding="UTF-8"?>'
-        '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
-        '<sheets><sheet name="sheet1" sheetId="1" r:id="rId1" '
-        'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"/>'
-        "</sheets></workbook>"
-    )
-    output = io.BytesIO()
-    with zipfile.ZipFile(output, "w") as archive:
-        archive.writestr("[Content_Types].xml", "")
-        archive.writestr("xl/workbook.xml", workbook_xml)
-        archive.writestr("xl/worksheets/sheet1.xml", sheet_xml)
-    return output.getvalue()
+    return sheet_xml
 
 
 def _excel_column(index: int) -> str:

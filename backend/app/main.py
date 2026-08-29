@@ -19,10 +19,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 
 from .config import Settings
+from .auth import ALL_MENU_PERMISSIONS, AuthService, AuthenticationError, AuthorizationError
 from .crm_import import CrmImportValidationError, parse_crm_import_base64, template_fields
 from .db import Database
 from .repository import SnapshotRepository
 from .project_repository import ProjectRepository
+from .pm_assistant import PmAssistantError, PmAssistantService
 from .source import build_source
 from .sync_service import SyncService
 from .xlsx_timesheet import parse_timesheet_xlsx_base64
@@ -33,16 +35,29 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     database = Database(settings.database_path)
     source = build_source(settings)
     repository = SnapshotRepository(database)
-    project_repository = ProjectRepository(database, settings.timezone)
+    project_repository = ProjectRepository(
+        database,
+        settings.timezone,
+        require_crm_project_match=settings.require_crm_project_match,
+    )
     sync_service = SyncService(database, source, settings)
+    pm_assistant = PmAssistantService(settings, project_repository, repository)
+    auth_service = AuthService(database, session_hours=settings.session_hours)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         database.initialize()
+        if settings.auth_enabled:
+            auth_service.ensure_initial_admin(
+                settings.initial_admin_username, settings.initial_admin_password
+            )
+        project_repository.remove_legacy_demo_time_entries()
         if settings.auto_import_on_empty and database.active_snapshot_id() is None:
             job = sync_service.create_job()
             await sync_service.run_job(job["job_id"])
-        if settings.source_file.name.endswith(".example.json"):
+        if settings.require_crm_project_match:
+            project_repository.cleanup_legacy_orphaned_maintenance_once()
+        elif settings.source_file.name.endswith(".example.json"):
             project_repository.ensure_demo_data()
         yield
 
@@ -51,12 +66,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         version="1.0.0",
         description="FastAPI query orchestration and SQLite persistence for TSG PM snapshots.",
         lifespan=lifespan,
+        docs_url=None,
+        redoc_url=None,
+        openapi_url=None,
     )
     app.state.settings = settings
     app.state.database = database
     app.state.repository = repository
     app.state.project_repository = project_repository
     app.state.sync_service = sync_service
+    app.state.pm_assistant = pm_assistant
+    app.state.auth_service = auth_service
     app.add_middleware(
         CORSMiddleware,
         allow_origins=list(settings.cors_origins),
@@ -65,13 +85,53 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         allow_headers=["*"],
     )
 
+    def _bearer_token(authorization: str | None) -> str | None:
+        if not authorization or not authorization.startswith("Bearer "):
+            return None
+        token = authorization.removeprefix("Bearer ").strip()
+        return token or None
+
+    def _permission_for_path(path: str) -> str | None:
+        if path.startswith("/api/v1/pm-assistant"):
+            return "projects"
+        if path.startswith("/api/v1/records"):
+            return "crm"
+        if path == "/api/v1/project-health":
+            return "health"
+        if path == "/api/v1/resource-operations":
+            return "resource"
+        if path.startswith("/api/v1/employee-worktime") or path.startswith("/api/v1/worktime-baseline") or path.startswith("/api/v1/time-entries"):
+            return "employeeWorktime"
+        if path.startswith("/api/v1/crm-imports") or path.startswith("/api/v1/sync-") or path == "/api/v1/sync-status":
+            return "sync"
+        if path.startswith("/api/v1/projects"):
+            return "projects"
+        return None
+
     async def require_auth(
+        request: Request,
         authorization: Annotated[str | None, Header()] = None,
-    ) -> None:
-        if not settings.api_token:
-            return
-        if authorization != f"Bearer {settings.api_token}":
-            raise HTTPException(status_code=401, detail="invalid or missing bearer token")
+    ) -> dict[str, Any]:
+        if not settings.auth_enabled:
+            return {"username": "test", "is_admin": True, "permissions": list(ALL_MENU_PERMISSIONS)}
+        token = _bearer_token(authorization)
+        if not token:
+            raise HTTPException(status_code=401, detail="请先登录")
+        try:
+            user = auth_service.current_user(token)
+        except AuthenticationError as exc:
+            raise HTTPException(status_code=401, detail=str(exc)) from exc
+        permission = _permission_for_path(request.url.path)
+        if permission and not user["is_admin"] and permission not in user["permissions"]:
+            raise HTTPException(status_code=403, detail="当前用户没有该页面的访问权限")
+        return user
+
+    async def require_admin(
+        user: dict[str, Any] = Depends(require_auth),
+    ) -> dict[str, Any]:
+        if not user["is_admin"]:
+            raise HTTPException(status_code=403, detail="仅管理员可以管理系统用户")
+        return user
 
     auth = Depends(require_auth)
 
@@ -100,6 +160,87 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/health", tags=["System"])
     def health() -> dict[str, str]:
         return {"status": "ok"}
+
+    @app.post("/api/v1/auth/login", tags=["Authentication"])
+    def login(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
+        if not settings.auth_enabled:
+            return {"data": {"token": "development-bypass", "user": {"username": "test", "is_admin": True, "permissions": list(ALL_MENU_PERMISSIONS), "is_active": True}, "expires_at": None}}
+        try:
+            return {"data": auth_service.login(payload.get("username", ""), payload.get("password", ""))}
+        except AuthenticationError as exc:
+            raise HTTPException(status_code=401, detail=str(exc)) from exc
+
+    @app.get("/api/v1/auth/me", tags=["Authentication"])
+    def current_account(
+        user: dict[str, Any] = Depends(require_auth),
+    ) -> dict[str, Any]:
+        return {"data": user}
+
+    @app.post("/api/v1/auth/logout", tags=["Authentication"])
+    def logout(
+        authorization: Annotated[str | None, Header()] = None,
+        _user: dict[str, Any] = Depends(require_auth),
+    ) -> dict[str, bool]:
+        if settings.auth_enabled:
+            token = _bearer_token(authorization)
+            if token:
+                auth_service.logout(token)
+        return {"data": True}
+
+    @app.get("/api/v1/users", tags=["Users"])
+    def list_users(
+        _user: dict[str, Any] = Depends(require_admin),
+    ) -> dict[str, Any]:
+        return {"data": auth_service.list_users()}
+
+    @app.post("/api/v1/users", status_code=201, tags=["Users"])
+    def create_user(
+        payload: dict[str, Any] = Body(...),
+        _user: dict[str, Any] = Depends(require_admin),
+    ) -> dict[str, Any]:
+        try:
+            return {"data": auth_service.create_user(payload)}
+        except (ValueError, AuthorizationError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.patch("/api/v1/users/{username}", tags=["Users"])
+    def update_user(
+        username: str,
+        payload: dict[str, Any] = Body(...),
+        _user: dict[str, Any] = Depends(require_admin),
+    ) -> dict[str, Any]:
+        try:
+            return {"data": auth_service.update_user(username, payload)}
+        except (ValueError, AuthorizationError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.post("/api/v1/pm-assistant/chat", dependencies=[auth], tags=["PM Assistant"])
+    async def pm_assistant_chat(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
+        message = payload.get("message")
+        if not isinstance(message, str) or not message.strip():
+            raise HTTPException(status_code=422, detail="message is required")
+        if len(message) > 2000:
+            raise HTTPException(status_code=422, detail="message is too long")
+        history = payload.get("history", [])
+        if not isinstance(history, list):
+            raise HTTPException(status_code=422, detail="history must be a list")
+        try:
+            answer = await pm_assistant.answer(message.strip(), history)
+        except PmAssistantError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        return {"data": answer}
+
+    @app.post(
+        "/api/v1/projects/{project_number}/ai-analysis",
+        dependencies=[auth],
+        tags=["PM Assistant"],
+    )
+    async def project_ai_analysis(project_number: str) -> dict[str, Any]:
+        try:
+            analysis = await pm_assistant.analyze_project(project_number)
+        except PmAssistantError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        return {"data": analysis}
 
     @app.get("/api/v1/records", dependencies=[auth], tags=["Records"])
     def list_records(
@@ -169,12 +310,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             None, pattern="^(planned|active|on_hold|completed|closed)$"
         ),
         risk_level: str | None = Query(None, pattern="^(healthy|warning|critical)$"),
+        contract_status: str | None = Query(None, pattern="^(进行中|已结束|未签约)$"),
         q: str | None = Query(None, min_length=1, max_length=200),
     ) -> dict[str, Any]:
         return project_repository.list_projects(
             contract_type=contract_type,
             lifecycle_status=lifecycle_status,
             risk_level=risk_level,
+            contract_status=contract_status,
             query=q,
         )
 
@@ -193,6 +336,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         start_month: str | None = Query(None, pattern=r"^\d{4}-\d{2}$"),
         end_month: str | None = Query(None, pattern=r"^\d{4}-\d{2}$"),
         project_number: str | None = None,
+        contract_status: str | None = Query(None, pattern="^(进行中|已结束|未签约)$"),
+        q: str | None = None,
     ) -> dict[str, Any]:
         try:
             return project_repository.project_health(
@@ -200,6 +345,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 start_month=start_month,
                 end_month=end_month,
                 project_number=project_number,
+                contract_status=contract_status,
+                query=q,
             )
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -400,6 +547,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 **result,
                 "parsed": len(entries),
                 "filename": payload.get("filename"),
+                "date_range": {
+                    "start": min(entry["work_date"] for entry in entries),
+                    "end": max(entry["work_date"] for entry in entries),
+                },
             }
         except (KeyError, ValueError) as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -440,6 +591,25 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
+    @app.get(
+        "/api/v1/resource-operations", dependencies=[auth], tags=["Time Entries"]
+    )
+    def get_resource_operations(
+        month: str | None = Query(None, pattern=r"^\d{4}-\d{2}$"),
+        start_month: str | None = Query(None, pattern=r"^\d{4}-\d{2}$"),
+        end_month: str | None = Query(None, pattern=r"^\d{4}-\d{2}$"),
+        employee_name: str | None = Query(None, max_length=100),
+    ) -> dict[str, Any]:
+        try:
+            return project_repository.resource_operations(
+                month=month,
+                start_month=start_month,
+                end_month=end_month,
+                employee_name=employee_name,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
     @app.get("/api/v1/sync-status", dependencies=[auth], tags=["Sync"])
     def get_sync_status() -> dict[str, Any]:
         status = repository.sync_status()
@@ -454,9 +624,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return template_fields(data_type)
 
     @app.get("/api/v1/crm-imports", dependencies=[auth], tags=["CRM Imports"])
-    def list_crm_imports(limit: int = Query(50, ge=1, le=200)) -> dict[str, Any]:
+    def list_crm_imports(
+        page: int = Query(1, ge=1),
+        page_size: int = Query(10, ge=1, le=50),
+    ) -> dict[str, Any]:
         """List successful manual CRM uploads, newest first."""
-        return {"data": repository.list_crm_import_logs(limit=limit)}
+        return repository.list_crm_import_logs(page=page, page_size=page_size)
 
     @app.post("/api/v1/crm-imports", dependencies=[auth], tags=["CRM Imports"])
     def import_crm_file(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:

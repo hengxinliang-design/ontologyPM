@@ -166,19 +166,25 @@ class SnapshotRepository:
             "validation": json.loads(snapshot["validation_json"]),
         }
 
-    def list_crm_import_logs(self, *, limit: int = 50) -> list[dict[str, Any]]:
+    def list_crm_import_logs(
+        self, *, page: int, page_size: int
+    ) -> dict[str, Any]:
+        offset = (page - 1) * page_size
         with self.database.connect() as connection:
+            total = connection.execute(
+                "SELECT COUNT(*) AS count FROM crm_import_logs"
+            ).fetchone()["count"]
             rows = connection.execute(
                 """
                 SELECT id, snapshot_id, data_type, filename, parsed_rows,
                        inserted_records, updated_records, unchanged_records, imported_at
                 FROM crm_import_logs
                 ORDER BY imported_at DESC, id DESC
-                LIMIT ?
+                LIMIT ? OFFSET ?
                 """,
-                (limit,),
+                (page_size, offset),
             ).fetchall()
-        return [
+        logs = [
             {
                 "log_id": row["id"],
                 "snapshot_id": row["snapshot_id"],
@@ -192,6 +198,15 @@ class SnapshotRepository:
             }
             for row in rows
         ]
+        return {
+            "data": logs,
+            "meta": {
+                "page": page,
+                "page_size": page_size,
+                "total_records": total,
+                "total_pages": math.ceil(total / page_size) if total else 0,
+            },
+        }
 
     def export_records(self) -> dict[str, Any] | None:
         snapshot_id = self.database.active_snapshot_id()

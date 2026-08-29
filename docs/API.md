@@ -75,6 +75,8 @@ Authorization: Bearer <XTCRM_API_TOKEN>
 | 422 | 请求字段不合法或业务规则不允许 |
 | 503 | 当前没有可用的成功快照 |
 
+`503` 也用于 PM Assistant 的模型服务暂不可用、授权无效或额度不足；响应 `detail` 会给出可执行的处理建议，不会包含密钥信息。
+
 ## 2. 枚举定义
 
 ### 2.1 CRM 数据类型
@@ -135,6 +137,55 @@ GET /health
 ```json
 {
   "status": "ok"
+}
+```
+
+### 3.3 项目异常 AI 研判
+
+```http
+POST /api/v1/projects/{project_number}/ai-analysis
+```
+
+仅在项目详情的“项目待处理事项”区域由用户点击触发，不会在页面加载时自动调用模型。服务端基于该项目当前的异常提示、CRM 合同金额/开票/回款、预算与实际人天、人员投入汇总、月度工时、里程碑与回款节点，输出自然语言研判。
+
+分析固定覆盖：风险判断、人员与资源安排、工时与成本合理性、回款与项目行动。系统尚未维护人员成本单价或结算单价时，回答会明确说明不能计算金额成本和利润。
+
+响应结构与 [3.2 PM Assistant 问答](#32-pm-assistant-问答) 一致。
+
+### 3.2 PM Assistant 问答
+
+```http
+POST /api/v1/pm-assistant/chat
+Content-Type: application/json
+```
+
+服务端会先从当前 SQLite 中按项目编号、主题、客户、负责人、风险和 CRM 字段检索相关资料，再将精简后的事实资料提交给 LLM。密钥仅保存在服务端环境变量 `OPENAI_API_KEY`，不会发送到浏览器。
+
+请求：
+
+```json
+{
+  "message": "哪些项目需要优先关注？",
+  "history": [
+    {"role": "user", "content": "本月回款情况如何？"},
+    {"role": "assistant", "content": "……"}
+  ]
+}
+```
+
+- `message` 必填，最长 2000 个字符。
+- `history` 可选；最多取最近 6 条对话作为上下文。
+- 模型为服务端配置的 `TSG_PM_ASSISTANT_MODEL`，默认 `gpt-5.2`。
+
+响应：
+
+```json
+{
+  "data": {
+    "answer": "当前优先关注……",
+    "sources": ["项目主数据库：3 个相关项目", "CRM 数据：5 条相关记录"],
+    "model": "gpt-5.2"
+  }
 }
 ```
 
@@ -294,6 +345,9 @@ GET /api/v1/projects
       "contract_count": 1,
       "opportunity_count": 0,
       "contract_value": "149900.00",
+      "contract_status": "进行中",
+      "crm_received_amount": "0.00",
+      "outstanding_receivable_amount": "149900.00",
       "received_amount": "0.00",
       "invoiced_amount": "74950.00",
       "planned_person_days": "30.00",
@@ -373,11 +427,16 @@ GET /api/v1/projects
 | 项目名称 | `subject` | 优先取合同/商机主题，无源数据时取项目代码 |
 | 类别 | `master_category` | 有合同为“项目”，仅有商机为“商机” |
 | 状态 | `status` / `lifecycle_status` | 人工维护生命周期状态 |
+| 合同状态 | `contract_status` | 基于导入 CRM 合同金额判断“已结束”或“进行中” |
+| CRM 回款金额 | `crm_received_amount` | 全部导入合同/订单的回款金额汇总 |
+| 待回款金额 | `outstanding_receivable_amount` | 仅进行中合同返回：导入合同总金额减导入回款金额 |
 | 里程碑 | `current_milestone` | 当前未完成的最近里程碑；全部完成则返回最后完成节点 |
 | 项目类型 | `contract_type` | 建设类、维护类、开口类、销售类、未分类 |
 | 回款 | `payment_summary` | 回款节点完成数、计划金额、实收金额、下个节点 |
 | 预算工时 | `budget_hours` | `planned_person_days * hours_per_person_day` |
 | 累计实际工时 | `actual_hours` / `reported_hours` | 员工填报工时汇总 |
+
+合同状态规则：每一份导入的合同/订单均满足“总金额 = 回款金额 = 开票金额”时，项目合同状态为“已结束”；任一合同金额缺失或不相等时为“进行中”。进行中项目的待回款金额为全部导入合同总金额减全部导入回款金额。项目明细中“合同金额、已开票、已回款（CRM）”均使用 CRM 导入模板字段；`received_amount` 仍表示里程碑中由管理人员确认到账的回款金额，两者互不覆盖。
 
 ### 5.2 查询项目详情
 
@@ -390,13 +449,12 @@ GET /api/v1/projects/{project_number}
 | 字段 | 说明 |
 |---|---|
 | `crm_records` | 该项目下的 CRM 合同/商机记录 |
-| `time_entries` | 最近工时记录，最多返回 30 条 |
 | `milestones` | 里程碑明细 |
 | `payment_nodes` | 回款节点明细 |
 | `interventions` | 管理干预记录 |
 | `settings` | 人工维护配置 |
 | `todo_events` | 里程碑和回款待办 |
-| `monthly_time_entries` | 按 `YYYY-MM` 聚合的月度工时清单，可用于点击月份展开明细 |
+| `monthly_time_entries` | 按 `YYYY-MM` 聚合的月度工时清单，可用于点击月份展开明细；不再重复返回“最近工时”列表 |
 
 `monthly_time_entries` 示例：
 
@@ -462,6 +520,8 @@ GET /api/v1/project-health
       "project_name": "SEY101-项目名称",
       "pm_owner": "PM Test",
       "project_status": "active",
+      "contract_status": "进行中",
+      "outstanding_receivable_amount": "149900.00",
       "planned_start": "2026-01-01",
       "planned_end": "2026-06-30",
       "budget_person_days": "120.00",
@@ -512,6 +572,7 @@ GET /api/v1/project-health
 | 项目名称 | `project_name` |
 | PM负责人 | `pm_owner` |
 | 项目状态 | `project_status` |
+| 合同状态 | `contract_status` / `outstanding_receivable_amount` |
 | 计划开始 | `planned_start` |
 | 计划结束 | `planned_end` |
 | 预算工时(天) | `budget_person_days` |
@@ -865,6 +926,7 @@ Content-Type: application/json
     "employee_name": "Zhang San",
     "work_date": "2026-07-02",
     "hours": "8.00",
+    "overtime_hours": "2.00",
     "approved_hours": "4.00",
     "approval_status": "approved",
     "work_content": "客户待确认工作",
@@ -877,12 +939,13 @@ Content-Type: application/json
 
 | 字段 | 必填 | 说明 |
 |---|---|---|
-| `external_id` | 是 | 工时系统唯一 ID；用于 upsert |
+| `external_id` | 是 | 工时系统唯一 ID；用于识别已导入记录 |
 | `project_number` | 是 | 项目编号 |
 | `employee_id` | 是 | 员工编号 |
 | `employee_name` | 是 | 员工姓名 |
 | `work_date` | 是 | 工作日期 |
 | `hours` | 是 | 员工填报工时，0 至 24 |
+| `overtime_hours` | 否 | 加班工时，默认 0；与填报工时合计不得超过 24 |
 | `approved_hours` | 是 | 客户确认工时，0 至 24 |
 | `approval_status` | 是 | `draft`、`submitted`、`approved`、`rejected` |
 | `work_content` | 是 | 工作内容 |
@@ -892,13 +955,16 @@ Content-Type: application/json
 
 ```json
 {
-  "imported": 1
+  "imported": 1,
+  "unchanged": 0
 }
 ```
 
 业务规则：
 
-- `external_id` 相同则更新已有记录。
+- 导入采用追加模式：`external_id` 已存在时不覆盖、不修改任何已入库工时，只计入 `unchanged`。
+- 只有此前不存在的 `external_id` 才会新增入库，并计入 `imported`。
+- Excel 导入会按源行内容生成记录指纹；完全相同的行再次上传会跳过。由于一个员工在同一项目、同一天可能有多条真实工作记录，系统不会仅以员工、项目和日期去重；若源行内容发生变化，会保留原记录并追加为新记录。
 - `hours` 表示已发生内部成本。
 - `approved_hours` 表示客户确认或认可工时。
 - `hours - approved_hours` 会聚合为项目级客户确认缺口，并触发 `TIME_CONFIRMATION_GAP` 提醒。
@@ -922,7 +988,7 @@ Content-Type: application/json
 }
 ```
 
-Excel 必需列：
+Excel 支持两种格式。系统会遍历工作簿并自动选择包含必需列的明细工作表，忽略透视汇总页和`提交时间`等非业务列。
 
 | Excel 列名 | 转换后字段 | 说明 |
 |---|---|---|
@@ -933,13 +999,28 @@ Excel 必需列：
 | `工作内容` | `work_content` | 工作内容 |
 | `流程状态` | `approval_status` / `approved_hours` | `流转完成` 转为 `approved`，确认工时=填报工时；其他状态转为 `submitted`，确认工时=0 |
 
+工时系统导出明细格式：
+
+| Excel 列名 | 转换后字段 | 说明 |
+|---|---|---|
+| `姓名` | `employee_name` | 员工姓名 |
+| `项目代码` | `project_number` | 与项目主数据库的关联键 |
+| `时间` | `work_date` | 支持 Excel 日期、`YYYY-MM-DD`、`YYYY/M/D` |
+| `天数` | `hours` | 常规人天，按 8 小时/天转换 |
+| `加班天数` | `overtime_hours` | 加班人天，按 8 小时/天转换并计入累计实际工时 |
+| `工作内容` | `work_content` | 工作内容 |
+
+该格式没有流程状态时，导入记录按已确认处理：`approved_hours = hours + overtime_hours`，不会产生客户确认缺口。
+
 响应：
 
 ```json
 {
   "imported": 1303,
+  "unchanged": 0,
   "parsed": 1303,
-  "filename": "202601-202602.xlsx"
+  "filename": "202601-202602.xlsx",
+  "date_range": { "start": "2026-01-01", "end": "2026-02-28" }
 }
 ```
 
@@ -947,7 +1028,7 @@ Excel 必需列：
 
 - 导入不需要新增后端依赖，后端使用标准库解析 `.xlsx`。
 - `external_id` 由姓名、项目编号、日期、天数、工作内容、流程状态生成稳定哈希；重复导入相同数据会更新，不会重复累加。
-- Excel 中的 `部门`、`case` 等列当前不进入系统模型。
+- Excel 中的 `所属部门`、`部门`、`case`、`提交时间` 等列当前不进入系统模型。
 
 ### 9.3 查询工时基线配置
 
@@ -955,7 +1036,7 @@ Excel 必需列：
 GET /api/v1/worktime-baseline
 ```
 
-用途：查询员工工时状况评估使用的统一基线参数。该配置由管理人员人工维护，可被员工工时评估和后续其他表单引用。
+用途：查询员工工时数据模块使用的统一基线参数。该配置由管理人员人工维护，可被员工工时数据和后续其他表单引用。
 
 默认配置参考当前表格设计：
 
@@ -1002,7 +1083,7 @@ Content-Type: application/json
 }
 ```
 
-### 9.5 查询员工工时状况评估
+### 9.5 查询员工工时数据
 
 ```http
 GET /api/v1/employee-worktime
@@ -1044,9 +1125,11 @@ GET /api/v1/employee-worktime
       "employee_id": "EMP-001",
       "employee_name": "查宏斌",
       "reported_hours": "152.00",
+      "overtime_hours": "8.00",
       "approved_hours": "152.00",
       "confirmation_gap_hours": "0.00",
       "reported_person_days": "19.00",
+      "overtime_person_days": "1.00",
       "approved_person_days": "19.00",
       "baseline_hours": "153.00",
       "utilization_percent": "99.3",
@@ -1067,7 +1150,8 @@ GET /api/v1/employee-worktime
     "period_label": "2026-02",
     "start_date": "2026-02-01",
     "end_date": "2026-02-28",
-    "baseline_hours": "153.00"
+    "baseline_hours": "153.00",
+    "latest_work_month": "2026-02"
   }
 }
 ```
@@ -1114,7 +1198,7 @@ GET /api/v1/sync-status
 ### 10.2 查询手工导入日志
 
 ```http
-GET /api/v1/crm-imports?limit=50
+GET /api/v1/crm-imports?page=1&page_size=10
 ```
 
 响应：
@@ -1133,11 +1217,17 @@ GET /api/v1/crm-imports?limit=50
       "unchanged_records": 80,
       "imported_at": "2026-08-01T14:30:00+08:00"
     }
-  ]
+  ],
+  "meta": {
+    "page": 1,
+    "page_size": 10,
+    "total_records": 12,
+    "total_pages": 2
+  }
 }
 ```
 
-仅成功解析且已写入 SQLite 的上传会生成一条日志；返回顺序为最新优先。
+仅成功解析且已写入 SQLite 的上传会生成一条日志；返回顺序为最新优先。默认每页 10 条，`page_size` 最大为 50。
 
 ### 10.3 上传 CRM 文件
 

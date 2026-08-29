@@ -13,12 +13,16 @@ from .repository import SnapshotRepository
 
 
 CAPPED_TYPES = {"construction", "maintenance"}
+INTERNAL_NONPROJECT_CODE = "TSG999"
 
 
 class ProjectRepository:
-    def __init__(self, database: Database, timezone: str):
+    def __init__(
+        self, database: Database, timezone: str, require_crm_project_match: bool = True
+    ):
         self.database = database
         self.timezone = timezone
+        self.require_crm_project_match = require_crm_project_match
         self.records = SnapshotRepository(database)
 
     def list_projects(
@@ -27,6 +31,7 @@ class ProjectRepository:
         contract_type: str | None = None,
         lifecycle_status: str | None = None,
         risk_level: str | None = None,
+        contract_status: str | None = None,
         query: str | None = None,
     ) -> dict[str, Any]:
         projects = self._build_all_projects()
@@ -36,20 +41,20 @@ class ProjectRepository:
             projects = [p for p in projects if p["lifecycle_status"] == lifecycle_status]
         if risk_level:
             projects = [p for p in projects if p["risk_level"] == risk_level]
-        if query:
-            needle = query.casefold()
+        if contract_status:
             projects = [
                 p
                 for p in projects
-                if needle
-                in " ".join(
-                    [
-                        p["project_number"],
-                        p["subject"],
-                        p.get("customer") or "",
-                        p.get("project_manager") or "",
-                    ]
-                ).casefold()
+                if (p["contract_status"] or "未签约") == contract_status
+            ]
+        if query:
+            crm_terms_by_project = self._crm_search_terms_by_project()
+            projects = [
+                project
+                for project in projects
+                if self._matches_project_query(
+                    project, query, crm_terms_by_project
+                )
             ]
         projects.sort(key=lambda p: (_risk_rank(p["risk_level"]), p["project_number"]))
         return {
@@ -76,11 +81,20 @@ class ProjectRepository:
         start_month: str | None = None,
         end_month: str | None = None,
         project_number: str | None = None,
+        contract_status: str | None = None,
+        query: str | None = None,
     ) -> dict[str, Any]:
         start, end = _health_period(month, start_month, end_month, self._now())
         rows = []
+        crm_terms_by_project = self._crm_search_terms_by_project() if query else {}
         for project in self._build_all_projects(include_details=True):
             if project_number and project["project_number"] != project_number:
+                continue
+            if contract_status and (project["contract_status"] or "未签约") != contract_status:
+                continue
+            if query and not self._matches_project_query(
+                project, query, crm_terms_by_project
+            ):
                 continue
             rows.append(_project_health_row(project, start, end))
         rows.sort(key=lambda row: (_health_rank(row["health_status"]), row["project_number"]))
@@ -208,6 +222,9 @@ class ProjectRepository:
         baseline = self.get_worktime_baseline()
         start_date, end_date, label = _employee_period(period, month, year, self._now())
         with self.database.connect() as connection:
+            latest_work_date_row = connection.execute(
+                "SELECT MAX(work_date) AS latest_work_date FROM time_entries"
+            ).fetchone()
             rows = [
                 dict(row)
                 for row in connection.execute(
@@ -228,7 +245,14 @@ class ProjectRepository:
             ]
         )
         standard_hours_per_day = Decimal(baseline["standard_hours_per_day"])
-        grouped = _employee_worktime_rows(rows, baseline, baseline_hours, standard_hours_per_day)
+        monitored_rows = _monitoring_time_entries(rows)
+        grouped = _employee_worktime_rows(
+            monitored_rows,
+            baseline,
+            baseline_hours,
+            standard_hours_per_day,
+            known_employees=rows,
+        )
         return {
             "data": grouped,
             "summary": {
@@ -245,6 +269,315 @@ class ProjectRepository:
                 "start_date": start_date,
                 "end_date": end_date,
                 "baseline_hours": _format_decimal(baseline_hours),
+                "latest_work_month": (
+                    latest_work_date_row["latest_work_date"][:7]
+                    if latest_work_date_row and latest_work_date_row["latest_work_date"]
+                    else None
+                ),
+                "excluded_internal_nonproject_entries": sum(
+                    row["project_number"] == INTERNAL_NONPROJECT_CODE for row in rows
+                ),
+            },
+        }
+
+    def resource_operations(
+        self,
+        *,
+        month: str | None = None,
+        start_month: str | None = None,
+        end_month: str | None = None,
+        employee_name: str | None = None,
+    ) -> dict[str, Any]:
+        """Provide a source-backed PMO capacity and project staffing view.
+
+        The recommendation deliberately uses only imported worktime, the shared
+        worktime baseline, and project plan data.  Skills, departments and staff
+        availability outside the source system are not assumed or fabricated.
+        """
+        baseline = self.get_worktime_baseline()
+        with self.database.connect() as connection:
+            latest_row = connection.execute(
+                "SELECT MAX(work_date) AS latest_work_date FROM time_entries"
+            ).fetchone()
+        latest_month = (
+            latest_row["latest_work_date"][:7]
+            if latest_row and latest_row["latest_work_date"]
+            else None
+        )
+        if (start_month is None) != (end_month is None):
+            raise ValueError("start_month and end_month must be provided together")
+        if month and start_month:
+            raise ValueError("month cannot be combined with a date range")
+        if start_month and end_month:
+            start_date, _, normalized_start_month = _employee_period(
+                "month", start_month, None, self._now()
+            )
+            _, end_date, normalized_end_month = _employee_period(
+                "month", end_month, None, self._now()
+            )
+            if start_date > end_date:
+                raise ValueError("start_month must not be after end_month")
+            effective_month = normalized_end_month
+            period_label = f"{normalized_start_month} 至 {normalized_end_month}"
+            period_months = _plan_months(start_date, end_date)
+        else:
+            effective_month = month or latest_month or self._now()[:7]
+            start_date, end_date, _ = _employee_period(
+                "month", effective_month, None, self._now()
+            )
+            normalized_start_month = normalized_end_month = effective_month
+            period_label = effective_month
+            period_months = 1
+        normalized_employee_name = (employee_name or "").strip()
+        with self.database.connect() as connection:
+            rows = [
+                dict(row)
+                for row in connection.execute(
+                    """
+                    SELECT * FROM time_entries
+                    WHERE work_date >= ? AND work_date <= ?
+                      AND (? = '' OR employee_name LIKE ?)
+                    ORDER BY employee_name, work_date DESC
+                    """,
+                    (start_date, end_date, normalized_employee_name, f"%{normalized_employee_name}%"),
+                ).fetchall()
+            ]
+
+        standard_hours_per_day = Decimal(baseline["standard_hours_per_day"])
+        baseline_hours = Decimal(baseline["monthly_baseline_hours"]) * period_months
+        minimum_target = Decimal(baseline["minimum_utilization_percent"])
+        attention_target = Decimal(baseline["attention_utilization_percent"])
+        excellent_target = Decimal(baseline["excellent_utilization_percent"])
+        monitored_rows = _monitoring_time_entries(rows)
+        assessment_rows = _employee_worktime_rows(
+            monitored_rows,
+            baseline,
+            baseline_hours,
+            standard_hours_per_day,
+            known_employees=rows,
+        )
+
+        employee_projects: dict[str, dict[str, dict[str, Decimal]]] = {}
+        project_actual_hours: dict[str, Decimal] = {}
+        for row in monitored_rows:
+            employee = row["employee_name"]
+            project = employee_projects.setdefault(employee, {}).setdefault(
+                row["project_number"],
+                {"reported_hours": Decimal("0"), "overtime_hours": Decimal("0")},
+            )
+            project["reported_hours"] += _total_entry_hours(row)
+            project["overtime_hours"] += _overtime_entry_hours(row)
+            project_actual_hours[row["project_number"]] = (
+                project_actual_hours.get(row["project_number"], Decimal("0"))
+                + _total_entry_hours(row)
+            )
+
+        internal_time_by_employee: dict[str, dict[str, Decimal | int]] = {}
+        for row in rows:
+            if row["project_number"] != INTERNAL_NONPROJECT_CODE:
+                continue
+            item = internal_time_by_employee.setdefault(
+                row["employee_name"],
+                {"reported_hours": Decimal("0"), "overtime_hours": Decimal("0"), "entry_count": 0},
+            )
+            item["reported_hours"] += _total_entry_hours(row)
+            item["overtime_hours"] += _overtime_entry_hours(row)
+            item["entry_count"] += 1
+
+        all_projects = self._build_all_projects(include_details=True)
+        project_names = {
+            project["project_number"]: project["subject"] for project in all_projects
+        }
+        staffing_candidates: list[dict[str, Any]] = []
+        for project in all_projects:
+            if project["lifecycle_status"] not in {"planned", "active"}:
+                continue
+            start = project.get("planned_start")
+            end = project.get("planned_end")
+            if not start or not end:
+                continue
+            window_start = max(start, start_date)
+            window_end = min(end, end_date)
+            if window_start > window_end:
+                continue
+            planned_days = project.get("planned_person_days")
+            if planned_days is None:
+                continue
+            plan_months = _plan_months(start, end)
+            if plan_months <= 0:
+                continue
+            monthly_budget = Decimal(planned_days) / Decimal(plan_months)
+            expected_days = monthly_budget * _plan_months(window_start, window_end)
+            actual_days = (
+                project_actual_hours.get(project["project_number"], Decimal("0"))
+                / standard_hours_per_day
+                if standard_hours_per_day else Decimal("0")
+            )
+            gap_days = max(expected_days - actual_days, Decimal("0"))
+            if expected_days <= 0 or actual_days >= expected_days * Decimal("0.70"):
+                continue
+            priority = (
+                "高优先"
+                if project["risk_level"] == "critical" or project["overdue_milestones"]
+                else "需关注"
+            )
+            staffing_candidates.append(
+                {
+                    "project_number": project["project_number"],
+                    "project_name": project["subject"],
+                    "resource_gap_person_days": _format_decimal(gap_days),
+                    "monthly_budget_person_days": _format_decimal(monthly_budget),
+                    "period_actual_person_days": _format_decimal(actual_days),
+                    "priority": priority,
+                    "reason": (
+                        f"统计期投入 {_format_decimal(actual_days)} 人天，低于计划 "
+                        f"{_format_decimal(expected_days)} 人天"
+                    ),
+                }
+            )
+        staffing_candidates.sort(
+            key=lambda item: (
+                item["priority"] != "高优先",
+                -Decimal(item["resource_gap_person_days"]),
+                item["project_number"],
+            )
+        )
+
+        employees: list[dict[str, Any]] = []
+        total_available_days = Decimal("0")
+        available_count = high_load_count = overloaded_count = 0
+        for assessment in assessment_rows:
+            utilization = Decimal(assessment["utilization_percent"])
+            reported_hours = Decimal(assessment["reported_hours"])
+            internal_time = internal_time_by_employee.get(
+                assessment["employee_name"],
+                {"reported_hours": Decimal("0"), "overtime_hours": Decimal("0"), "entry_count": 0},
+            )
+            internal_reported_hours = Decimal(internal_time["reported_hours"])
+            internal_overtime_hours = Decimal(internal_time["overtime_hours"])
+            if utilization <= attention_target:
+                allocation_status = "可优先调剂"
+                available_hours = max(
+                    baseline_hours * minimum_target / Decimal("100") - reported_hours,
+                    Decimal("0"),
+                )
+            elif utilization <= minimum_target:
+                allocation_status = "可适度支持"
+                available_hours = max(
+                    baseline_hours * minimum_target / Decimal("100") - reported_hours,
+                    Decimal("0"),
+                )
+            elif utilization > Decimal("100"):
+                allocation_status = "负荷过高"
+                available_hours = Decimal("0")
+                high_load_count += 1
+                overloaded_count += 1
+            elif utilization > excellent_target:
+                allocation_status = "负荷较高"
+                available_hours = Decimal("0")
+                high_load_count += 1
+            else:
+                allocation_status = "安排基本均衡"
+                available_hours = Decimal("0")
+
+            # TSG999 是内部非项目工时：不影响项目负荷，但已占用的内部工时可
+            # 直接改投项目。取“内部可调剂工时”和常规产能缺口的较大值，避免重复计算。
+            available_hours = max(available_hours, internal_reported_hours)
+            if available_hours > 0:
+                available_count += 1
+
+            assignments = []
+            for project_number, values in employee_projects.get(
+                assessment["employee_name"], {}
+            ).items():
+                assignments.append(
+                    {
+                        "project_number": project_number,
+                        "project_name": project_names.get(project_number, project_number),
+                        "reported_person_days": _format_decimal(
+                            values["reported_hours"] / standard_hours_per_day
+                            if standard_hours_per_day else Decimal("0")
+                        ),
+                        "overtime_person_days": _format_decimal(
+                            values["overtime_hours"] / standard_hours_per_day
+                            if standard_hours_per_day else Decimal("0")
+                        ),
+                    }
+                )
+            if internal_reported_hours > 0:
+                assignments.append(
+                    {
+                        "project_number": INTERNAL_NONPROJECT_CODE,
+                        "project_name": "内部非项目工时（可调剂）",
+                        "reported_person_days": _format_decimal(
+                            internal_reported_hours / standard_hours_per_day
+                            if standard_hours_per_day else Decimal("0")
+                        ),
+                        "overtime_person_days": _format_decimal(
+                            internal_overtime_hours / standard_hours_per_day
+                            if standard_hours_per_day else Decimal("0")
+                        ),
+                        "is_internal_nonproject": True,
+                    }
+                )
+            assignments.sort(
+                key=lambda item: (
+                    not item.get("is_internal_nonproject", False),
+                    -Decimal(item["reported_person_days"]),
+                    item["project_number"],
+                )
+            )
+            available_days = (
+                available_hours / standard_hours_per_day
+                if standard_hours_per_day else Decimal("0")
+            )
+            total_available_days += available_days
+            employees.append(
+                {
+                    **assessment,
+                    "allocation_status": allocation_status,
+                    "available_person_days": _format_decimal(available_days),
+                    "internal_nonproject_person_days": _format_decimal(
+                        internal_reported_hours / standard_hours_per_day
+                        if standard_hours_per_day else Decimal("0")
+                    ),
+                    "internal_nonproject_entry_count": internal_time["entry_count"],
+                    "assignments": assignments,
+                }
+            )
+        employees.sort(
+            key=lambda item: (
+                {"负荷过高": 0, "负荷较高": 1, "可优先调剂": 2, "可适度支持": 3, "安排基本均衡": 4}[item["allocation_status"]],
+                item["employee_name"],
+            )
+        )
+        return {
+            "data": employees,
+            "staffing_candidates": staffing_candidates,
+            "summary": {
+                "total_employees": len(employees),
+                "available_count": available_count,
+                "high_load_count": high_load_count,
+                "overloaded_count": overloaded_count,
+                "projects_needing_support": len(staffing_candidates),
+                "available_person_days": _format_decimal(total_available_days),
+            },
+            "baseline": baseline,
+            "meta": {
+                "month": effective_month,
+                "period_label": period_label,
+                "start_month": normalized_start_month,
+                "end_month": normalized_end_month,
+                "employee_name": normalized_employee_name or None,
+                "start_date": start_date,
+                "end_date": end_date,
+                "baseline_hours": _format_decimal(baseline_hours),
+                "latest_work_month": latest_month,
+                "excluded_internal_nonproject_entries": sum(
+                    row["project_number"] == INTERNAL_NONPROJECT_CODE for row in rows
+                ),
+                "internal_nonproject_project_code": INTERNAL_NONPROJECT_CODE,
+                "recommendation_limitations": "TSG999 为内部非项目工时，不计入资源监控；其余建议仅基于导入工时、工时基线与项目计划，未包含员工技能、角色、请假或外部排期。",
             },
         }
 
@@ -310,30 +643,28 @@ class ProjectRepository:
     def import_time_entries(self, entries: list[dict[str, Any]]) -> dict[str, int]:
         now = self._now()
         imported = 0
+        unchanged = 0
         with self.database.connect() as connection:
             for entry in entries:
                 hours = _decimal_text(entry["hours"])
+                overtime_hours = _decimal_text(entry.get("overtime_hours", "0"))
                 approved_hours = _decimal_text(entry.get("approved_hours", "0"))
-                if Decimal(hours) > 24 or Decimal(approved_hours) > 24:
-                    raise ValueError("hours must be between 0 and 24")
-                connection.execute(
+                if (
+                    Decimal(hours) < 0
+                    or Decimal(overtime_hours) < 0
+                    or Decimal(approved_hours) < 0
+                    or Decimal(hours) + Decimal(overtime_hours) > 24
+                    or Decimal(approved_hours) > 24
+                ):
+                    raise ValueError("total daily hours must be between 0 and 24")
+                cursor = connection.execute(
                     """
                     INSERT INTO time_entries(
                         external_id, project_number, employee_id, employee_name,
-                        work_date, hours, approved_hours, approval_status,
+                        work_date, hours, overtime_hours, approved_hours, approval_status,
                         work_content, source_updated_at, imported_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ON CONFLICT(external_id) DO UPDATE SET
-                        project_number=excluded.project_number,
-                        employee_id=excluded.employee_id,
-                        employee_name=excluded.employee_name,
-                        work_date=excluded.work_date,
-                        hours=excluded.hours,
-                        approved_hours=excluded.approved_hours,
-                        approval_status=excluded.approval_status,
-                        work_content=excluded.work_content,
-                        source_updated_at=excluded.source_updated_at,
-                        imported_at=excluded.imported_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(external_id) DO NOTHING
                     """,
                     (
                         entry["external_id"],
@@ -342,6 +673,7 @@ class ProjectRepository:
                         entry["employee_name"],
                         entry["work_date"],
                         hours,
+                        overtime_hours,
                         approved_hours,
                         entry["approval_status"],
                         entry["work_content"],
@@ -349,9 +681,12 @@ class ProjectRepository:
                         now,
                     ),
                 )
-                imported += 1
+                if cursor.rowcount:
+                    imported += 1
+                else:
+                    unchanged += 1
             connection.commit()
-        return {"imported": imported}
+        return {"imported": imported, "unchanged": unchanged}
 
     def _ensure_worktime_baseline(self) -> None:
         with self.database.connect() as connection:
@@ -741,46 +1076,6 @@ class ProjectRepository:
                 "project_manager": "Li Qiang",
             },
         )
-        self.import_time_entries(
-            [
-                {
-                    "external_id": "DEMO-TIME-001",
-                    "project_number": "TPL149",
-                    "employee_id": "E001",
-                    "employee_name": "Zhang San",
-                    "work_date": "2026-06-29",
-                    "hours": "8",
-                    "approved_hours": "8",
-                    "approval_status": "approved",
-                    "work_content": "完成接口方案设计与评审",
-                    "source_updated_at": "2026-06-29T18:00:00+08:00",
-                },
-                {
-                    "external_id": "DEMO-TIME-002",
-                    "project_number": "TPL149",
-                    "employee_id": "E002",
-                    "employee_name": "Li Si",
-                    "work_date": "2026-06-30",
-                    "hours": "8",
-                    "approved_hours": "8",
-                    "approval_status": "approved",
-                    "work_content": "SRM 接口开发与单元测试",
-                    "source_updated_at": "2026-06-30T18:00:00+08:00",
-                },
-                {
-                    "external_id": "DEMO-TIME-003",
-                    "project_number": "TPL149",
-                    "employee_id": "E001",
-                    "employee_name": "Zhang San",
-                    "work_date": "2026-07-01",
-                    "hours": "4",
-                    "approved_hours": "4",
-                    "approval_status": "approved",
-                    "work_content": "联调问题处理",
-                    "source_updated_at": "2026-07-01T18:00:00+08:00",
-                },
-            ]
-        )
         self.create_milestone(
             "TPL149",
             {
@@ -790,6 +1085,7 @@ class ProjectRepository:
                 "owner": "Li Qiang",
             },
         )
+
         self.create_milestone(
             "TPL149",
             {
@@ -817,6 +1113,60 @@ class ProjectRepository:
             },
         )
 
+    def remove_legacy_demo_time_entries(self) -> int:
+        """Remove old seeded time entries so the worktime view only reflects uploads."""
+        with self.database.connect() as connection:
+            cursor = connection.execute(
+                "DELETE FROM time_entries WHERE external_id LIKE 'DEMO-TIME-%'"
+            )
+            connection.commit()
+        return cursor.rowcount
+
+    def cleanup_legacy_orphaned_maintenance_once(self) -> dict[str, int]:
+        """Remove legacy manual demo records that have no active CRM project.
+
+        Project master views are sourced from the active CRM import.  Historic
+        worktime rows are intentionally retained as imported source data: when
+        their CRM project is uploaded later they become visible automatically.
+        The cleanup only removes old manual configuration/demo data which would
+        otherwise create unsupported project cards.
+        """
+        cleanup_key = "legacy_orphaned_project_maintenance_cleanup_v1"
+        snapshot = self.records.export_records()
+        if not snapshot:
+            return {"project_settings": 0, "milestones": 0, "payment_nodes": 0, "interventions": 0}
+
+        crm_project_numbers = {
+            record.get("project_number") or _project_number_from_subject(record.get("subject") or "")
+            for record in snapshot["records"]
+        }
+        crm_project_numbers.discard(None)
+        crm_project_numbers.discard("")
+        if not crm_project_numbers:
+            return {"project_settings": 0, "milestones": 0, "payment_nodes": 0, "interventions": 0}
+
+        with self.database.connect() as connection:
+            already_cleaned = connection.execute(
+                "SELECT 1 FROM service_state WHERE key = ?", (cleanup_key,)
+            ).fetchone()
+            if already_cleaned:
+                return {"project_settings": 0, "milestones": 0, "payment_nodes": 0, "interventions": 0}
+
+            placeholders = ", ".join("?" for _ in crm_project_numbers)
+            deleted: dict[str, int] = {}
+            for table in ("project_settings", "milestones", "payment_nodes", "interventions"):
+                cursor = connection.execute(
+                    f"DELETE FROM {table} WHERE project_number NOT IN ({placeholders})",
+                    tuple(sorted(crm_project_numbers)),
+                )
+                deleted[table] = cursor.rowcount
+            connection.execute(
+                "INSERT INTO service_state(key, value) VALUES (?, ?)",
+                (cleanup_key, self._now()),
+            )
+            connection.commit()
+        return deleted
+
     def _build_all_projects(self, include_details: bool = False) -> list[dict[str, Any]]:
         snapshot = self.records.export_records()
         crm_records = snapshot["records"] if snapshot else []
@@ -833,10 +1183,18 @@ class ProjectRepository:
         milestones = self._rows_grouped("milestones", "project_number", "planned_date")
         payments = self._rows_grouped("payment_nodes", "project_number", "planned_date")
         interventions = self._rows_grouped("interventions", "project_number", "updated_at DESC")
-        project_numbers = (
-            set(grouped) | set(settings) | set(time_entries) | set(milestones)
-            | set(payments) | set(interventions)
-        )
+        if self.require_crm_project_match:
+            # The active CRM import is the project-master source of truth.
+            # Unmatched worktime stays as raw source data until its CRM record
+            # is uploaded, but never creates an unlinked project card.
+            project_numbers = set(grouped)
+        else:
+            # Compatibility mode is reserved for isolated data-import tests.
+            project_numbers = (
+                set(grouped) | set(settings) | set(time_entries) | set(milestones)
+                | set(payments) | set(interventions)
+            )
+        project_numbers.discard(INTERNAL_NONPROJECT_CODE)
         return [
             self._build_project(
                 project_number,
@@ -850,6 +1208,50 @@ class ProjectRepository:
             )
             for project_number in project_numbers
         ]
+
+    def _crm_search_terms_by_project(self) -> dict[str, list[str]]:
+        """Return all CRM names usable for the project-master fuzzy search.
+
+        A project can contain several imported CRM rows (for example a contract
+        plus its original opportunity).  The list view selects a single primary
+        row for display, but search must still find the project by any linked
+        project name or customer name.
+        """
+        snapshot = self.records.export_records()
+        records = snapshot["records"] if snapshot else []
+        terms_by_project: dict[str, list[str]] = {}
+        for record in records:
+            project_number = record.get("project_number") or _project_number_from_subject(
+                record.get("subject") or ""
+            )
+            if not project_number:
+                continue
+            terms = terms_by_project.setdefault(project_number, [])
+            terms.extend(
+                value
+                for value in (
+                    record.get("project_number"),
+                    record.get("subject"),
+                    record.get("customer"),
+                )
+                if value
+            )
+        return terms_by_project
+
+    @staticmethod
+    def _matches_project_query(
+        project: dict[str, Any], query: str, crm_terms_by_project: dict[str, list[str]]
+    ) -> bool:
+        needle = query.casefold()
+        return needle in " ".join(
+            [
+                project["project_number"],
+                project["subject"],
+                project.get("customer") or "",
+                project.get("project_manager") or "",
+                *crm_terms_by_project.get(project["project_number"], []),
+            ]
+        ).casefold()
 
     def _build_project(
         self,
@@ -867,7 +1269,7 @@ class ProjectRepository:
         primary = (contracts or opportunities or [{}])[0]
         hours_per_day = Decimal(settings.get("hours_per_person_day") or "8")
         reported_hours = sum(
-            (Decimal(row["hours"]) for row in time_entries),
+            (_total_entry_hours(row) for row in time_entries),
             Decimal("0"),
         )
         customer_confirmed_hours = sum(
@@ -896,7 +1298,14 @@ class ProjectRepository:
             reported_days / planned_days * 100 if planned_days and planned_days > 0 else None
         )
         contract_value = _sum_money(contracts, "total_amount")
+        contract_received_amount = _sum_money(contracts, "received_amount")
         invoiced_amount = _sum_money(contracts, "invoiced_amount")
+        contract_status = _contract_status(contracts)
+        outstanding_receivable_amount = (
+            contract_value - contract_received_amount
+            if contract_status == "进行中"
+            else None
+        )
         today_date = date.today()
         today = today_date.isoformat()
         overdue_milestones = sum(
@@ -981,6 +1390,9 @@ class ProjectRepository:
             else "商机" if opportunities else "项目"
         )
         monthly_time_entries = _monthly_time_entries(time_entries, hours_per_day)
+        pmo_resource_summary, pmo_resource_rows = _pmo_resource_rows(
+            time_entries, hours_per_day
+        )
         if confirmation_gap_hours > 0:
             risk_reasons.append(
                 f"已填报工时与客户确认工时相差 {_format_decimal(confirmation_gap_days)} 人天"
@@ -1062,6 +1474,13 @@ class ProjectRepository:
             "contract_count": len(contracts),
             "opportunity_count": len(opportunities),
             "contract_value": _format_decimal(contract_value),
+            "contract_status": contract_status,
+            "crm_received_amount": _format_decimal(contract_received_amount),
+            "outstanding_receivable_amount": (
+                _format_decimal(outstanding_receivable_amount)
+                if outstanding_receivable_amount is not None
+                else None
+            ),
             "received_amount": _format_decimal(received_amount),
             "invoiced_amount": _format_decimal(invoiced_amount),
             "planned_person_days": _format_decimal(planned_days) if planned_days is not None else None,
@@ -1102,13 +1521,14 @@ class ProjectRepository:
             project.update(
                 {
                     "crm_records": crm_records,
-                    "time_entries": time_entries[:30],
                     "milestones": enriched_milestones,
                     "payment_nodes": payments,
                     "interventions": interventions,
                     "settings": settings,
                     "todo_events": todo_events,
                     "monthly_time_entries": monthly_time_entries,
+                    "pmo_resource_summary": pmo_resource_summary,
+                    "pmo_resource_rows": pmo_resource_rows,
                 }
             )
         return project
@@ -1171,12 +1591,38 @@ def _sum_money(records: list[dict[str, Any]], field: str) -> Decimal:
     )
 
 
+def _contract_status(contracts: list[dict[str, Any]]) -> str | None:
+    """Derive the project-level contract state from imported CRM amounts only."""
+    if not contracts:
+        return None
+    for contract in contracts:
+        amounts = (
+            contract.get("total_amount"),
+            contract.get("received_amount"),
+            contract.get("invoiced_amount"),
+        )
+        if not all(amounts):
+            return "进行中"
+        values = {amount["amount"] for amount in amounts}
+        if len(values) != 1:
+            return "进行中"
+    return "已结束"
+
+
 def _decimal_sum(values: Any) -> str:
     return _format_decimal(sum((Decimal(value) for value in values), Decimal("0")))
 
 
 def _decimal_text(value: Any) -> str:
     return _format_decimal(Decimal(str(value)))
+
+
+def _overtime_entry_hours(row: dict[str, Any]) -> Decimal:
+    return Decimal(row.get("overtime_hours") or "0")
+
+
+def _total_entry_hours(row: dict[str, Any]) -> Decimal:
+    return Decimal(row["hours"]) + _overtime_entry_hours(row)
 
 
 def _project_number_from_subject(subject: str) -> str | None:
@@ -1343,18 +1789,21 @@ def _monthly_time_entries(
             {
                 "month": month,
                 "reported_hours": Decimal("0"),
+                "overtime_hours": Decimal("0"),
                 "approved_hours": Decimal("0"),
                 "entry_count": 0,
                 "entries": [],
             },
         )
-        hours = Decimal(row["hours"])
+        overtime = _overtime_entry_hours(row)
+        hours = Decimal(row["hours"]) + overtime
         approved = (
             Decimal(row["approved_hours"])
             if row["approval_status"] == "approved"
             else Decimal("0")
         )
         item["reported_hours"] += hours
+        item["overtime_hours"] += overtime
         item["approved_hours"] += approved
         item["entry_count"] += 1
         item["entries"].append(row)
@@ -1370,9 +1819,14 @@ def _monthly_time_entries(
                 "month": item["month"],
                 "entry_count": item["entry_count"],
                 "reported_hours": _format_decimal(item["reported_hours"]),
+                "overtime_hours": _format_decimal(item["overtime_hours"]),
                 "approved_hours": _format_decimal(item["approved_hours"]),
                 "confirmation_gap_hours": _format_decimal(gap),
                 "reported_person_days": _format_decimal(reported_days),
+                "overtime_person_days": _format_decimal(
+                    item["overtime_hours"] / hours_per_day
+                    if hours_per_day else Decimal("0")
+                ),
                 "approved_person_days": _format_decimal(approved_days),
                 "confirmation_gap_person_days": _format_decimal(gap_days),
                 "entries": sorted(
@@ -1383,6 +1837,119 @@ def _monthly_time_entries(
             }
         )
     return sorted(months, key=lambda item: item["month"], reverse=True)
+
+
+def _pmo_resource_rows(
+    time_entries: list[dict[str, Any]], hours_per_day: Decimal
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Build an auditable people-and-effort view for the project detail page.
+
+    Currency cost is intentionally not inferred: the system has no employee rate
+    source.  The usable, source-backed cost unit is person-days, with overtime
+    disclosed separately rather than folded into an assumed money amount.
+    """
+    grouped: dict[tuple[str, str], dict[str, Any]] = {}
+    total_normal_hours = Decimal("0")
+    total_overtime_hours = Decimal("0")
+    total_approved_hours = Decimal("0")
+
+    for row in time_entries:
+        employee_name = (row.get("employee_name") or "未命名员工").strip()
+        employee_id = (row.get("employee_id") or "").strip()
+        item = grouped.setdefault(
+            (employee_id, employee_name),
+            {
+                "employee_name": employee_name,
+                "employee_id": employee_id or None,
+                "entry_count": 0,
+                "normal_hours": Decimal("0"),
+                "overtime_hours": Decimal("0"),
+                "approved_hours": Decimal("0"),
+                "work_dates": set(),
+                "months": set(),
+            },
+        )
+        normal_hours = Decimal(row["hours"])
+        overtime_hours = _overtime_entry_hours(row)
+        approved_hours = (
+            Decimal(row["approved_hours"])
+            if row["approval_status"] == "approved"
+            else Decimal("0")
+        )
+        item["entry_count"] += 1
+        item["normal_hours"] += normal_hours
+        item["overtime_hours"] += overtime_hours
+        item["approved_hours"] += approved_hours
+        item["work_dates"].add(row["work_date"])
+        item["months"].add(row["work_date"][:7])
+        total_normal_hours += normal_hours
+        total_overtime_hours += overtime_hours
+        total_approved_hours += approved_hours
+
+    total_reported_hours = total_normal_hours + total_overtime_hours
+    rows: list[dict[str, Any]] = []
+    for item in grouped.values():
+        reported_hours = item["normal_hours"] + item["overtime_hours"]
+        confirmation_gap_hours = max(reported_hours - item["approved_hours"], Decimal("0"))
+        reported_days = reported_hours / hours_per_day if hours_per_day else Decimal("0")
+        month_count = len(item["months"])
+        rows.append(
+            {
+                "employee_name": item["employee_name"],
+                "employee_id": item["employee_id"],
+                "entry_count": item["entry_count"],
+                "active_day_count": len(item["work_dates"]),
+                "active_month_count": month_count,
+                "normal_person_days": _format_decimal(
+                    item["normal_hours"] / hours_per_day if hours_per_day else Decimal("0")
+                ),
+                "overtime_person_days": _format_decimal(
+                    item["overtime_hours"] / hours_per_day if hours_per_day else Decimal("0")
+                ),
+                "reported_person_days": _format_decimal(reported_days),
+                "approved_person_days": _format_decimal(
+                    item["approved_hours"] / hours_per_day if hours_per_day else Decimal("0")
+                ),
+                "confirmation_gap_person_days": _format_decimal(
+                    confirmation_gap_hours / hours_per_day if hours_per_day else Decimal("0")
+                ),
+                "project_effort_share_percent": round(
+                    float(reported_hours / total_reported_hours * 100), 1
+                ) if total_reported_hours else 0.0,
+                "overtime_ratio_percent": round(
+                    float(item["overtime_hours"] / reported_hours * 100), 1
+                ) if reported_hours else 0.0,
+                "monthly_average_person_days": _format_decimal(
+                    reported_days / Decimal(month_count) if month_count else Decimal("0")
+                ),
+            }
+        )
+    rows.sort(
+        key=lambda row: (-Decimal(row["reported_person_days"]), row["employee_name"])
+    )
+
+    confirmed_gap_hours = max(total_reported_hours - total_approved_hours, Decimal("0"))
+    summary = {
+        "cost_basis": "人天",
+        "monetary_cost_available": False,
+        "participant_count": len(rows),
+        "normal_person_days": _format_decimal(
+            total_normal_hours / hours_per_day if hours_per_day else Decimal("0")
+        ),
+        "overtime_person_days": _format_decimal(
+            total_overtime_hours / hours_per_day if hours_per_day else Decimal("0")
+        ),
+        "reported_person_days": _format_decimal(
+            total_reported_hours / hours_per_day if hours_per_day else Decimal("0")
+        ),
+        "approved_person_days": _format_decimal(
+            total_approved_hours / hours_per_day if hours_per_day else Decimal("0")
+        ),
+        "confirmation_gap_person_days": _format_decimal(
+            confirmed_gap_hours / hours_per_day if hours_per_day else Decimal("0")
+        ),
+    }
+    return summary, rows
 
 
 def _health_period(
@@ -1460,6 +2027,8 @@ def _project_health_row(
         "project_name": project["subject"],
         "pm_owner": project.get("project_manager"),
         "project_status": project["status"],
+        "contract_status": project.get("contract_status"),
+        "outstanding_receivable_amount": project.get("outstanding_receivable_amount"),
         "planned_start": project.get("planned_start"),
         "planned_end": project.get("planned_end"),
         "budget_person_days": (
@@ -1605,6 +2174,8 @@ def _employee_worktime_rows(
     baseline: dict[str, Any],
     baseline_hours: Decimal,
     standard_hours_per_day: Decimal,
+    *,
+    known_employees: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     grouped: dict[str, dict[str, Any]] = {}
     for row in rows:
@@ -1614,16 +2185,33 @@ def _employee_worktime_rows(
                 "employee_id": row["employee_id"],
                 "employee_name": row["employee_name"],
                 "reported_hours": Decimal("0"),
+                "overtime_hours": Decimal("0"),
                 "approved_hours": Decimal("0"),
                 "entry_count": 0,
                 "project_numbers": set(),
             },
         )
-        item["reported_hours"] += Decimal(row["hours"])
+        overtime = _overtime_entry_hours(row)
+        item["reported_hours"] += Decimal(row["hours"]) + overtime
+        item["overtime_hours"] += overtime
         if row["approval_status"] == "approved":
             item["approved_hours"] += Decimal(row["approved_hours"])
         item["entry_count"] += 1
         item["project_numbers"].add(row["project_number"])
+
+    for employee in known_employees or []:
+        grouped.setdefault(
+            employee["employee_name"],
+            {
+                "employee_id": employee["employee_id"],
+                "employee_name": employee["employee_name"],
+                "reported_hours": Decimal("0"),
+                "overtime_hours": Decimal("0"),
+                "approved_hours": Decimal("0"),
+                "entry_count": 0,
+                "project_numbers": set(),
+            },
+        )
 
     result = []
     for item in grouped.values():
@@ -1637,10 +2225,15 @@ def _employee_worktime_rows(
                 "employee_id": item["employee_id"],
                 "employee_name": item["employee_name"],
                 "reported_hours": _format_decimal(item["reported_hours"]),
+                "overtime_hours": _format_decimal(item["overtime_hours"]),
                 "approved_hours": _format_decimal(item["approved_hours"]),
                 "confirmation_gap_hours": _format_decimal(gap),
                 "reported_person_days": _format_decimal(
                     item["reported_hours"] / standard_hours_per_day
+                    if standard_hours_per_day else Decimal("0")
+                ),
+                "overtime_person_days": _format_decimal(
+                    item["overtime_hours"] / standard_hours_per_day
                     if standard_hours_per_day else Decimal("0")
                 ),
                 "approved_person_days": _format_decimal(
@@ -1655,6 +2248,17 @@ def _employee_worktime_rows(
             }
         )
     return sorted(result, key=lambda row: (-float(row["utilization_percent"]), row["employee_name"]))
+
+
+def _monitoring_time_entries(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Exclude the internal department bucket from project and resource metrics.
+
+    TSG999 remains persisted as an auditable raw time-entry source, but is not a
+    customer project and must not make a person appear allocated to a project.
+    """
+    return [
+        row for row in rows if row.get("project_number") != INTERNAL_NONPROJECT_CODE
+    ]
 
 
 def _employee_utilization_status(utilization: Decimal, baseline: dict[str, Any]) -> str:

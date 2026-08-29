@@ -20,10 +20,18 @@ class Settings:
     scheduler_enabled: bool
     sync_hour: int
     timezone: str
+    openai_api_key: str | None
+    pm_assistant_model: str
+    auth_enabled: bool = True
+    initial_admin_username: str = "admin"
+    initial_admin_password: str = "Tsnt@2026"
+    session_hours: int = 12
+    require_crm_project_match: bool = True
 
     @classmethod
     def from_env(cls) -> "Settings":
         base_dir = Path(__file__).resolve().parents[1]
+        _load_local_env(base_dir)
         data_dir = base_dir / "data"
         origins = os.getenv(
             "XTCRM_CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173"
@@ -46,4 +54,30 @@ class Settings:
             in {"1", "true", "yes"},
             sync_hour=int(os.getenv("XTCRM_SYNC_HOUR", "3")),
             timezone=os.getenv("XTCRM_TIMEZONE", "America/Detroit"),
+            openai_api_key=os.getenv("OPENAI_API_KEY"),
+            pm_assistant_model=os.getenv("TSG_PM_ASSISTANT_MODEL", "gpt-5.2"),
+            auth_enabled=os.getenv("TSG_PM_AUTH_ENABLED", "true").lower()
+            in {"1", "true", "yes"},
+            initial_admin_username=os.getenv("TSG_PM_INITIAL_ADMIN_USERNAME", "admin"),
+            initial_admin_password=os.getenv("TSG_PM_INITIAL_ADMIN_PASSWORD", "Tsnt@2026"),
+            session_hours=int(os.getenv("TSG_PM_SESSION_HOURS", "12")),
+            require_crm_project_match=os.getenv(
+                "TSG_PM_REQUIRE_CRM_PROJECT_MATCH", "true"
+            ).lower() in {"1", "true", "yes"},
         )
+
+
+def _load_local_env(base_dir: Path) -> None:
+    """Load local development env files without overwriting process environment."""
+    for filename in (".env", ".env.local"):
+        path = base_dir / filename
+        if not path.is_file():
+            continue
+        for raw_line in path.read_text(encoding="utf-8").splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            key = key.strip()
+            if key and key not in os.environ:
+                os.environ[key] = value.strip().strip('"').strip("'")

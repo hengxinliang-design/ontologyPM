@@ -1,10 +1,18 @@
-import type { ContractType, CrmImportLog, EmployeeWorktimeResponse, LifecycleStatus, PortfolioResponse, ProjectDetail, ProjectHealthResponse, RecordsResponse, SyncStatus, WorktimeBaseline } from "./types";
+import type { AuthenticatedUser, AuthSession, ContractType, CrmImportLogsResponse, EmployeeWorktimeResponse, LifecycleStatus, ManagedUser, MenuPermission, PmAssistantChatMessage, PmAssistantResponse, PortfolioResponse, ProjectDetail, ProjectHealthResponse, RecordsResponse, ResourceOperationsResponse, SyncStatus, WorktimeBaseline } from "./types";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "";
 const API_TOKEN = import.meta.env.VITE_API_TOKEN ?? "";
+const SESSION_TOKEN_KEY = "tsg-pm-session-token";
+const SESSION_USER_KEY = "tsg-pm-session-user";
+let sessionToken = window.localStorage.getItem(SESSION_TOKEN_KEY) ?? "";
+
+export class ApiError extends Error {
+  constructor(message: string, public readonly status: number) { super(message); }
+}
 
 function headers(): HeadersInit {
-  return API_TOKEN ? { Authorization: `Bearer ${API_TOKEN}` } : {};
+  const token = sessionToken || API_TOKEN;
+  return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -14,9 +22,70 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: response.statusText }));
-    throw new Error(error.detail ?? `HTTP ${response.status}`);
+    throw new ApiError(error.detail ?? `HTTP ${response.status}`, response.status);
   }
   return response.json() as Promise<T>;
+}
+
+export function getStoredUser(): AuthenticatedUser | null {
+  try {
+    const raw = window.localStorage.getItem(SESSION_USER_KEY);
+    return raw ? JSON.parse(raw) as AuthenticatedUser : null;
+  } catch {
+    return null;
+  }
+}
+
+export function clearSession(): void {
+  sessionToken = "";
+  window.localStorage.removeItem(SESSION_TOKEN_KEY);
+  window.localStorage.removeItem(SESSION_USER_KEY);
+}
+
+function storeSession(session: AuthSession): void {
+  sessionToken = session.token;
+  window.localStorage.setItem(SESSION_TOKEN_KEY, session.token);
+  window.localStorage.setItem(SESSION_USER_KEY, JSON.stringify(session.user));
+}
+
+export async function login(username: string, password: string): Promise<AuthSession> {
+  const response = await request<{ data: AuthSession }>("/api/v1/auth/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username, password })
+  });
+  storeSession(response.data);
+  return response.data;
+}
+
+export async function fetchCurrentUser(): Promise<AuthenticatedUser> {
+  const response = await request<{ data: AuthenticatedUser }>("/api/v1/auth/me");
+  window.localStorage.setItem(SESSION_USER_KEY, JSON.stringify(response.data));
+  return response.data;
+}
+
+export async function logout(): Promise<void> {
+  try { await request("/api/v1/auth/logout", { method: "POST" }); }
+  finally { clearSession(); }
+}
+
+export async function fetchUsers(): Promise<ManagedUser[]> {
+  const response = await request<{ data: ManagedUser[] }>("/api/v1/users");
+  return response.data;
+}
+
+export async function createUser(payload: { username: string; password: string; is_admin: boolean; permissions: MenuPermission[] }): Promise<ManagedUser> {
+  const response = await request<{ data: ManagedUser }>("/api/v1/users", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload)
+  });
+  return response.data;
+}
+
+export async function updateUser(username: string, payload: { password?: string; is_admin?: boolean; is_active?: boolean; permissions?: MenuPermission[] }): Promise<ManagedUser> {
+  const response = await request<{ data: ManagedUser }>(`/api/v1/users/${encodeURIComponent(username)}`, {
+    method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload)
+  });
+  return response.data;
 }
 
 export interface RecordFilters {
@@ -45,9 +114,9 @@ export function fetchSyncStatus(): Promise<SyncStatus> {
   return request("/api/v1/sync-status");
 }
 
-export async function fetchCrmImportLogs(): Promise<CrmImportLog[]> {
-  const response = await request<{ data: CrmImportLog[] }>("/api/v1/crm-imports");
-  return response.data;
+export function fetchCrmImportLogs(filters: { page: number; pageSize: number }): Promise<CrmImportLogsResponse> {
+  const params = new URLSearchParams({ page: String(filters.page), page_size: String(filters.pageSize) });
+  return request(`/api/v1/crm-imports?${params}`);
 }
 
 export function fetchProjects(filters: {
@@ -55,12 +124,14 @@ export function fetchProjects(filters: {
   contractType?: string;
   lifecycleStatus?: string;
   riskLevel?: string;
+  contractStatus?: string;
 }): Promise<PortfolioResponse> {
   const params = new URLSearchParams();
   if (filters.query) params.set("q", filters.query);
   if (filters.contractType) params.set("contract_type", filters.contractType);
   if (filters.lifecycleStatus) params.set("lifecycle_status", filters.lifecycleStatus);
   if (filters.riskLevel) params.set("risk_level", filters.riskLevel);
+  if (filters.contractStatus) params.set("contract_status", filters.contractStatus);
   const query = params.toString();
   return request(`/api/v1/projects${query ? `?${query}` : ""}`);
 }
@@ -70,12 +141,16 @@ export function fetchProjectHealth(filters: {
   startMonth?: string;
   endMonth?: string;
   projectNumber?: string;
+  contractStatus?: string;
+  query?: string;
 }): Promise<ProjectHealthResponse> {
   const params = new URLSearchParams();
   if (filters.month) params.set("month", filters.month);
   if (filters.startMonth) params.set("start_month", filters.startMonth);
   if (filters.endMonth) params.set("end_month", filters.endMonth);
   if (filters.projectNumber) params.set("project_number", filters.projectNumber);
+  if (filters.contractStatus) params.set("contract_status", filters.contractStatus);
+  if (filters.query) params.set("q", filters.query);
   const query = params.toString();
   return request(`/api/v1/project-health${query ? `?${query}` : ""}`);
 }
@@ -93,6 +168,21 @@ export function fetchEmployeeWorktime(filters: {
   return request(`/api/v1/employee-worktime?${params}`);
 }
 
+export function fetchResourceOperations(filters: {
+  month?: string;
+  startMonth?: string;
+  endMonth?: string;
+  employeeName?: string;
+} = {}): Promise<ResourceOperationsResponse> {
+  const params = new URLSearchParams();
+  if (filters.month) params.set("month", filters.month);
+  if (filters.startMonth) params.set("start_month", filters.startMonth);
+  if (filters.endMonth) params.set("end_month", filters.endMonth);
+  if (filters.employeeName) params.set("employee_name", filters.employeeName);
+  const query = params.toString();
+  return request(`/api/v1/resource-operations${query ? `?${query}` : ""}`);
+}
+
 export async function fetchWorktimeBaseline(): Promise<WorktimeBaseline> {
   const response = await request<{ data: WorktimeBaseline }>("/api/v1/worktime-baseline");
   return response.data;
@@ -107,7 +197,13 @@ export async function updateWorktimeBaseline(payload: Partial<WorktimeBaseline>)
   return response.data;
 }
 
-export async function importTimeEntriesXlsx(file: File): Promise<{ imported: number; parsed: number; filename?: string }> {
+export async function importTimeEntriesXlsx(file: File): Promise<{
+  imported: number;
+  unchanged: number;
+  parsed: number;
+  filename?: string;
+  date_range?: { start: string; end: string };
+}> {
   const content_base64 = await fileToBase64(file);
   return request("/api/v1/time-entries/import-xlsx", {
     method: "POST",
@@ -130,6 +226,22 @@ function fileToBase64(file: File): Promise<string> {
 
 export async function fetchProject(projectNumber: string): Promise<ProjectDetail> {
   const response = await request<{ data: ProjectDetail }>(`/api/v1/projects/${projectNumber}`);
+  return response.data;
+}
+
+export async function chatWithPmAssistant(message: string, history: PmAssistantChatMessage[]): Promise<PmAssistantResponse> {
+  const response = await request<{ data: PmAssistantResponse }>("/api/v1/pm-assistant/chat", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ message, history })
+  });
+  return response.data;
+}
+
+export async function analyzeProjectWithPmAssistant(projectNumber: string): Promise<PmAssistantResponse> {
+  const response = await request<{ data: PmAssistantResponse }>(`/api/v1/projects/${projectNumber}/ai-analysis`, {
+    method: "POST"
+  });
   return response.data;
 }
 

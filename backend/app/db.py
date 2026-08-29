@@ -106,6 +106,7 @@ CREATE TABLE IF NOT EXISTS time_entries (
     employee_name TEXT NOT NULL,
     work_date TEXT NOT NULL,
     hours TEXT NOT NULL,
+    overtime_hours TEXT NOT NULL DEFAULT '0.00',
     approved_hours TEXT NOT NULL,
     approval_status TEXT NOT NULL
         CHECK (approval_status IN ('draft', 'submitted', 'approved', 'rejected')),
@@ -191,6 +192,26 @@ CREATE TABLE IF NOT EXISTS interventions (
 
 CREATE INDEX IF NOT EXISTS idx_intervention_project
     ON interventions(project_number, status);
+
+CREATE TABLE IF NOT EXISTS users (
+    username TEXT PRIMARY KEY,
+    password_hash TEXT NOT NULL,
+    is_admin INTEGER NOT NULL DEFAULT 0,
+    permissions_json TEXT NOT NULL DEFAULT '[]',
+    is_active INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS auth_sessions (
+    token_hash TEXT PRIMARY KEY,
+    username TEXT NOT NULL REFERENCES users(username) ON DELETE CASCADE,
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_auth_sessions_username
+    ON auth_sessions(username);
 """
 
 
@@ -238,6 +259,14 @@ class Database:
         connection.execute(
             "UPDATE milestones SET planned_end = planned_date WHERE planned_end IS NULL"
         )
+        time_entry_columns = {
+            row["name"]
+            for row in connection.execute("PRAGMA table_info(time_entries)").fetchall()
+        }
+        if "overtime_hours" not in time_entry_columns:
+            connection.execute(
+                "ALTER TABLE time_entries ADD COLUMN overtime_hours TEXT NOT NULL DEFAULT '0.00'"
+            )
         connection.commit()
 
     def active_snapshot_id(self) -> int | None:
