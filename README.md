@@ -34,7 +34,7 @@ CRM 手工导入文件
 
 ## 产品需求文档
 
-当前产品逻辑以 [docs/prd/PRD.md](./docs/prd/PRD.md)（v1.9）为准；全部计算口径及其在本体中的位置见 [docs/BUSINESS_RULES.md](./docs/BUSINESS_RULES.md)。PRD 包含页面截图、流程图和业务规则。新增或调整功能时同步更新该文档，方法见文档第 12 章。
+需求与建模基线见 [docs/requirements/TSG_PM_需求规格与本体基线.md](./docs/requirements/TSG_PM_需求规格与本体基线.md)（新需求先在这里确认，再改本体）。当前产品逻辑以 [docs/prd/PRD.md](./docs/prd/PRD.md)（v1.20）为准；全部计算口径及其在本体中的位置见 [docs/BUSINESS_RULES.md](./docs/BUSINESS_RULES.md)。PRD 包含页面截图、流程图和业务规则。新增或调整功能时同步更新该文档，方法见文档第 12 章。
 
 ## 本体语义层（Ontology）
 

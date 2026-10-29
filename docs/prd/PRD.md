@@ -7,7 +7,7 @@
 | 对应产品版本 | 1.20（本体语义层 v7.4.0） |
 | 更新日期 | 2026-10-28 |
 | 状态 | 基线版：描述当前已实现的产品逻辑 |
-| 相关文档 | [业务规则与计算口径](../BUSINESS_RULES.md)、[本体架构](../ONTOLOGY_ARCHITECTURE.md)、[投入成本模型](../INVESTMENT_COST_MODEL.md)、[数据源契约](../../TSG_PM_DATA_SOURCE_CONTRACTS.md)、[API 文档](../API.md) |
+| 相关文档 | [需求规格与本体基线](../requirements/TSG_PM_需求规格与本体基线.md)、[业务规则与计算口径](../BUSINESS_RULES.md)、[本体架构](../ONTOLOGY_ARCHITECTURE.md)、[投入成本模型](../INVESTMENT_COST_MODEL.md)、[数据源契约](../../TSG_PM_DATA_SOURCE_CONTRACTS.md)、[API 文档](../API.md) |
 
 **一句话说明：TSG PM 用「项目编号」把 CRM 的合同和商机、员工每天填的工时，以及管理人员维护的计划串成一个项目视图，让管理者看清每个项目的收入、投入、进度和风险，并在系统里直接处理。**
 
