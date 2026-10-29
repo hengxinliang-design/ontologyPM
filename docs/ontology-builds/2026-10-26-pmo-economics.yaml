@@ -1,0 +1,264 @@
+# 本体构建包（发布稿）：部门 PMO 经营管理一期，本体 3.0.0。设计稿见 2026-10-26-pmo-economics-design.yaml，
+# 设计文档见 docs/ontology-design/2026-10-26-pmo-ontology-v3.md。设计稿中 4 项待确认的口径，用户 2026-10-26 决定按设计稿默认处理。
+kind: OntologyBuild
+stage: release
+supersededBy: 2026-10-26-ontology-first-phase1.yaml
+topic: 部门 PMO 经营管理一期：项目人天经营口径、客户汇总、资源健康、年度经营计划与策略信号
+ontologyVersion: 3.0.0
+date: 2026-10-26
+scope:
+  - CQ1 项目按暂估收入扣掉目标毛利后，可支配多少钱、折合多少人天？
+  - CQ2 按已用人天，项目当前暂估毛利率是多少？预计完工能否达到目标毛利率？
+  - CQ3 按里程碑已确认收入，项目当前毛利率是多少？
+  - CQ4 哪些项目成本跑在收入前面，需要严格监控？
+  - CQ5 客户汇总有没有掩盖单个项目的超标？
+  - CQ6 哪些员工过载、长期加班、同时参与项目过多或闲置？
+  - CQ7 未来三个月哪些人能释放出来支援其他项目？
+  - CQ8 部门年度指标完成得怎样，是否落后于时间进度？
+  - CQ9 部门应该招聘、节约资源、争取新合同还是推动验收回款？
+  - CQ10 在手合同的剩余可支配人天能覆盖明年多少产能？
+
+
+rules:
+  - id: R01
+    statement: 暂估收入 = 合同额 ÷（1 + 税率）− 外部采购 − 商务费用；税率缺省取运营口径参数（默认 6%），项目可覆盖。
+    basis: 用户 2026-10-26 说明「按照税后收入（如果有外部采购或者额外的商务费用需要扣除）作为收入预估」；SEY 财务表「扣税后总额 = 合同总额 / 1.06」。
+    acceptance: SEY101 合同额 1,254,086.00 的暂估收入为 1,183,100.00，SEY 三个项目合计 2,005,977.36；扣减 103,100.00 后为 1,080,000.00；税率覆盖为 13% 时 1,130,000.00 折合 1,000,000.00；扣减项超过税后合同额时暂估收入为负并判超标。
+    verifiedBy: [test_estimated_revenue_matches_finance_example]
+    ontology: [Project.contractValue, Project.taxRatePercent, Project.externalProcurementAmount, Project.commercialExpenseAmount, Project.estimatedRevenue, OperatingPolicy.defaultTaxRatePercent]
+  - id: R02
+    statement: 可用成本 = 暂估收入 ×（1 − 目标毛利率）；目标毛利率缺省取运营口径参数（默认 30%），项目可覆盖但必须写原因。
+    basis: 用户 2026-10-26 说明「收入去除公司的毛利考核要求（30%，按需设定），剩下的即是可用成本，也就是实施部门的可支配金额」。
+    acceptance: SEY101 目标毛利率 30% 时可用成本为 828,170.00；覆盖为 20%（原因「战略首单」）后为 946,480.00。
+    verifiedBy: [test_available_cost_uses_target_margin_with_project_override]
+    ontology: [Project.availableCost, Project.targetGrossMarginPercent, Project.targetMarginReason, OperatingPolicy.defaultTargetMarginPercent]
+  - id: R03
+    statement: 可支配人天 = 可用成本 ÷ 合同人天单价；缺合同额或单价时经营状态为「无基线」。
+    basis: 用户 2026-10-26 决定「用合同人天单价」；用户说明「所有合同都会有一个人天折算单价，员工填写人天是在使用合同约定的人天数额」。
+    acceptance: 单价 2,000 元时 SEY101 可支配人天为 414.09；未维护单价时可支配人天为空、状态为「无基线」、依据为「缺少合同人天单价」；合同额为 0 时同样为「无基线」。
+    verifiedBy: [test_disposable_person_days_from_contract_rate]
+    ontology: [Project.contractPersonDayRate, Project.disposablePersonDays, EconomicsStatus]
+  - id: R04
+    statement: 动态成本 = 已用人天 × 合同人天单价；已用人天 =（正常工时 + 加班工时）÷ 项目每人天小时数，不以审批为前提，内部代码不计入。
+    basis: 用户说明「通过项目的人天数据作为一种成本计量方案」；docs/BUSINESS_RULES.md §3「实际工时」口径。
+    acceptance: SEY101 填报 96 人天正常工时和 2 条「8 小时 + 加班 8 小时」（加班 16 小时计 2 人天）共 100 人天、均未审批，另有 TSG999 工时 8 小时，单价 2,000 元时动态成本为 200,000.00，本体对象的 dynamicCost 相同。
+    verifiedBy: [test_dynamic_cost_counts_overtime_and_excludes_internal_codes]
+    ontology: [Project.reportedPersonDays, Project.dynamicCost, OperatingPolicy.internalCodes]
+  - id: R05
+    statement: 当前暂估毛利率 =（暂估收入 − 动态成本）÷ 暂估收入；预计完工毛利率 =（暂估收入 −（已用人天 + 剩余人天）× 单价）÷ 暂估收入。剩余人天取项目经理估算，未维护时取 max（预算人天 − 已用人天，0）并提示，项目结束后为 0。
+    basis: 用户说明「需要评估按照暂估收入，目前有没有毛利率不达标」；SEY 财务表「暂估全额回款完成的毛利率」；用户 2026-10-26 决定剩余人天按设计稿默认处理。
+    acceptance: 以财务表已发生成本折算人天时，SEY101 当前暂估毛利率 −34.61%、SEY103 为 62.53%、SEY 合计 8.27%；SEY103 已用 100、估算剩余 150 人天时预计完工毛利率 24.29%；未估算时按预算 160 − 已用 100 = 60 人天并提示「剩余人天估算缺失」；已关闭项目剩余为 0。
+    verifiedBy: [test_estimated_margin_matches_finance_example]
+    ontology: [Project.estimatedGrossMarginPercent, Project.forecastGrossMarginPercent, Project.remainingPersonDaysEstimate]
+  - id: R06
+    statement: 确认收入：按里程碑确认的项目 = 已到账回款节点金额 ÷（1 + 税率）− 扣减项 × 已到账比例；按工作量结算的项目 = CRM 开票金额 ÷（1 + 税率）；售前与未分类项目不确认。
+    basis: 用户说明「建设类项目按照回款确定收入，回款根据里程碑设定」；用户 2026-10-26 决定「里程碑节点为准，CRM 对账」，扣减项分摊与 TSnT365 确认方式按设计稿默认处理。
+    acceptance: SEY101 到账 627,043.00 时确认收入 591,550.00，SEY 合计 970,488.68；未到账节点不计入；合同 1,060,000.00、外部采购 100,000.00、到账一半时确认收入 450,000.00；未分类项目确认收入为空。
+    verifiedBy: [test_confirmed_revenue_from_paid_milestone_nodes]
+    ontology: [Project.confirmedRevenue, Project.revenueRecognitionMethod, PaymentNode.countsTowardConfirmedRevenue, RevenueRecognitionMethod]
+  - id: R07
+    statement: 确认毛利率 =（确认收入 − 动态成本）÷ 确认收入。它只用于展示，不单独用来判定经营状态。
+    basis: SEY 财务表「按目前回款暂估收入的毛利率」；设计稿 §3.2 结论 2。
+    acceptance: SEY 合计确认毛利率 −89.60%；SEY103 确认毛利率 25.06% 低于目标 30%，经营状态仍为「达标」；尚无回款时确认毛利率为空。
+    verifiedBy: [test_confirmed_margin_is_reported_but_not_decisive]
+    ontology: [Project.confirmedGrossMarginPercent, Project.economicsStatus]
+  - id: R08
+    statement: 成本超前 = 成本进度（动态成本 ÷ 可用成本）− 收入确认进度（确认收入 ÷ 暂估收入），单位为百分点；达到预警线（默认 20）且已过宽限期的项目判超标。宽限期为首个回款节点计划日之前。
+    basis: 用户说明「对于超标的项目需要严格监控」；设计稿 §3.2 结论 2（挣值思路）；用户 2026-10-26 决定宽限期按设计稿默认处理。
+    acceptance: SEY101 成本进度 192.31%、收入确认进度 50.00%、成本超前 142.31；SEY103 成本超前 3.53 为达标；成本超前 50 的项目在首个节点 2026-11-30 前只提示宽限期，2026-12-01 起判超标；没有回款节点的项目直接判超标。
+    verifiedBy: [test_cost_ahead_flags_strict_monitoring]
+    ontology: [Project.costProgressPercent, Project.revenueProgressPercent, Project.costAheadPoints, OperatingPolicy.costAheadWarningPoints]
+  - id: R09
+    statement: 经营状态按顺序判定：缺合同额或单价为「无基线」；动态成本超过可用成本，或成本超前达到预警线且已过宽限期为「超标」；预计完工毛利率低于目标为「预警」；其余为「达标」。
+    basis: 用户说明「两个评估：按暂估收入是否不达标；按确认收入的当前毛利」；设计稿 §5.2。
+    acceptance: SEY101 依据为「动态成本 1592625.54 超过可用成本 828170.00」，判超标；SEY103 达标；单价为空判无基线；预计完工毛利率 24.29% 判预警；同时超标和预警时取超标并列出全部 3 条依据。
+    verifiedBy: [test_economics_status_order]
+    ontology: [Project.economicsStatus, Project.economicsReasons, EconomicsStatus]
+  - id: R10
+    statement: 回款节点到账合计与 CRM 已回款不一致时，给出对账提示，不改变确认收入。
+    basis: 用户 2026-10-26 决定「里程碑节点为准，CRM 对账」。
+    acceptance: 节点到账 600,000.00、CRM 已回款 627,043.00 时提示「回款对账差异 27043.00」，确认收入仍按 600,000.00 计为 566,037.74；两者一致时没有提示。
+    verifiedBy: [test_payment_reconciliation_warning]
+    ontology: [Project.crmReceivedAmount, Project.economicsReasons, PaymentNode]
+  - id: R11
+    statement: 客户和部门的经营指标由项目指标汇总，汇总值不能覆盖项目判定；客户汇总必须列出超标项目，有超标项目的客户排在前面。
+    basis: 设计稿 §3.2 结论 1：SEY 客户合计暂估毛利率 8.27%，掩盖了 SEY101 的 −34.61%；经验库 L11。
+    acceptance: SEY 下 SEY101 超标、SEY103 未超标时，客户汇总的超标项目为 [SEY101]、排在第一位；本体 Customer.exceededProjectCount 为 1；customerEconomics 函数返回两个项目。
+    verifiedBy: [test_customer_rollup_lists_exceeded_projects]
+    ontology: [customerEconomics, Customer.exceededProjectCount, Customer.estimatedGrossMarginPercent]
+  - id: R12
+    statement: 员工资源健康按严重程度判定：连续 N 个月（默认 2）利用率高于过载线为过载风险；加班占比高于关注线（默认 20%）为疲劳风险；同期项目数超过上限（默认 4）为碎片化；利用率不高于关注线为闲置；其余为健康。多项同时成立时全部列出，取最严重的一项。
+    basis: 用户说明「对资源本身需要考虑健康状况，资源是指在系统里填报工时的员工」；docs/BUSINESS_RULES.md §7 利用率阈值。
+    acceptance: 连续两月利用率 110% 为过载、只有一个月为健康；加班 40 小时占全部 160 小时（含内部 40 小时）为 25%，判疲劳；同月 5 个项目判碎片化；利用率 50% 判闲置，首月不判；只有内部工时判闲置；7 月过载、8 月无工时、9 月过载时连续月数为 1；只在 7、8 月过载的员工在 9 月不判过载。
+    verifiedBy: [test_resource_health_statuses]
+    ontology: [Employee.healthStatus, Employee.overtimeSharePercent, Employee.consecutiveOverloadMonths, Employee.concurrentProjectCount, resourceHealth, OperatingPolicy.overloadConsecutiveMonths, OperatingPolicy.maxConcurrentProjects, OperatingPolicy.overtimeShareAttentionPercent]
+  - id: R13
+    statement: 资源释放（一期）：可支配人天已用完且当月仍有人员投入的在手项目，或计划次月内结束且当月仍有投入的项目，给出「释放资源」信号；二期再用资源计划对比计划与实际。
+    basis: 用户说明「随着项目的燃尽，资源应该缓慢释放，或者按照项目进度动态调整」；用户 2026-10-26 决定「分两期」。
+    acceptance: SEY104 可支配 56.88 人天、已用 60 人天且 9 月仍有工时，复盘出现「释放资源」，依据以「SEY104：可支配人天已用完」开头；员工对象带有资源健康属性。
+    verifiedBy: [test_release_signal_for_burnt_out_projects]
+    ontology: [departmentOperatingReview, Project.remainingDisposablePersonDays, Employee.healthStatus]
+  - id: R14
+    statement: 年度经营计划人工维护年度目标；累计指标（新签、确认收入、回款、投入人天）的完成率 = 年初至今实际 ÷ 年度目标，与时间进度（已过月份 ÷ 12）比较，落后超过容差（默认 5 个百分点）为落后；比率指标（毛利率、利用率、人数）直接与目标比较。
+    basis: 用户说明「部门管理者和公司管理者更应该关注年度部门的考核指标的运营情况」。
+    acceptance: 截至 9 月完成率 60% 判落后 15 个百分点、72% 判正常；没有目标为「无目标」，没有数据为「无数据」；毛利率 28% 对目标 30% 判落后；动作 setAnnualOperatingPlan 保存目标后复盘显示目标 1,000,000.00 和时间进度 75%；利用率目标 120% 或年度 1999 被拒绝；REST 修改回款目标时其他目标保持不变。
+    verifiedBy: [test_annual_plan_completion_against_time_progress]
+    ontology: [AnnualOperatingPlan, AnnualOperatingPlan.confirmedRevenueTarget, setAnnualOperatingPlan, annualPlanValuesValid, departmentOperatingReview, OperatingPolicy.planLagTolerancePoints]
+  - id: R15
+    statement: 策略信号按优先级给出：推动验收回款 > 控制成本 > 招聘或外部支援 > 争取新合同 > 释放资源 > 保持；每个信号附触发依据，只作建议。
+    basis: 用户说明「随时调整运营策略，比如应该招聘？还是要节约资源？还是要争取新合同？还是要做好项目验收？」。
+    acceptance: 有逾期回款节点、2 个超标项目且部门预计完工毛利率 8.27% 低于目标时，信号依次为推动验收回款、控制成本，依据列出项目；只有 1 个超标项目时为保持；未来三月需求超过产能且最近两月利用率都高于优秀线时为招聘或外部支援。
+    verifiedBy: [test_strategy_signals_priority_and_evidence]
+    ontology: [departmentOperatingReview, OperatingPolicy.controlCostExceededProjects, OperatingPolicy.excellentUtilizationPercent]
+  - id: R16
+    statement: 在手合同覆盖 = 在手项目剩余可支配人天合计 ÷ 未来 12 个月部门产能（人天）；低于覆盖线（默认 50%）或最近一月利用率不高于关注线时，触发「争取新合同」。
+    basis: 用户说明「根据年度计划随时调整策略，同时保证下一年度的运营」。
+    acceptance: 剩余 3,000 人天、产能 8,000 人天时覆盖 37.5%，出现「争取新合同」，依据为「在手合同覆盖明年产能 37.5%，低于覆盖线 50.0%」；产能为 0 时覆盖为空；最近一月利用率 55% 时同样出现。
+    verifiedBy: [test_backlog_coverage_signal]
+    ontology: [departmentOperatingReview, Project.remainingDisposablePersonDays, OperatingPolicy.backlogCoveragePercent]
+  - id: R17
+    statement: 经营口径输入与参数在两条写入路径上使用同一套校验：项目设置接口与 configureProject 动作、系统设置接口与 updateOperatingPolicy 动作。
+    basis: 经验库 L10「两条写入路径各写一套校验」；本构建按其预防措施，本体校验条件直接调用仓储的校验函数和取值范围。
+    acceptance: 覆盖目标毛利率不写原因、单价为负，两条路径都返回 422；成本超前预警线为 0、同期项目数上限为 2.5，两条路径都拒绝；动作保存后剩余人天估算的更新时间被记录；清空目标毛利率后恢复默认 30%。
+    verifiedBy: [test_economics_inputs_are_validated_on_both_write_paths]
+    ontology: [configureProject, economicsInputsValid, updateOperatingPolicy, economicsPolicyValid]
+  - id: R18
+    statement: 没有财务金额权限的用户只看到经营口径的比例、人天和状态，金额及含金额的依据文本被脱敏；部门经营权限同时持有财务金额和人员工时标记。
+    basis: 原则「金额加 FINANCE 标记」；部门经营页面需要金额与人员健康，用户 2026-10-26 要求部门管理者关注年度经营与资源健康。
+    acceptance: 只有项目健康权限的用户执行 projectEconomics 时，暂估收入和单价为空，可支配人天 414.09 和状态「达标」可见；管理员看到暂估收入 1,183,100.00。
+    verifiedBy: [test_economics_amounts_are_redacted_without_finance]
+    ontology: [projectEconomics, Project.estimatedRevenue]
+
+exceptions:
+  - rule: R01
+    case: 同一项目有多份合同或追加合同。
+    handling: 合同额取全部合同之和；扣减项按项目维护一次，不按合同拆分。
+    basis: 现有口径「CRM 合同总额 = 同一项目下合同总金额之和」（docs/BUSINESS_RULES.md §4）。
+  - rule: R01
+    case: 合同含货物或软件，适用税率不是 6%。
+    handling: 项目级覆盖税率；混合税率合同按财务给出的综合税率填写。
+    basis: 税率是项目级可覆盖字段（test_estimated_revenue_matches_finance_example 覆盖 13% 的情形）。
+  - rule: R01
+    case: 外部采购与商务费用之和超过税后合同额，暂估收入为负。
+    handling: 暂估收入照实计算为负数，可用成本随之为负，经营状态判超标，并提示「扣减项超过税后合同额，请核对外部采购与商务费用」。
+    basis: 负收入说明数据错误或项目亏损，两种情况都需要人工复核。
+  - rule: R02
+    case: 战略项目、首单项目允许低于公司毛利要求。
+    handling: 项目级覆盖目标毛利率，必须填写原因；清空覆盖后恢复默认值，原因一并清除；修改写入审计日志。
+    basis: 用户说明「30%，按需设定」。
+  - rule: R03
+    case: 合同没有约定人天单价（例如纯产品销售或固定总价合同）。
+    handling: 可支配人天为空，经营状态为「无基线」，只展示金额口径，不做人天判定，也不计入客户和部门汇总。
+    basis: 没有单价就无法把金额折算成人天。
+  - rule: R03
+    case: 一个项目的多份合同单价不同。
+    handling: 一期由项目经理按合同额加权后填写一个项目单价，系统不自动加权；单价说明里写明「多份合同时填加权单价」。
+    basis: 单价没有按合同存储，项目级判定需要一个统一单价；按合同存储单价放到二期。
+  - rule: R04
+    case: 工时尚未审批，或客户确认工时少于填报工时。
+    handling: 动态成本按填报工时计算（实际投入口径）；客户确认缺口另行提示，不影响成本。
+    basis: docs/BUSINESS_RULES.md §3「实际工时不以审批通过为前提」。
+  - rule: R04
+    case: 项目的每人天小时数不是 8 小时。
+    handling: 已用人天按项目自己的每人天小时数折算，与预算人天口径一致。
+    basis: 原则 5：单位对齐，项目人天按项目自己的每人天小时数。
+  - rule: R05
+    case: 项目经理没有维护剩余人天估算。
+    handling: 用 max（预算人天 − 已用人天，0）作为估算，并提示「剩余人天估算缺失」；预算人天也没有时不计算预计完工毛利率，也不判预警。
+    basis: 用户 2026-10-26 决定按设计稿默认处理。
+  - rule: R05
+    case: 剩余人天估算明显不合理（例如项目已结束仍有大量剩余）。
+    handling: 生命周期为已完成或已关闭的项目，剩余人天按 0 处理，忽略估算。
+    basis: 结束的项目不会再有投入；若仍有工时则另由「额外投入」规则提示。
+  - rule: R06
+    case: 回款节点到账金额与计划金额不同。
+    handling: 按实际到账金额确认收入；部分到账的节点按到账部分计入。
+    basis: 收入按实际回款确认。
+  - rule: R06
+    case: 扣减项在回款过程中如何分摊。
+    handling: 按已到账比例（已到账 ÷ 合同额）分摊；全部回款时扣减项全部扣除。
+    basis: 用户 2026-10-26 决定按设计稿默认处理。
+  - rule: R06
+    case: TSnT365 运维项目。
+    handling: 按里程碑回款确认；如业务确认按服务期均摊，再改为期间直线确认。
+    basis: 用户 2026-10-26 决定按设计稿默认处理。
+  - rule: R06
+    case: 开票或回款超过合同额的开口合同。
+    handling: 按工作量结算，确认收入取 CRM 开票金额 ÷（1 + 税率），不按里程碑节点。
+    basis: docs/BUSINESS_RULES.md「工作量结算」口径。
+  - rule: R07
+    case: 尚无确认收入（还没有任何回款到账）。
+    handling: 确认毛利率不计算，显示为空，避免除以零或显示极端负值。
+    basis: 分母为零时比率没有意义。
+  - rule: R08
+    case: 项目启动期成本必然先于收入发生。
+    handling: 首个回款节点计划日之前，成本超前只提示、不判超标（宽限期）；没有回款节点的项目不享受宽限。
+    basis: 用户 2026-10-26 决定按设计稿默认处理；避免所有新项目一启动就被判超标。
+  - rule: R08
+    case: 宽限期内动态成本已经超过可用成本。
+    handling: 宽限期只豁免成本超前，不豁免「动态成本超过可用成本」，项目照样判超标。
+    basis: 可用成本是绝对上限，与收入进度无关。
+  - rule: R09
+    case: 项目同时满足「超标」和「预警」。
+    handling: 取更严重的「超标」，判定依据中全部列出。
+    basis: 状态按严重程度顺序判定。
+  - rule: R10
+    case: 客户一次付款覆盖多个项目，CRM 已回款无法拆到项目。
+    handling: 对账差异只提示、不阻断；由项目经理在回款节点上按实际拆分。
+    basis: 用户决定以里程碑节点为准。
+  - rule: R11
+    case: 客户下还有未签约的商机，或项目的主分类不是「项目」。
+    handling: 不计入客户经营汇总；商机投入在投入成本分析中单独显示。
+    basis: 未签约就没有收入基线。
+  - rule: R11
+    case: 客户下的项目都没有经营基线。
+    handling: 汇总金额为 0、毛利率为空，项目列在「无基线」中，不判达标。
+    basis: 没有基线就无法判定，不能把「无数据」显示成「达标」。
+  - rule: R12
+    case: 员工首次出现工时的月份（新入职或刚加入项目），或当月没有任何工时。
+    handling: 首月不判闲置；当月没有任何工时的员工不出现在当月资源健康列表中，也不延续此前的连续过载月数。
+    basis: 现有工时数据没有入职、离职日期，首月和缺勤月数据不完整。
+  - rule: R12
+    case: 员工的工时大量记在 TSG999 内部代码上。
+    handling: 内部工时不计入项目利用率，但计入加班占比的分母，避免把内部加班漏掉；只有内部工时的员工判闲置。
+    basis: docs/BUSINESS_RULES.md §7「TSG999 内部工时不计入项目利用率」。
+  - rule: R13
+    case: 项目没有维护计划结束日。
+    handling: 只按剩余可支配人天判断是否释放，不推算释放月份；资源沙盘中按近三月平均投入继续占用。
+    basis: 没有结束日就无法判断何时释放。
+  - rule: R13
+    case: 可支配人天已用完，但项目还没有完成交付。
+    handling: 信号只建议「释放资源」并给出依据，是否撤人由部门管理者决定；同时该项目通常已判超标，会出现在「控制成本」中。
+    basis: 原则 9：治理决策交给人。
+  - rule: R14
+    case: 年度计划在年中才维护。
+    handling: 时间进度仍按全年计算，完成率按年初至今的实际值计算。
+    basis: 年度考核按自然年度。
+  - rule: R14
+    case: 当年没有维护年度计划。
+    handling: 复盘只给出实际值和趋势，完成率状态为「无目标」；在岗人数作为产能计算的人数。
+    basis: 没有目标就无法计算完成率。
+  - rule: R15
+    case: 多个策略信号同时出现。
+    handling: 全部列出并按优先级排序；只作建议，由部门管理者决定，系统不自动执行。
+    basis: 原则 9：治理决策交给人。
+  - rule: R15
+    case: 只有 1 个项目超标。
+    handling: 不触发部门级「控制成本」，由项目经营状态处理；阈值在运营口径参数中可调。
+    basis: 部门级信号针对普遍问题，单个项目已有项目级监控。
+  - rule: R16
+    case: 在手项目没有计划结束日，剩余人天无法按月分布。
+    handling: 未来三个月需求按剩余可支配人天平均分摊到 12 个月估算。
+    basis: 保守估计，避免高估短期需求。
+  - rule: R16
+    case: 商机已高概率赢单但尚未签约。
+    handling: 不计入在手合同覆盖；一期不单独列出，二期在复盘中增加「高概率商机」参考。
+    basis: 未签约合同没有收入基线。
+  - rule: R17
+    case: 项目设置的抽屉一次提交多个经营字段，其中只有一个不合法。
+    handling: 整次提交被拒绝，不做部分保存；错误信息指出是哪个字段。
+    basis: 避免出现「单价已改、原因没写」的中间状态。
+  - rule: R18
+    case: 部门经营权限的用户没有项目管理权限。
+    handling: 部门经营权限可读项目、客户、员工对象，并持有财务金额与人员工时标记；不能执行项目写入动作。
+    basis: 部门经营页面与 REST 接口 /api/v1/department/* 使用同一权限，本体与页面看到的数据范围一致。

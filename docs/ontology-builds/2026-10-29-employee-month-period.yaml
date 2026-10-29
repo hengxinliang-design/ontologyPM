@@ -1,0 +1,69 @@
+# 本体构建包（发布稿）：员工按月份查看。本体 7.2.0（新增「统计期间」元数据与员工月度属性，非破坏性）。
+# 依据：用户 2026-10-29「员工对象信息展示和查询页面也需要可以按照时间维度去筛选，时间按月份即可；除了汇总数据以外，其他的应该和时间维度联动」。
+kind: OntologyBuild
+stage: release
+supersededBy: 2026-10-29-time-entry-month-period.yaml
+topic: 统计期间（月份）：对象类型可声明按月计算的属性；员工的月度工时、资源健康、关系和查询随所选月份联动
+ontologyVersion: 7.2.0
+date: 2026-10-29
+scope:
+  - CQ1 某个月哪些员工填报了工时，各自填报、确认多少，参与几个项目？
+  - CQ2 某个员工在某个月的资源健康、利用率、加班占比和项目投入占比是多少？
+  - CQ3 某个员工在某个月填报了哪些工时、投在哪些项目上？
+  - CQ4 哪些数字是累计的、不随月份变化？
+
+rules:
+  - id: R1
+    statement: 对象类型可以声明统计期间 period（目前只支持月份 YYYY-MM），包括：活跃判定属性 activeProperty（选了月份时，列表只列出该属性大于 0 的对象）和可选月份的来源 options（某对象类型的日期属性）。属性可以标记 periodic：选了月份时按该月计算，未选时按默认月份（最近有工时的月份）计算；未标记的属性是累计汇总，不随月份变化。编译器校验：periodic 只能出现在声明了 period 的对象类型上，activeProperty 必须是本类型的 periodic 数值属性，options 指向的属性必须是日期。
+    basis: 对象属性本身不能带参数（7.1.0 构建包例外）；按月查看是对象级的统一需求，做成元数据能力，而不是给员工页面写一套特例（技能原则 1：本体裁决）。
+    acceptance: Employee 声明 period（activeProperty = monthEntryCount，options 来自 TimeEntry.workDate），对象列表接口带 month=2026-09 时只返回 2026 年 9 月有工时的员工，并在 meta 中给出该月份和可选月份列表；month 格式错误或对象类型没有声明 period 时返回 422；periodic 写在没有 period 的类型上、activeProperty 不是 periodic 时编译报错。
+    verifiedBy: [test_employee_month_period_filters_list_and_detail, test_invalid_period_metadata_is_rejected]
+    ontology: [Employee, Employee.monthEntryCount, TimeEntry.workDate]
+  - id: R2
+    statement: 员工新增月度属性：统计月份、当月工时条数、当月填报工时、当月确认工时、当月参与项目数、当月项目投入占比（口径与累计值相同，只取该月工时）；资源健康状态、当月利用率、加班占比、连续过载月数、同期项目数、健康判定依据改为按所选月份计算（原来固定为最近有工时的月份）。累计属性（工时条数、累计填报、累计确认、参与项目数、首次/最近填报、累计项目投入占比）不变。
+    basis: 用户 2026-10-29「除了汇总数据以外，其他的应该和时间维度联动」。健康判定原本就是按月的（部门经营 R12），只是月份固定为最近月份。
+    acceptance: 测试员工 9 月有 TSG999 8 小时、WDR101 8 小时（另 8 小时已提交、8 小时已驳回）、8 月有 TPL149 16 小时：选 2026-09 时当月工时条数 4、当月填报 24.00、当月确认 16.00、当月参与项目数 2、占比 WDR101 66.7% / TSG999 33.3%；选 2026-08 时当月填报 16.00、TPL149 100%，健康判定依据中的月份为 2026-08；累计填报始终为 40.00。演示数据核对：吴迪 2026-09 当月填报 136.00（TSG999 64.7%、WDR101 35.3%），2026-08 为 168.00（TPL149 100%），累计 488.00。
+    verifiedBy: [test_employee_month_period_filters_list_and_detail]
+    ontology: [Employee.monthReportedHours, Employee.monthProjectEffortShares, Employee.monthUtilizationPercent, Employee.healthStatus, Employee.reportedHours]
+  - id: R3
+    statement: 关系可以声明 periodProperty：从声明了 period 的对象出发、且选了月份时，只返回该月有活动的目标。员工的「工时记录」按工作日期筛选；「参与项目」「投入的成本对象」只列出该月填报过有效工时的项目代码。
+    basis: 关系数量与月度属性要对得上，否则「当月参与项目数 2」旁边显示 3 个关系目标。
+    acceptance: 测试员工选 2026-09 时工时记录关系只返回 9 月的 4 条、投入的成本对象为 TSG999 和 WDR101（已驳回的不计），详情中的关系计数同样按月；不选月份时工时记录为全部 6 条。
+    verifiedBy: [test_employee_month_period_filters_list_and_detail]
+    ontology: [Employee, TimeEntry.workDate]
+  - id: R4
+    statement: 本体浏览器中，声明了 period 的对象类型（员工）在列表上方显示「月份」选择（全部月份 + 有数据的月份）。选了月份后：列表只列出该月有工时的员工，并显示月度列；详情中按月计算的分组标注所选月份，累计分组不变；关系按月筛选；函数中名为 month 的参数默认填入所选月份。
+    basis: 用户 2026-10-29 的要求：查询页面和信息展示页面都按月份联动。
+    acceptance: 员工页选 2026-09，列表列为统计月份、当月工时条数、当月填报工时、当月确认工时；打开吴迪详情，月度分组显示 2026-09 的值，工时记录关系显示 9 月记录；「员工工时利用率」函数的月份为 2026-09。
+    verifiedBy: [test_employee_month_period_filters_list_and_detail]
+    ontology: [Employee]
+
+exceptions:
+  - rule: R1
+    case: 对象集查询（集合运算、条件、聚合）。
+    handling: 本次不支持月份参数，对象集中的月度属性按默认月份（最近有工时的月份）计算；需要时另行扩展。
+    basis: 对象集引擎按类型缓存对象，月份需要贯穿集合运算与关系检索，范围较大，本次只覆盖对象浏览（列表、详情、关系）。
+  - rule: R1
+    case: 选择的月份没有任何工时。
+    handling: 列表为空；直接打开某员工详情时月度值为 0、资源健康为空。可选月份列表只列出有工时的月份。
+    basis: 活跃判定与工时数据一致，不编造数据。
+  - rule: R1
+    case: 未选月份（全部月份）。
+    handling: 列表列出全部员工并显示累计列；按月计算的属性取最近有工时的月份（与修改前的资源健康一致），详情中标注这个月份。
+    basis: 保持修改前的行为，月份是可选的筛选条件。
+  - rule: R2
+    case: 当月项目投入占比与累计项目投入占比不同。
+    handling: 两者都显示：月度分组中是所选月份的占比，累计分组中是全部时间的占比。
+    basis: 一个是月度口径，一个是汇总口径。
+  - rule: R2
+    case: 员工当月只有 TSG999 内部工时。
+    handling: 当月填报工时计入内部工时，当月利用率为 0（利用率不计内部代码，口径不变），资源健康可能判为闲置。
+    basis: 业务规则第 7 节：内部代码不计入项目负荷。
+  - rule: R3
+    case: 从项目或成本对象出发查看「项目团队」「投入人员」。
+    handling: 不按月份筛选（项目、成本对象没有声明 period）。
+    basis: 统计期间只作用于声明了它的对象类型。
+  - rule: R4
+    case: 其他对象类型（项目、合同等）。
+    handling: 不显示月份选择；合同、项目按签约年度筛选（5.4.0）。
+    basis: 只有声明了 period 的对象类型才显示。

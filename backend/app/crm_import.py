@@ -26,9 +26,13 @@ FIELD_ALIASES = {
     "total_amount": ("总金额", "合同金额", "预期金额", "金额", "total_amount"),
     "received_amount": ("回款金额", "已回款", "received_amount"),
     "invoiced_amount": ("开票金额", "已开票", "invoiced_amount"),
-    "owner": ("所有者", "负责人", "owner", "销售负责人"),
+    "owner": ("我方签约人", "所有者", "负责人", "owner", "销售负责人"),
     "probability": ("可能性", "成交可能性", "probability"),
+    "sales_stage": ("阶段", "商机阶段", "sales_stage", "stage"),
     "status": ("状态", "商机状态", "status"),
+    "source_updated_at": (
+        "更新时间", "源更新时间", "最后更新时间", "source_updated_at", "updated_at"
+    ),
 }
 
 
@@ -91,10 +95,15 @@ def _xlsx_rows(content: bytes) -> list[dict[str, Any]]:
 
 
 def _csv_rows(content: bytes) -> list[dict[str, Any]]:
-    try:
-        text = content.decode("utf-8-sig")
-    except UnicodeDecodeError as exc:
-        raise CrmImportValidationError("CSV must use UTF-8 encoding") from exc
+    text: str | None = None
+    for encoding in ("utf-8-sig", "gb18030"):
+        try:
+            text = content.decode(encoding)
+            break
+        except UnicodeDecodeError:
+            continue
+    if text is None:
+        raise CrmImportValidationError("CSV must use UTF-8 or GB18030/GBK encoding")
     reader = csv.DictReader(io.StringIO(text))
     rows: list[dict[str, Any]] = []
     for raw in reader:
@@ -161,8 +170,22 @@ def _normalize_rows(rows: list[dict[str, Any]], *, data_type: str) -> tuple[list
         project_number = item.get("项目编号") or _project_number(str(item["主题"]))
         if project_number:
             item["项目编号"] = project_number
-        if not item.get("crm_internal_id") and project_number:
-            item["crm_internal_id"] = f"manual:{data_type}:{project_number}"
+        if not item.get("crm_internal_id"):
+            # A project can legitimately have several contracts/orders (for
+            # example, a main contract plus an addendum).  Using only the
+            # project number here made those rows share one synthetic CRM ID,
+            # so a later row overwrote the earlier one during incremental
+            # import.  Keep the fallback stable for re-imports while making it
+            # specific enough for the source row.
+            identity = "|".join(
+                (
+                    data_type,
+                    str(project_number or ""),
+                    str(item.get("主题") or ""),
+                    str(item.get("签约时间") or ""),
+                )
+            )
+            item["crm_internal_id"] = f"manual:{identity}"
         item["__present_fields"] = sorted(recognized)
         records.append(item)
     if not records:
@@ -195,7 +218,9 @@ def _output_key(field: str) -> str:
         "invoiced_amount": "开票金额",
         "owner": "所有者",
         "probability": "可能性",
+        "sales_stage": "阶段",
         "status": "状态",
+        "source_updated_at": "源更新时间",
     }[field]
 
 
@@ -204,7 +229,7 @@ def _clean(value: Any) -> str:
 
 
 def _field_value(field: str, value: Any) -> str:
-    if field == "signed_at":
+    if field in {"signed_at", "source_updated_at"}:
         return _date_value(value)
     if field == "probability":
         return _probability_value(value)

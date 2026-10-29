@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import json
+import math
 import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
+
+from .normalizer import customer_name
 
 
 SCHEMA = """
@@ -42,7 +45,9 @@ CREATE TABLE IF NOT EXISTS records (
     invoiced_amount_display TEXT,
     owner TEXT NOT NULL,
     probability INTEGER CHECK (probability IS NULL OR probability BETWEEN 0 AND 100),
+    sales_stage TEXT,
     status TEXT,
+    source_updated_at TEXT,
     merged_from_opportunity INTEGER NOT NULL DEFAULT 0,
     updated_at TEXT NOT NULL,
     UNIQUE(snapshot_id, record_id)
@@ -53,6 +58,8 @@ CREATE INDEX IF NOT EXISTS idx_records_project ON records(snapshot_id, project_n
 CREATE INDEX IF NOT EXISTS idx_records_type ON records(snapshot_id, data_type);
 CREATE INDEX IF NOT EXISTS idx_records_owner ON records(snapshot_id, owner);
 CREATE INDEX IF NOT EXISTS idx_records_status ON records(snapshot_id, status);
+CREATE INDEX IF NOT EXISTS idx_records_snapshot_signed_id
+    ON records(snapshot_id, signed_at DESC, id ASC);
 
 CREATE TABLE IF NOT EXISTS sync_jobs (
     job_id TEXT PRIMARY KEY,
@@ -96,7 +103,32 @@ CREATE TABLE IF NOT EXISTS project_settings (
     planned_end TEXT,
     project_manager TEXT,
     notes TEXT,
+    contract_person_day_rate TEXT,
+    tax_rate_percent TEXT,
+    external_procurement_amount TEXT,
+    commercial_expense_amount TEXT,
+    target_gross_margin_percent TEXT,
+    target_margin_reason TEXT,
+    remaining_person_days_estimate TEXT,
+    remaining_estimate_updated_at TEXT,
     updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS annual_operating_plans (
+    plan_id TEXT PRIMARY KEY,
+    year INTEGER NOT NULL,
+    department TEXT NOT NULL,
+    new_contract_target TEXT,
+    confirmed_revenue_target TEXT,
+    collection_target TEXT,
+    gross_margin_target_percent TEXT,
+    capacity_person_days_target TEXT,
+    headcount_target TEXT,
+    utilization_target_percent TEXT,
+    notes TEXT,
+    updated_by TEXT,
+    updated_at TEXT NOT NULL,
+    UNIQUE(year, department)
 );
 
 CREATE TABLE IF NOT EXISTS time_entries (
@@ -121,6 +153,15 @@ CREATE INDEX IF NOT EXISTS idx_time_project_date
 CREATE INDEX IF NOT EXISTS idx_time_employee_date
     ON time_entries(employee_name, work_date DESC);
 
+-- Date-leading indexes serve monthly/range monitoring without scanning every
+-- employee or project first.  The existing indexes remain useful for a known
+-- employee/project across a long time range.
+CREATE INDEX IF NOT EXISTS idx_time_date_employee_project
+    ON time_entries(work_date, employee_name, project_number);
+
+CREATE INDEX IF NOT EXISTS idx_time_date_project
+    ON time_entries(work_date, project_number);
+
 CREATE TABLE IF NOT EXISTS worktime_baseline_config (
     config_id TEXT PRIMARY KEY DEFAULT 'default',
     standard_work_days_per_year TEXT NOT NULL DEFAULT '230.00',
@@ -132,6 +173,18 @@ CREATE TABLE IF NOT EXISTS worktime_baseline_config (
     minimum_utilization_percent TEXT NOT NULL DEFAULT '75.00',
     excellent_utilization_percent TEXT NOT NULL DEFAULT '90.00',
     attention_utilization_percent TEXT NOT NULL DEFAULT '60.00',
+    overload_utilization_percent TEXT NOT NULL DEFAULT '100.00',
+    budget_attention_percent TEXT NOT NULL DEFAULT '80.00',
+    budget_high_risk_percent TEXT NOT NULL DEFAULT '90.00',
+    default_tax_rate_percent TEXT NOT NULL DEFAULT '6.00',
+    default_target_margin_percent TEXT NOT NULL DEFAULT '30.00',
+    cost_ahead_warning_points TEXT NOT NULL DEFAULT '20.00',
+    overtime_share_attention_percent TEXT NOT NULL DEFAULT '20.00',
+    overload_consecutive_months TEXT NOT NULL DEFAULT '2',
+    max_concurrent_projects TEXT NOT NULL DEFAULT '4',
+    backlog_coverage_percent TEXT NOT NULL DEFAULT '50.00',
+    plan_lag_tolerance_points TEXT NOT NULL DEFAULT '5.00',
+    control_cost_exceeded_projects TEXT NOT NULL DEFAULT '2',
     notes TEXT,
     updated_at TEXT NOT NULL
 );
@@ -177,6 +230,26 @@ CREATE TABLE IF NOT EXISTS payment_nodes (
 CREATE INDEX IF NOT EXISTS idx_payment_project
     ON payment_nodes(project_number, planned_date);
 
+-- Contract payment terms are deliberately separate from payment events.  At
+-- project initialization a contract normally defines a ratio, clause and
+-- amount, but has no calendar date yet.  A date-bound payment event is only
+-- created after the term is associated with a project milestone.
+CREATE TABLE IF NOT EXISTS payment_terms (
+    payment_term_id TEXT PRIMARY KEY,
+    project_number TEXT NOT NULL,
+    name TEXT NOT NULL,
+    payment_ratio TEXT,
+    planned_amount TEXT NOT NULL,
+    notes TEXT,
+    linked_milestone_id TEXT UNIQUE,
+    payment_node_id TEXT UNIQUE,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_payment_term_project
+    ON payment_terms(project_number, linked_milestone_id);
+
 CREATE TABLE IF NOT EXISTS interventions (
     intervention_id TEXT PRIMARY KEY,
     project_number TEXT NOT NULL,
@@ -212,7 +285,157 @@ CREATE TABLE IF NOT EXISTS auth_sessions (
 
 CREATE INDEX IF NOT EXISTS idx_auth_sessions_username
     ON auth_sessions(username);
+
+CREATE TABLE IF NOT EXISTS ontology_action_log (
+    log_id TEXT PRIMARY KEY,
+    action_type TEXT NOT NULL,
+    object_type TEXT NOT NULL,
+    object_pk TEXT NOT NULL,
+    parameters_json TEXT NOT NULL,
+    edits_json TEXT NOT NULL DEFAULT '[]',
+    status TEXT NOT NULL CHECK (status IN ('succeeded', 'rejected', 'failed')),
+    message TEXT,
+    actor TEXT NOT NULL,
+    channel TEXT NOT NULL DEFAULT 'ontology',
+    executed_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_ontology_action_log_object
+    ON ontology_action_log(object_type, object_pk, executed_at DESC);
+
+CREATE TABLE IF NOT EXISTS opportunity_outcomes (
+    project_code TEXT PRIMARY KEY,
+    outcome TEXT NOT NULL CHECK (outcome IN ('lost', 'abandoned')),
+    reason TEXT NOT NULL,
+    outcome_date TEXT NOT NULL,
+    notes TEXT,
+    recorded_by TEXT NOT NULL,
+    recorded_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS investment_settings (
+    config_id TEXT PRIMARY KEY DEFAULT 'default',
+    standard_person_day_cost TEXT,
+    stall_days INTEGER NOT NULL DEFAULT 90,
+    lost_statuses_json TEXT NOT NULL DEFAULT '["失败", "失效", "丢单", "输单", "关闭", "放弃"]',
+    internal_codes_json TEXT NOT NULL DEFAULT '["TSG999"]',
+    updated_at TEXT NOT NULL
+);
+
+INSERT OR IGNORE INTO worktime_baseline_config(config_id, notes, updated_at)
+VALUES ('default', '默认工时基线参数，可在页面人工维护。', strftime('%Y-%m-%dT%H:%M:%SZ', 'now'));
+
+INSERT OR IGNORE INTO investment_settings(config_id, updated_at)
+VALUES ('default', strftime('%Y-%m-%dT%H:%M:%SZ', 'now'));
+
+CREATE TABLE IF NOT EXISTS ontology_dataset_versions (
+    dataset TEXT PRIMARY KEY,
+    version INTEGER NOT NULL DEFAULT 0,
+    changed_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS ontology_versions (
+    version TEXT PRIMARY KEY,
+    checksum TEXT NOT NULL,
+    api_name TEXT NOT NULL,
+    display_name TEXT NOT NULL,
+    description TEXT,
+    documents_json TEXT NOT NULL,
+    registered_at TEXT NOT NULL,
+    last_activated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS api_request_metrics (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    endpoint TEXT NOT NULL,
+    method TEXT NOT NULL,
+    status_code INTEGER NOT NULL,
+    duration_ms REAL NOT NULL,
+    returned_rows INTEGER,
+    is_import INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_api_request_metrics_endpoint_created
+    ON api_request_metrics(endpoint, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_api_request_metrics_import_created
+    ON api_request_metrics(is_import, created_at DESC);
 """
+
+
+# Physical datasets that back ontology objects.  Every write to one of these
+# tables bumps its version through a trigger, so the ontology object index can
+# detect staleness no matter which code path (import, action, legacy API)
+# changed the data.
+# Operating-policy parameters added after the first release; migrations add any that are missing.
+POLICY_COLUMN_DEFAULTS = {
+    "budget_attention_percent": "80.00",
+    "budget_high_risk_percent": "90.00",
+    "default_tax_rate_percent": "6.00",
+    "default_target_margin_percent": "30.00",
+    "cost_ahead_warning_points": "20.00",
+    "overtime_share_attention_percent": "20.00",
+    "overload_consecutive_months": "2",
+    "max_concurrent_projects": "4",
+    "backlog_coverage_percent": "50.00",
+    "plan_lag_tolerance_points": "5.00",
+    "control_cost_exceeded_projects": "2",
+}
+
+PROJECT_ECONOMICS_COLUMNS = (
+    "contract_person_day_rate", "tax_rate_percent", "external_procurement_amount",
+    "commercial_expense_amount", "target_gross_margin_percent", "target_margin_reason",
+    "remaining_person_days_estimate", "remaining_estimate_updated_at",
+)
+
+DEFAULT_LOST_STATUSES_JSON = '["失败", "失效", "丢单", "输单", "关闭", "放弃"]'
+
+OBJECT_DATASETS = (
+    "records",
+    "project_settings",
+    "time_entries",
+    "milestones",
+    "payment_nodes",
+    "interventions",
+    "opportunity_outcomes",
+    "investment_settings",
+    "payment_terms",
+    "worktime_baseline_config",
+    "annual_operating_plans",
+)
+
+
+def _dataset_trigger_sql() -> str:
+    statements = []
+    for dataset in OBJECT_DATASETS:
+        statements.append(
+            f"INSERT OR IGNORE INTO ontology_dataset_versions(dataset, version) VALUES ('{dataset}', 0);"
+        )
+        for operation in ("INSERT", "UPDATE", "DELETE"):
+            statements.append(
+                f"""
+CREATE TRIGGER IF NOT EXISTS trg_dataset_version_{dataset}_{operation.lower()}
+AFTER {operation} ON {dataset}
+BEGIN
+    UPDATE ontology_dataset_versions
+    SET version = version + 1, changed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+    WHERE dataset = '{dataset}';
+END;"""
+            )
+    # Switching the active CRM snapshot changes which records are visible.
+    for operation in ("INSERT", "UPDATE"):
+        statements.append(
+            f"""
+CREATE TRIGGER IF NOT EXISTS trg_dataset_version_active_snapshot_{operation.lower()}
+AFTER {operation} ON service_state
+WHEN NEW.key = 'active_snapshot_id'
+BEGIN
+    UPDATE ontology_dataset_versions
+    SET version = version + 1, changed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+    WHERE dataset = 'records';
+END;"""
+        )
+    return "\n".join(statements)
 
 
 class Database:
@@ -225,6 +448,9 @@ class Database:
         connection = sqlite3.connect(self.path, timeout=30)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")
+        # Make concurrent browser reads wait briefly for an import transaction
+        # instead of immediately returning "database is locked".
+        connection.execute("PRAGMA busy_timeout = 5000")
         try:
             yield connection
         finally:
@@ -234,6 +460,7 @@ class Database:
         with self.connect() as connection:
             connection.executescript(SCHEMA)
             self._migrate(connection)
+            connection.executescript(_dataset_trigger_sql())
 
     def _migrate(self, connection: sqlite3.Connection) -> None:
         """Apply additive migrations for databases created by earlier MVP builds."""
@@ -256,6 +483,25 @@ class Database:
                 connection.execute(
                     f"ALTER TABLE milestones ADD COLUMN {name} {definition}"
                 )
+        record_columns = {
+            row["name"]
+            for row in connection.execute("PRAGMA table_info(records)").fetchall()
+        }
+        record_additions = {
+            "sales_stage": "TEXT",
+            "source_updated_at": "TEXT",
+        }
+        for name, definition in record_additions.items():
+            if name not in record_columns:
+                connection.execute(f"ALTER TABLE records ADD COLUMN {name} {definition}")
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_records_snapshot_stage "
+            "ON records(snapshot_id, sales_stage)"
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_records_snapshot_source_updated "
+            "ON records(snapshot_id, source_updated_at DESC, id ASC)"
+        )
         connection.execute(
             "UPDATE milestones SET planned_end = planned_date WHERE planned_end IS NULL"
         )
@@ -267,7 +513,137 @@ class Database:
             connection.execute(
                 "ALTER TABLE time_entries ADD COLUMN overtime_hours TEXT NOT NULL DEFAULT '0.00'"
             )
+        baseline_columns = {
+            row["name"]
+            for row in connection.execute("PRAGMA table_info(worktime_baseline_config)").fetchall()
+        }
+        if "overload_utilization_percent" not in baseline_columns:
+            connection.execute(
+                "ALTER TABLE worktime_baseline_config ADD COLUMN "
+                "overload_utilization_percent TEXT NOT NULL DEFAULT '100.00'"
+            )
+        for name, default in POLICY_COLUMN_DEFAULTS.items():
+            if name not in baseline_columns:
+                connection.execute(
+                    f"ALTER TABLE worktime_baseline_config ADD COLUMN {name} TEXT NOT NULL DEFAULT '{default}'"
+                )
+        settings_columns = {
+            row["name"] for row in connection.execute("PRAGMA table_info(project_settings)").fetchall()
+        }
+        for name in PROJECT_ECONOMICS_COLUMNS:
+            if name not in settings_columns:
+                connection.execute(f"ALTER TABLE project_settings ADD COLUMN {name} TEXT")
+        # Customer names imported before the CRM bracket pair was dropped (〖TPL〗 → TPL).
+        for row in connection.execute(
+            "SELECT id, customer FROM records WHERE customer LIKE '〖%' OR customer LIKE '【%' "
+            "OR customer LIKE '[%' OR customer LIKE '〔%'"
+        ).fetchall():
+            cleaned = customer_name(row["customer"])
+            if cleaned != row["customer"]:
+                connection.execute("UPDATE records SET customer = ? WHERE id = ?", (cleaned, row["id"]))
+        # 「失效」 opportunities are closed like 「失败」 ones.  Only rows still on the
+        # previous built-in default are upgraded, so a customised list is kept.
+        connection.execute(
+            "UPDATE investment_settings SET lost_statuses_json = ? WHERE lost_statuses_json = ?",
+            (DEFAULT_LOST_STATUSES_JSON, '["失败", "丢单", "输单", "关闭", "放弃"]'),
+        )
+        # Accelerates the non-destructive semantic duplicate check performed
+        # for Excel imports.  Existing historical data is deliberately kept;
+        # cleanup requires an explicit, backed-up user operation.
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_xlsx_time_entries_semantic_lookup
+            ON time_entries(
+                employee_id, project_number, work_date, hours,
+                overtime_hours, work_content
+            )
+            """
+        )
+        payment_columns = {
+            row["name"]
+            for row in connection.execute("PRAGMA table_info(payment_nodes)").fetchall()
+        }
+        if "payment_term_id" not in payment_columns:
+            connection.execute("ALTER TABLE payment_nodes ADD COLUMN payment_term_id TEXT")
+        connection.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_payment_nodes_term "
+            "ON payment_nodes(payment_term_id) WHERE payment_term_id IS NOT NULL"
+        )
         connection.commit()
+
+    def dataset_versions(self) -> dict[str, int]:
+        with self.connect() as connection:
+            rows = connection.execute(
+                "SELECT dataset, version FROM ontology_dataset_versions"
+            ).fetchall()
+        return {row["dataset"]: int(row["version"]) for row in rows}
+    def record_api_metric(
+        self,
+        *,
+        endpoint: str,
+        method: str,
+        status_code: int,
+        duration_ms: float,
+        returned_rows: int | None,
+        is_import: bool,
+        created_at: str,
+    ) -> None:
+        with self.connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO api_request_metrics(
+                    endpoint, method, status_code, duration_ms, returned_rows,
+                    is_import, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    endpoint,
+                    method,
+                    status_code,
+                    duration_ms,
+                    returned_rows,
+                    int(is_import),
+                    created_at,
+                ),
+            )
+            connection.commit()
+
+    def performance_summary(self, *, limit: int = 2000) -> dict[str, Any]:
+        """Return recent endpoint timings without relying on SQLite extensions."""
+        with self.connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT endpoint, method, status_code, duration_ms, returned_rows,
+                       is_import, created_at
+                FROM api_request_metrics
+                ORDER BY id DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        grouped: dict[tuple[str, str, int], list[sqlite3.Row]] = {}
+        for row in rows:
+            grouped.setdefault((row["endpoint"], row["method"], row["is_import"]), []).append(row)
+        endpoints = []
+        for (endpoint, method, is_import), samples in sorted(grouped.items()):
+            durations = sorted(float(row["duration_ms"]) for row in samples)
+            row_counts = [int(row["returned_rows"]) for row in samples if row["returned_rows"] is not None]
+            endpoints.append(
+                {
+                    "endpoint": endpoint,
+                    "method": method,
+                    "sample_count": len(samples),
+                    "p50_ms": _percentile(durations, 0.50),
+                    "p95_ms": _percentile(durations, 0.95),
+                    "max_ms": round(durations[-1], 2),
+                    "average_returned_rows": round(sum(row_counts) / len(row_counts), 2) if row_counts else None,
+                    "error_count": sum(row["status_code"] >= 400 for row in samples),
+                    "is_import": bool(is_import),
+                    "latest_at": max(row["created_at"] for row in samples),
+                }
+            )
+        return {"sample_limit": limit, "sample_count": len(rows), "endpoints": endpoints}
+
 
     def active_snapshot_id(self) -> int | None:
         with self.connect() as connection:
@@ -321,7 +697,9 @@ class Database:
                         _money_display(item.get("invoiced_amount")),
                         item["owner"],
                         item.get("probability"),
+                        item.get("sales_stage"),
                         item.get("status"),
+                        item.get("source_updated_at"),
                         1 if item.get("merged_from_opportunity") else 0,
                         item["updated_at"],
                     )
@@ -334,8 +712,9 @@ class Database:
                     total_amount, total_amount_display,
                     received_amount, received_amount_display,
                     invoiced_amount, invoiced_amount_display,
-                    owner, probability, status, merged_from_opportunity, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    owner, probability, sales_stage, status, source_updated_at,
+                    merged_from_opportunity, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 rows,
             )
@@ -401,3 +780,10 @@ def _money_value(value: dict[str, str] | None) -> str | None:
 
 def _money_display(value: dict[str, str] | None) -> str | None:
     return value["display"] if value else None
+
+
+def _percentile(values: list[float], percentile: float) -> float | None:
+    if not values:
+        return None
+    index = max(0, min(len(values) - 1, math.ceil(len(values) * percentile) - 1))
+    return round(values[index], 2)

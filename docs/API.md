@@ -140,6 +140,27 @@ GET /health
 }
 ```
 
+### 3.2 中国节假日与调休日历
+
+```http
+GET /api/v1/calendar/china-holidays
+```
+
+为项目计划、里程碑等日期控件提供只读标记。后端读取并缓存中国节假日与调休补班 iCalendar 订阅；缓存默认 12 小时，订阅暂不可用时不会影响项目页面正常使用。
+
+```json
+{
+  "data": [
+    {"date": "2026-10-01", "name": "国庆节假期", "kind": "holiday"},
+    {"date": "2026-10-10", "name": "国庆节补班", "kind": "makeup_workday"}
+  ],
+  "meta": {"available": true, "stale": false, "cached_at": "2026-09-04T12:00:00+00:00", "source": "ical.muhan.org"}
+}
+```
+
+- `holiday` 在控件中显示为红色标记；`makeup_workday` 显示为蓝色标记，悬停可查看日期名称。
+- 该接口只辅助排期判断，不会自动改写项目计划日期、里程碑日期或现有工时统计。
+
 ### 3.3 项目异常 AI 研判
 
 ```http
@@ -150,9 +171,9 @@ POST /api/v1/projects/{project_number}/ai-analysis
 
 分析固定覆盖：风险判断、人员与资源安排、工时与成本合理性、回款与项目行动。系统尚未维护人员成本单价或结算单价时，回答会明确说明不能计算金额成本和利润。
 
-响应结构与 [3.2 PM Assistant 问答](#32-pm-assistant-问答) 一致。
+响应结构与 [3.4 PM Assistant 问答](#34-pm-assistant-问答) 一致。
 
-### 3.2 PM Assistant 问答
+### 3.4 PM Assistant 问答
 
 ```http
 POST /api/v1/pm-assistant/chat
@@ -209,11 +230,12 @@ GET /api/v1/records
 | `owner` | string | 否 | CRM 所有者 |
 | `status` | string | 否 | 状态 |
 | `probability` | integer | 否 | 0 至 100 |
+| `sales_stage` | string | 否 | 销售机会阶段，例如“项目方案 60%” |
 | `q` | string | 否 | 主题、客户等关键字 |
 | `signed_from` | string | 否 | 签约开始日期 |
 | `signed_to` | string | 否 | 签约结束日期 |
 | `updated_since` | string | 否 | 若当前快照未更新，返回空列表 |
-| `page` | integer | 否 | 默认 `1` |
+| `cursor` | string | 否 | 上一响应 `meta.next_cursor`，用于获取下一页 |
 | `page_size` | integer | 否 | 默认 `50`，最大 `200` |
 | `sort` | string | 否 | 默认 `project_number`，支持前缀 `-` 降序 |
 
@@ -226,7 +248,7 @@ project_number, subject, signed_at, owner, probability, status
 示例：
 
 ```http
-GET /api/v1/records?data_type=contract_order&page=1&page_size=50&sort=-signed_at
+GET /api/v1/records?data_type=contract_order&page_size=50&sort=-signed_at
 ```
 
 响应：
@@ -265,20 +287,22 @@ GET /api/v1/records?data_type=contract_order&page=1&page_size=50&sort=-signed_at
     }
   ],
   "meta": {
-    "page": 1,
     "page_size": 50,
     "total_records": 1,
     "total_pages": 1,
+    "next_cursor": null,
     "schema_version": "1.0",
     "updated_at": "2026-07-01T16:01:22-04:00"
   },
   "links": {
-    "self": "/api/v1/records?data_type=contract_order&page=1&page_size=50",
+    "self": "/api/v1/records?data_type=contract_order&page_size=50",
     "next": null,
     "previous": null
   }
 }
 ```
+
+当 `next_cursor` 非空时，将它原样作为 `cursor` 参数传回以获取下一页。为避免深页扫描，`page>1` 且未提供 `cursor` 会返回 `422`。
 
 ### 4.2 查询单条 CRM 记录
 
@@ -345,7 +369,6 @@ GET /api/v1/projects
       "contract_count": 1,
       "opportunity_count": 0,
       "contract_value": "149900.00",
-      "contract_status": "进行中",
       "crm_received_amount": "0.00",
       "outstanding_receivable_amount": "149900.00",
       "received_amount": "0.00",
@@ -427,16 +450,15 @@ GET /api/v1/projects
 | 项目名称 | `subject` | 优先取合同/商机主题，无源数据时取项目代码 |
 | 类别 | `master_category` | 有合同为“项目”，仅有商机为“商机” |
 | 状态 | `status` / `lifecycle_status` | 人工维护生命周期状态 |
-| 合同状态 | `contract_status` | 基于导入 CRM 合同金额判断“已结束”或“进行中” |
 | CRM 回款金额 | `crm_received_amount` | 全部导入合同/订单的回款金额汇总 |
-| 待回款金额 | `outstanding_receivable_amount` | 仅进行中合同返回：导入合同总金额减导入回款金额 |
+| 待回款金额 | `outstanding_receivable_amount` | 导入合同总金额减导入回款金额，最小为零 |
 | 里程碑 | `current_milestone` | 当前未完成的最近里程碑；全部完成则返回最后完成节点 |
 | 项目类型 | `contract_type` | 建设类、维护类、开口类、销售类、未分类 |
 | 回款 | `payment_summary` | 回款节点完成数、计划金额、实收金额、下个节点 |
 | 预算工时 | `budget_hours` | `planned_person_days * hours_per_person_day` |
 | 累计实际工时 | `actual_hours` / `reported_hours` | 员工填报工时汇总 |
 
-合同状态规则：每一份导入的合同/订单均满足“总金额 = 回款金额 = 开票金额”时，项目合同状态为“已结束”；任一合同金额缺失或不相等时为“进行中”。进行中项目的待回款金额为全部导入合同总金额减全部导入回款金额。项目明细中“合同金额、已开票、已回款（CRM）”均使用 CRM 导入模板字段；`received_amount` 仍表示里程碑中由管理人员确认到账的回款金额，两者互不覆盖。
+项目总览和项目运营监控不再提供“合同状态”字段或筛选。合同/订单的 CRM 状态按导入值保留，用于原始数据审计；当所有关联合同的来源状态均为结束类状态且统计期仍有工时填报时，项目运营监控会标记“额外投入”。待回款金额为全部导入合同总金额减全部导入回款金额，最小为零。项目明细中“合同金额、已开票、已回款（CRM）”均使用 CRM 导入模板字段；`received_amount` 仍表示里程碑中由管理人员确认到账的回款金额，两者互不覆盖。
 
 ### 5.2 查询项目详情
 
@@ -520,8 +542,6 @@ GET /api/v1/project-health
       "project_name": "SEY101-项目名称",
       "pm_owner": "PM Test",
       "project_status": "active",
-      "contract_status": "进行中",
-      "outstanding_receivable_amount": "149900.00",
       "planned_start": "2026-01-01",
       "planned_end": "2026-06-30",
       "budget_person_days": "120.00",
@@ -572,7 +592,6 @@ GET /api/v1/project-health
 | 项目名称 | `project_name` |
 | PM负责人 | `pm_owner` |
 | 项目状态 | `project_status` |
-| 合同状态 | `contract_status` / `outstanding_receivable_amount` |
 | 计划开始 | `planned_start` |
 | 计划结束 | `planned_end` |
 | 预算工时(天) | `budget_person_days` |
@@ -668,9 +687,7 @@ Content-Type: application/json
   "planned_end": "2026-06-30",
   "owner": "Manager Wang",
   "deliverable": "需求说明书",
-  "is_payment_node": true,
-  "payment_date": "2026-07-01",
-  "payment_amount": "412500",
+  "payment_term_id": "term_9822ecef3f1e4ce6",
   "notes": "首付款节点"
 }
 ```
@@ -684,9 +701,9 @@ Content-Type: application/json
 | `planned_end` | 是 | 计划结束日期 |
 | `owner` | 否 | 负责人 |
 | `deliverable` | 否 | 输出物 |
-| `is_payment_node` | 否 | 是否同时创建回款节点，默认 `false` |
-| `payment_date` | 条件必填 | `is_payment_node=true` 时必填 |
-| `payment_amount` | 条件必填 | `is_payment_node=true` 时必填 |
+| `payment_term_id` | 否 | 关联的回款约定；关联后以约定金额、计划结束日期生成回款节点。编辑时传 `null` 解除关联 |
+
+本体 7.0.0（2026-10-28）起不再接受 `is_payment_node`、`payment_date`、`payment_amount`：兼容接口忽略这三个字段，回款节点只由关联的回款约定产生。已有的历史回款事件保留，关联回款约定后被替换。
 | `notes` | 否 | 备注 |
 
 响应：
@@ -791,43 +808,9 @@ Content-Type: application/json
 
 ## 7. 回款节点接口
 
-### 7.1 创建回款节点
+### 7.1 创建回款节点（已取消）
 
-```http
-POST /api/v1/projects/{project_number}/payment-nodes
-Content-Type: application/json
-```
-
-请求：
-
-```json
-{
-  "name": "首期款",
-  "planned_date": "2026-07-20",
-  "planned_amount": "74950",
-  "actual_date": null,
-  "actual_amount": "0",
-  "status": "planned",
-  "notes": "合同首付款"
-}
-```
-
-响应：
-
-```json
-{
-  "data": {
-    "payment_node_id": "pay_xxx",
-    "project_number": "TPL149",
-    "name": "首期款",
-    "planned_date": "2026-07-20",
-    "planned_amount": "74950.00",
-    "actual_date": null,
-    "actual_amount": "0.00",
-    "status": "planned"
-  }
-}
-```
+`POST /api/v1/projects/{project_number}/payment-nodes` 已于本体 6.0.0（2026-10-28）取消，返回 404。新的回款计划先用「新建回款约定」登记合同回款条款，再在新建或编辑里程碑时关联约定，系统以约定金额和里程碑计划完成日生成回款节点。已有回款节点仍可编辑、确认到账和删除（未到账时）。
 
 ### 7.2 确认回款到账
 
@@ -1036,7 +1019,7 @@ Excel 支持两种格式。系统会遍历工作簿并自动选择包含必需�
 GET /api/v1/worktime-baseline
 ```
 
-用途：查询员工工时数据模块使用的统一基线参数。该配置由管理人员人工维护，可被员工工时数据和后续其他表单引用。
+用途：查询员工工时数据模块使用的统一基线参数。`standard_hours_per_day` 与利用率阈值参与运行时计算；年度、月均和季度工时字段保留为管理参考。每个统计周期的实际产能由中国法定工作日（法定节假日和调休补班）自动折算。资源调剂判断必须满足 `attention < minimum < excellent < overload`：依次对应可优先调剂、可适度支持、基本均衡、高负荷与超负荷。
 
 默认配置参考当前表格设计：
 
@@ -1053,6 +1036,7 @@ GET /api/v1/worktime-baseline
     "minimum_utilization_percent": "75.00",
     "excellent_utilization_percent": "90.00",
     "attention_utilization_percent": "60.00",
+    "overload_utilization_percent": "100.00",
     "notes": "默认工时基线参数，可在页面人工维护。",
     "updated_at": "2026-07-08T11:00:00-04:00"
   }
@@ -1079,6 +1063,7 @@ Content-Type: application/json
   "minimum_utilization_percent": "75",
   "excellent_utilization_percent": "90",
   "attention_utilization_percent": "60",
+  "overload_utilization_percent": "100",
   "notes": "年度基线=230天*8小时"
 }
 ```
@@ -1103,9 +1088,10 @@ GET /api/v1/employee-worktime
 工时利用率：
 
 ```text
-月度：reported_hours / monthly_baseline_hours * 100
-年度：reported_hours / annual_baseline_hours * 100
+统计周期：reported_hours / (实际工作日 * standard_hours_per_day) * 100
 ```
+
+`meta` 同时返回 `working_days`、`holiday_excluded_days`、`makeup_workdays`、`calendar_available` 与 `calendar_stale`，供界面说明当期可用产能的计算口径；订阅临时不可用时，将明确标识并回退为仅排除周末。
 
 状态规则：
 
@@ -1247,6 +1233,8 @@ POST /api/v1/crm-imports
 
 `data_type` 支持 `contract_order`、`sales_opportunity`。上传成功的响应会包含 `import_log`，其中 `imported_at` 即本次上传成功时间。
 
+销售机会 CSV 推荐使用以下表头：`ID、项目编号、客户、机会主题、预计签单日期、可能性、阶段、负责人、状态、更新日期`。其中“阶段”映射为 `sales_stage`，“更新日期”映射为 `source_updated_at`；项目编号优先使用导入列，不再依赖从主题中猜测。
+
 ## 11. 导出接口
 
 ### 11.1 导出最新 CRM 快照
@@ -1288,7 +1276,7 @@ record_id,data_type,project_number,subject,customer,category,signed_at,total_amo
 
 以下字段来自 CRM 或工时系统，同步更新：
 
-- CRM：主题、客户、分类、签约时间、总金额、回款金额、开票金额、所有者、可能性、状态、CRM 更新时间。
+- CRM：主题、客户、分类、签约时间/预计签单日期、总金额、回款金额、开票金额、所有者（合同新模板可使用“我方签约人”）、可能性、销售阶段、状态、CRM 源更新时间。
 - 工时：员工、日期、填报工时、客户确认工时、审批状态、工作内容、源系统更新时间。
 
 ### 12.2 人工维护字段
@@ -1314,7 +1302,7 @@ record_id,data_type,project_number,subject,customer,category,signed_at,total_amo
 - CRM 数据接口保留合同/订单和销售机会两条成功入库的原始记录，便于审计、导出和追溯。
 - 项目主数据库按 `project_number` 汇总，因此不会因对应销售机会重复生成项目。
 - 已由商机转化的合同/订单记录会将 `probability` 填充为 `100`，并标记 `merged_from_opportunity=true`。
-- 合同/订单的 `status` 为系统推导字段：仅当 `total_amount`、`received_amount`、`invoiced_amount` 三者均有值且相等时为 `已完成`；否则为 `未完成`。销售机会仍保留导入数据中的状态。
+- 合同/订单和销售机会的 `status` 均保留导入数据中的原始状态，不再由金额字段推导；合同新模板使用“状态”列。
 
 ### 12.4 风险提醒规则
 

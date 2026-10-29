@@ -1,0 +1,58 @@
+# 本体构建包（发布稿）：追加维护要求。本体 4.3.0（新增维护要求、推导规则与属性，非破坏性）。
+# 依据：用户 2026-10-27「在本体元数据中追加维护要求：项目经理、计划开始与结束、回款约定关联里程碑。按技能要求交付构建包」。
+kind: OntologyBuild
+stage: release
+supersededBy: 2026-10-27-maintenance-exemptions.yaml
+topic: 追加维护要求：项目经理、计划开始与结束日期、回款约定关联里程碑
+ontologyVersion: 4.3.0
+date: 2026-10-27
+scope:
+  - CQ1 哪些项目还没有指定项目经理、没有填写计划开始或结束日期？
+  - CQ2 哪些回款约定还没有关联里程碑，因而还不能生成回款节点？
+  - CQ3 每条要求有多少已维护、多少待维护？
+
+rules:
+  - id: R1
+    statement: 项目新增三条维护要求：指定项目经理、填写计划开始日期、填写计划结束日期，都由「设置项目」维护；与原有三条要求一起决定项目的「人工维护完整」。
+    basis: 用户 2026-10-27 的要求；项目管理页原先只在界面上提示「请添加PM负责人」「请填写」，没有进入本体。
+    acceptance: 项目的维护要求依次为选择项目类型、填写初始预算人天、指定项目经理、填写计划开始日期、填写计划结束日期、制定里程碑计划；WDR101 通过「设置项目」补齐项目经理和计划起止、再新建一个里程碑后，维护清单 6 项全部已维护，待维护项数为 0。
+    verifiedBy: [test_maintenance_requirements_are_declared_in_metadata, test_maintenance_status_is_derived_and_queryable]
+    ontology: [Project, Project.projectManager, Project.plannedStart, Project.plannedEnd, configureProject]
+  - id: R2
+    statement: 回款约定新增维护要求「关联里程碑」，由「编辑里程碑」（新建里程碑时同样可以关联）维护；关联后以里程碑结束日期生成回款节点。
+    basis: 用户 2026-10-27 的要求；未关联的回款约定没有计划回款日，也不会进入回款节点和逾期提醒。
+    acceptance: 新建的回款约定维护清单为「关联里程碑：待维护」，回款状态为待排期、计划回款日为空，待维护清单统计 1 条待维护；新建里程碑并关联它之后，约定变为已维护，计划回款日取里程碑结束日 2026-12-20，并生成回款节点，待维护清单为空。
+    verifiedBy: [test_payment_terms_must_be_linked_to_a_milestone]
+    ontology: [PaymentTerm, PaymentTerm.linkedMilestoneId, PaymentTerm.maintenanceChecklist, editMilestone, createMilestone, maintenanceWorklist]
+  - id: R3
+    statement: 回款约定的派生属性（回款节点、计划回款日、回款状态）由推导规则 paymentTermFacts 计算，数据源只物化维护的数据。
+    basis: 声明维护要求的对象要登记推导规则，所有派生属性必须指明计算它的推导规则（本体 3.1.0 的约定）。
+    acceptance: 回款约定的派生属性都指向 paymentTermFacts 或 maintenanceStatus；未关联里程碑时回款状态为待排期，关联后取回款节点的状态和计划日期，与迁移前一致。
+    verifiedBy: [test_payment_terms_must_be_linked_to_a_milestone, test_contract_payment_terms_are_linked_through_milestones]
+    ontology: [PaymentTerm.paymentNodeId, PaymentTerm.plannedDate, PaymentTerm.nodeStatus]
+
+exceptions:
+  - rule: R1
+    case: 商机阶段（售前）的项目代码也要求项目经理和计划起止。
+    handling: 暂按全部项目适用；如果售前阶段不需要，可在元数据中给这几条要求加适用条件（例如项目类型不是售前阶段），不用改代码。
+    basis: 用户没有区分项目阶段；原界面提示同样对所有项目显示。
+  - rule: R1
+    case: 已结束或已关闭的历史项目缺少计划起止。
+    handling: 同样显示为待维护，可在待维护清单中按要求筛出后批量补齐；如不需要补历史数据，可加「项目状态不是结束 / 已关闭」的适用条件。
+    basis: 维护要求是数据，范围由业务决定。
+  - rule: R1
+    case: 风险等级与这些新要求的关系。
+    handling: 新要求只影响「人工维护完整」、维护清单和「同步后人工维护尚未完成」提醒，不改变风险等级的规则。
+    basis: 风险口径未变（原则 9：不自行改变业务含义）。
+  - rule: R2
+    case: 合同中约定了但暂时无法确定对应里程碑的回款条款（例如质保金）。
+    handling: 保持待维护状态，直到确定里程碑；不为它自动创建里程碑。
+    basis: 回款节点依赖里程碑结束日期，不能凭空生成日期。
+  - rule: R2
+    case: 一个里程碑最多关联一个回款约定。
+    handling: 沿用原有约束；同一里程碑需要多笔回款时，拆成多个里程碑。
+    basis: 现有数据结构（payment_terms.linked_milestone_id，每个里程碑最多关联一个约定）。
+  - rule: R3
+    case: 回款约定关联的回款节点或里程碑已被删除。
+    handling: 计划回款日为空、回款状态为待排期，维护清单仍按「是否有关联里程碑」判断。
+    basis: 删除受保护规则不变，派生结果按实际数据计算。

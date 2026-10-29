@@ -5,6 +5,7 @@ import math
 from typing import Any
 
 from .db import Database
+from .pagination import CursorError, decode_cursor, encode_cursor
 
 
 SORT_COLUMNS = {
@@ -13,7 +14,9 @@ SORT_COLUMNS = {
     "signed_at": "signed_at",
     "owner": "owner",
     "probability": "probability",
+    "sales_stage": "sales_stage",
     "status": "status",
+    "source_updated_at": "source_updated_at",
 }
 
 
@@ -28,11 +31,12 @@ class SnapshotRepository:
         project_number: str | None,
         owner: str | None,
         status: str | None,
+        sales_stage: str | None,
         probability: int | None,
         query: str | None,
         signed_from: str | None,
         signed_to: str | None,
-        page: int,
+        cursor: str | None,
         page_size: int,
         sort: str,
     ) -> dict[str, Any] | None:
@@ -50,20 +54,12 @@ class SnapshotRepository:
             if value is not None:
                 clauses.append(f"{column} = ?")
                 params.append(value)
-        if status == "已完成":
-            clauses.append(
-                "data_type = 'contract_order' AND total_amount IS NOT NULL "
-                "AND total_amount = received_amount AND total_amount = invoiced_amount"
-            )
-        elif status == "未完成":
-            clauses.append(
-                "data_type = 'contract_order' AND (total_amount IS NULL OR "
-                "received_amount IS NULL OR invoiced_amount IS NULL OR "
-                "total_amount != received_amount OR total_amount != invoiced_amount)"
-            )
-        elif status is not None:
+        if status is not None:
             clauses.append("status = ?")
             params.append(status)
+        if sales_stage is not None:
+            clauses.append("sales_stage = ?")
+            params.append(sales_stage)
         if query:
             clauses.append("(subject LIKE ? OR customer LIKE ? OR project_number LIKE ?)")
             needle = f"%{query}%"
@@ -75,35 +71,82 @@ class SnapshotRepository:
             clauses.append("signed_at <= ?")
             params.append(signed_to)
 
-        where = " AND ".join(clauses)
+        base_where = " AND ".join(clauses)
+        base_params = list(params)
+        cursor_scope = json.dumps(
+            {
+                "data_type": data_type,
+                "project_number": project_number,
+                "owner": owner,
+                "status": status,
+                "sales_stage": sales_stage,
+                "probability": probability,
+                "query": query,
+                "signed_from": signed_from,
+                "signed_to": signed_to,
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
         descending = sort.startswith("-")
         sort_key = sort.removeprefix("-")
         sort_column = SORT_COLUMNS.get(sort_key, "project_number")
         direction = "DESC" if descending else "ASC"
-        offset = (page - 1) * page_size
+        try:
+            cursor_data = decode_cursor(cursor, "records")
+        except CursorError:
+            raise
+        if cursor_data and (
+            cursor_data.get("snapshot_id") != snapshot_id
+            or cursor_data.get("sort") != sort
+            or cursor_data.get("scope") != cursor_scope
+        ):
+            raise CursorError("cursor does not match the active snapshot or sort order")
+        sort_value = f"COALESCE({sort_column}, '')"
+        if cursor_data:
+            comparator = "<" if descending else ">"
+            clauses.append(
+                f"({sort_value} {comparator} ? OR ({sort_value} = ? AND id > ?))"
+            )
+            params.extend(
+                [cursor_data["value"], cursor_data["value"], cursor_data["id"]]
+            )
+        where = " AND ".join(clauses)
         with self.database.connect() as connection:
             total = connection.execute(
-                f"SELECT COUNT(*) AS count FROM records WHERE {where}", params
+                f"SELECT COUNT(*) AS count FROM records WHERE {base_where}", base_params
             ).fetchone()["count"]
             rows = connection.execute(
                 f"""
                 SELECT * FROM records WHERE {where}
-                ORDER BY {sort_column} {direction}, id ASC
-                LIMIT ? OFFSET ?
+                ORDER BY {sort_value} {direction}, id ASC
+                LIMIT ?
                 """,
-                [*params, page_size, offset],
+                [*params, page_size + 1],
             ).fetchall()
             snapshot = connection.execute(
                 "SELECT * FROM snapshots WHERE id = ?", (snapshot_id,)
             ).fetchone()
         return {
-            "records": [_serialize_record(row) for row in rows],
-            "page": page,
+            "records": [_serialize_record(row) for row in rows[:page_size]],
             "page_size": page_size,
             "total_records": total,
             "total_pages": math.ceil(total / page_size) if total else 0,
             "schema_version": snapshot["schema_version"],
             "updated_at": snapshot["source_updated_at"],
+            "next_cursor": (
+                encode_cursor(
+                    "records",
+                    snapshot_id=snapshot_id,
+                    sort=sort,
+                    scope=cursor_scope,
+                    value=(rows[page_size - 1][sort_column] or ""),
+                    id=rows[page_size - 1]["id"],
+                )
+                if len(rows) > page_size
+                else None
+            ),
         }
 
     def get_record(self, record_id: str) -> dict[str, Any] | None:
@@ -208,7 +251,7 @@ class SnapshotRepository:
             },
         }
 
-    def export_records(self) -> dict[str, Any] | None:
+    def export_records(self, project_numbers: set[str] | None = None) -> dict[str, Any] | None:
         snapshot_id = self.database.active_snapshot_id()
         if snapshot_id is None:
             return None
@@ -216,8 +259,21 @@ class SnapshotRepository:
             snapshot = connection.execute(
                 "SELECT * FROM snapshots WHERE id = ?", (snapshot_id,)
             ).fetchone()
+            clauses = ["snapshot_id = ?"]
+            params: list[Any] = [snapshot_id]
+            if project_numbers is not None:
+                if not project_numbers:
+                    return {
+                        "schema_version": snapshot["schema_version"],
+                        "updated_at": snapshot["source_updated_at"],
+                        "summary": {"total_records": 0, "by_type": {}},
+                        "records": [],
+                    }
+                placeholders = ", ".join("?" for _ in project_numbers)
+                clauses.append(f"project_number IN ({placeholders})")
+                params.extend(sorted(project_numbers))
             rows = connection.execute(
-                "SELECT * FROM records WHERE snapshot_id = ? ORDER BY id", (snapshot_id,)
+                f"SELECT * FROM records WHERE {' AND '.join(clauses)} ORDER BY id", params
             ).fetchall()
         return {
             "schema_version": snapshot["schema_version"],
@@ -231,6 +287,31 @@ class SnapshotRepository:
             },
             "records": [_serialize_record(row) for row in rows],
         }
+
+    def assistant_record_candidates(
+        self, query: str, *, limit: int = 24
+    ) -> list[dict[str, Any]]:
+        """Bounded CRM retrieval used by PM Assistant, never a full export."""
+        snapshot_id = self.database.active_snapshot_id()
+        if snapshot_id is None:
+            return []
+        clauses = ["snapshot_id = ?"]
+        params: list[Any] = [snapshot_id]
+        if query:
+            needle = f"%{query}%"
+            clauses.append("(subject LIKE ? OR customer LIKE ? OR project_number LIKE ? OR owner LIKE ?)")
+            params.extend([needle, needle, needle, needle])
+        with self.database.connect() as connection:
+            rows = connection.execute(
+                f"""
+                SELECT * FROM records WHERE {' AND '.join(clauses)}
+                ORDER BY CASE data_type WHEN 'contract_order' THEN 0 ELSE 1 END,
+                         COALESCE(signed_at, '') DESC, id DESC
+                LIMIT ?
+                """,
+                [*params, limit],
+            ).fetchall()
+        return [_serialize_record(row) for row in rows]
 
 
 def _serialize_record(row: Any) -> dict[str, Any]:
@@ -251,7 +332,9 @@ def _serialize_record(row: Any) -> dict[str, Any]:
         ),
         "owner": row["owner"],
         "probability": row["probability"],
-        "status": _record_status(row),
+        "sales_stage": row["sales_stage"],
+        "status": row["status"],
+        "source_updated_at": row["source_updated_at"],
         "merged_from_opportunity": bool(row["merged_from_opportunity"]),
         "updated_at": row["updated_at"],
     }
@@ -261,13 +344,6 @@ def _money(amount: str | None, display: str | None) -> dict[str, str] | None:
     if amount is None:
         return None
     return {"amount": amount, "currency": "CNY", "display": display or amount}
-
-
-def _record_status(row: Any) -> str | None:
-    if row["data_type"] != "contract_order":
-        return row["status"]
-    amounts = (row["total_amount"], row["received_amount"], row["invoiced_amount"])
-    return "已完成" if all(amount is not None for amount in amounts) and len(set(amounts)) == 1 else "未完成"
 
 
 def _empty_validation() -> dict[str, Any]:

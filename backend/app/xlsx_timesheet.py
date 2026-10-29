@@ -79,9 +79,18 @@ def parse_timesheet_xlsx(workbook_bytes: bytes) -> list[dict[str, Any]]:
         approval_status = _approval_status(str(raw_status or "").strip())
         approved_hours = hours + overtime_hours if approval_status == "approved" else Decimal("0")
         work_content = str(raw_content or "").strip()
-        identity_parts = [employee_name, project_number, work_date, str(raw_days), work_content, str(raw_status or "")]
-        if source_kind == "exported_detail":
-            identity_parts.insert(4, str(raw_overtime_days or "0"))
+        # Export display formats are not stable identifiers: the same entry can
+        # be re-exported as ``1`` or ``1.0`` and a workflow state can change
+        # after the work itself was submitted.  Those representation changes
+        # must not create a second worktime row on re-import.
+        identity_parts = [
+            employee_name,
+            project_number,
+            work_date,
+            _identity_number(work_days),
+            _identity_number(overtime_days),
+            work_content,
+        ]
         entries.append(
             {
                 "external_id": _external_id(*identity_parts),
@@ -228,6 +237,10 @@ def _days(value: Any, row_number: int, column_name: str) -> Decimal:
 
 def _employee_id(employee_name: str) -> str:
     return f"EMP-{hashlib.sha1(employee_name.encode('utf-8')).hexdigest()[:8].upper()}"
+
+
+def _identity_number(value: Decimal) -> str:
+    return format(value.normalize(), "f")
 
 
 def _external_id(*parts: str) -> str:

@@ -1,0 +1,39 @@
+flowchart TB
+  subgraph SRC["① 数据来源"]
+    CRM["CRM 合同/订单 · 销售机会<br/>Excel · CSV · JSON 导入"]
+    TS["员工工时<br/>Excel 导入，API 预留"]
+    MAN["人工维护<br/>项目设置 · 经营输入<br/>里程碑 · 回款 · 干预 · 商机结论"]
+  end
+  subgraph DATA["② 数据层 · SQLite"]
+    SNAP["CRM 只读快照<br/>增量合并，失败不覆盖"]
+    TE["工时明细<br/>按 external_id 幂等"]
+    MT["人工维护表<br/>同步不覆盖"]
+    AUD["审计日志"]
+  end
+  subgraph BASE["③ 基础程序 · 主数据维护"]
+    REPO["导入 · 维护接口<br/>写入校验 · 审计<br/>项目原始数据"]
+    LEGACY["待迁移的分析<br/>资源 · 工时评价 · 投入<br/>（读取本体项目事实）"]
+  end
+  subgraph SEM["④ 本体语义层 · 分析推导"]
+    OBJ["数据源物化对象<br/>对象索引缓存"]
+    DER["推导规则<br/>项目事实 · 经营口径 · 投入阶段"]
+    FN["函数<br/>运营监控 · 项目全景 · 部门复盘"]
+    ACT["动作 · 安全标记脱敏<br/>元数据版本治理"]
+  end
+  subgraph APP["⑤ 应用层"]
+    UI["项目管理 · 项目详情 · 部门经营"]
+    UI2["资源 · 工时 · 投入页面"]
+    AI["PM Assistant"]
+    API["旧分析接口（薄包装）"]
+  end
+  CRM --> SNAP
+  TS --> TE
+  MAN -->|维护接口或本体动作| MT
+  DATA --> BASE
+  REPO -->|项目原始数据| OBJ
+  OBJ --> DER --> FN
+  FN -->|本体函数| UI
+  FN --> API
+  DER -->|项目事实| AI
+  DER -->|项目事实| LEGACY
+  LEGACY --> UI2

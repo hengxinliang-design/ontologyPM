@@ -1,0 +1,93 @@
+kind: ActionType
+version: v1
+definition:
+  apiName: editPaymentNode
+  displayName: 编辑回款节点
+  description: 修改尚未到账的回款计划。
+  objectType: PaymentNode
+  targetParameter: paymentNode
+  parameters:
+    - {apiName: paymentNode, displayName: 回款节点, type: object_ref, objectType: PaymentNode, required: true}
+    - {apiName: name, displayName: 名称, type: string}
+    - {apiName: plannedDate, displayName: 计划回款日, type: date}
+    - {apiName: plannedAmount, displayName: 计划金额, type: money}
+    - {apiName: notes, displayName: 备注, type: string}
+  permissions: [projects]
+  edits: [PaymentNode.name, PaymentNode.plannedDate, PaymentNode.plannedAmount, PaymentNode.notes]
+  writeback: [payment_nodes]
+  handler: editPaymentNode
+  submissionCriteria:
+    - description: 已到账的回款节点锁定
+      rule: statusIsNot
+      args: {status: paid, reason: 回款已确认到账，已锁定}
+    - description: 计划金额不能为负数
+      rule: nonNegative
+      args: {parameters: [plannedAmount]}
+---
+kind: ActionType
+version: v1
+definition:
+  apiName: deletePaymentNode
+  displayName: 删除回款节点
+  description: 删除尚未到账、且不由里程碑管理的回款节点。
+  objectType: PaymentNode
+  targetParameter: paymentNode
+  tone: danger
+  parameters:
+    - {apiName: paymentNode, displayName: 回款节点, type: object_ref, objectType: PaymentNode, required: true}
+  permissions: [projects]
+  edits: [PaymentNode.*]
+  writeback: [payment_nodes]
+  handler: deletePaymentNode
+  submissionCriteria:
+    - description: 已到账的回款节点锁定
+      rule: statusIsNot
+      args: {status: paid, reason: 回款已确认到账，已锁定}
+    - {description: 不是里程碑关联的回款节点, rule: notLinkedToMilestone}
+---
+kind: ActionType
+version: v1
+definition:
+  apiName: confirmPaymentReceived
+  displayName: 确认回款到账
+  description: 管理人员确认回款到账，记录到账日期、金额和确认人；确认后锁定。
+  objectType: PaymentNode
+  targetParameter: paymentNode
+  tone: confirm
+  parameters:
+    - {apiName: paymentNode, displayName: 回款节点, type: object_ref, objectType: PaymentNode, required: true}
+    - {apiName: actualAmount, displayName: 到账金额, type: money, description: 缺省为计划金额}
+    - {apiName: actualDate, displayName: 到账日期, type: date, description: 缺省为今天}
+    - {apiName: confirmedBy, displayName: 确认人, type: string, description: 缺省为当前登录用户}
+  permissions: [projects]
+  edits: [PaymentNode.status, PaymentNode.actualDate, PaymentNode.actualAmount, Project.receivedAmount]
+  writeback: [payment_nodes]
+  handler: confirmPayment
+  submissionCriteria:
+    - description: 回款尚未到账
+      rule: statusIsNot
+      args: {status: paid, reason: 回款已经确认到账}
+    - description: 到账金额不能为负数
+      rule: nonNegative
+      args: {parameters: [actualAmount]}
+---
+kind: ActionType
+version: v1
+definition:
+  apiName: updateInterventionStatus
+  displayName: 更新干预状态
+  description: 推进或关闭管理干预；已关闭的干预不能重新打开。
+  objectType: Intervention
+  targetParameter: intervention
+  parameters:
+    - {apiName: intervention, displayName: 管理干预, type: object_ref, objectType: Intervention, required: true}
+    - {apiName: status, displayName: 状态, type: enum, valueType: InterventionStatus, required: true}
+    - {apiName: notes, displayName: 备注, type: string}
+  permissions: [projects]
+  edits: [Intervention.status, Intervention.notes]
+  writeback: [interventions]
+  handler: updateInterventionStatus
+  submissionCriteria:
+    - description: 已关闭的干预不能重新打开
+      rule: statusIsNot
+      args: {status: closed, reason: 管理干预已关闭}

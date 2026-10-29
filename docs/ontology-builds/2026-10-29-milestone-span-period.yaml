@@ -1,0 +1,67 @@
+# 本体构建包（发布稿）：里程碑按月份跨度查看、列表显示状态。本体 7.4.0（统计期间新增起止日期与月份区间，对象类型新增 listProperties，非破坏性）。
+# 依据：用户 2026-10-29「里程碑对象查询，也需要增加月份查询，不过这里需要按照起始时间可以查询跨度」；「里程碑查询列表中，需要增加一列状态展示，并对已完成和其他状态颜色区分」。
+kind: OntologyBuild
+stage: release
+topic: 统计期间支持有起止日期的对象和月份区间；里程碑按计划起止与所选月份区间是否重叠筛选
+ontologyVersion: 7.4.0
+date: 2026-10-29
+scope:
+  - CQ1 某几个月内（例如 2026-10 至 2026-12）有哪些里程碑在计划期内？
+  - CQ2 某个月正在进行或到期的里程碑有哪些？
+
+rules:
+  - id: R1
+    statement: 统计期间新增第三种归属方式 startProperty + endProperty：对象有计划起止日期，只要起止区间与所选月份区间有重叠就属于该区间（开始日为空时按结束日计）；新增 range：允许选择月份区间（起始月份至结束月份），而不只是单个月份。编译器校验 activeProperty、dateProperty、startProperty + endProperty 三者必须且只能写一种，起止属性都必须是本类型的日期属性；有按月计算（periodic）属性的类型不能声明 range（按月指标无法跨月汇总）。可选月份：dateProperty 和起止属性的类型取自本类型数据（起止类型取最早开始到最晚结束之间的每个月），options 只在 activeProperty 时必填。
+    basis: 里程碑有计划开始和计划完成两个日期，按单一日期归属会漏掉跨月的里程碑；用户要求按起始时间查询跨度。
+    acceptance: 同时写 dateProperty 和 startProperty、只写 startProperty、起止属性不是日期、带 periodic 属性的类型写 range 时编译报错；对象列表接口支持 month（起始月份）与 monthTo（结束月份），monthTo 早于 month、或对象类型不允许区间时返回 422。
+    verifiedBy: [test_milestones_are_viewed_by_month_span, test_invalid_period_metadata_is_rejected]
+    ontology: [Milestone, Milestone.plannedStart, Milestone.plannedEnd]
+  - id: R2
+    statement: 里程碑声明统计期间：startProperty = plannedStart，endProperty = plannedEnd，range = true，defaultView = all。本体浏览器的里程碑页显示「起始月份」「结束月份」两个选择，选了起始月份即按该月筛选，再选结束月份则按区间筛选。
+    basis: 用户 2026-10-29 的要求。默认显示全部，与员工一致；里程碑数量少，不需要默认收窄。
+    acceptance: 计划 2026-09-27 至 2026-09-30 的里程碑出现在 2026-09，不出现在 2026-10；计划 2026-11-30 至 2026-12-31 的里程碑出现在 2026-12 和区间 2026-10 至 2026-11（11-30 落在区间内），不出现在 2026-10 单月；区间 2026-09 至 2026-12 列出全部这些里程碑。可选月份为数据中最早开始月到最晚结束月之间的每个月。
+    verifiedBy: [test_milestones_are_viewed_by_month_span]
+    ontology: [Milestone.plannedStart, Milestone.plannedEnd]
+  - id: R3
+    statement: 修正：在一个有月份的对象类型（例如工时记录）选了月份后，切换到没有统计期间的类型（例如里程碑）时，不再把旧月份带进第一次请求而报错「没有统计期间，不能按月份查看」。
+    basis: 用户 2026-10-29 截图中的报错；切换类型时月份在请求之后才清空。
+    acceptance: 只有声明了统计期间的类型才发送月份参数；页面测试覆盖列表请求参数的生成。
+    verifiedBy: [test_milestones_are_viewed_by_month_span]
+    ontology: [Milestone]
+
+  - id: R4
+    statement: 对象类型可以声明列表列 listProperties（按顺序），未声明时仍取前四个普通属性。里程碑的列表列为项目编号、状态、序号、计划开始、计划完成。状态在本体浏览器中以标签显示：已完成（以及回款节点的已到账、管理干预的已关闭）为绿色，其他状态为灰色。编译器校验 listProperties 引用的属性都存在。
+    basis: 用户 2026-10-29 的要求；列表固定取前四个属性，状态排在后面显示不出来，改属性顺序会牵动详情和其他用途，因此把列表列声明为元数据。
+    acceptance: 本体结构中里程碑的 listProperties 为 [projectNumber, status, sequenceNo, plannedStart, plannedEnd]；listProperties 引用不存在的属性时编译报错；页面测试覆盖列表列的选择与状态标签的颜色。
+    verifiedBy: [test_milestones_are_viewed_by_month_span, test_invalid_period_metadata_is_rejected]
+    ontology: [Milestone, Milestone.status]
+
+exceptions:
+  - rule: R1
+    case: 员工（按月计算的指标）选月份区间。
+    handling: 不提供区间，只能选单个月份；需要多个月的员工汇总时另行设计本体函数。
+    basis: 利用率、资源健康等按月判定的指标不能简单相加。
+  - rule: R1
+    case: 里程碑开始日期为空。
+    handling: 按结束日期计，视为只在结束日期所在月份。
+    basis: 新建里程碑时计划开始为空会被基础程序填为计划完成日（ProjectRepository.create_milestone），正常数据不会为空；规则仍兜底处理历史或导入数据。
+  - rule: R2
+    case: 已完成或已逾期的里程碑。
+    handling: 同样按计划起止筛选，不看完成状态；状态在列表和详情中查看。
+    basis: 月份筛选只回答「哪些里程碑的计划期落在这段时间」，不改变里程碑状态口径。
+  - rule: R2
+    case: 只选结束月份、不选起始月份。
+    handling: 结束月份选择在选了起始月份之后才可用；清空起始月份时结束月份一并清空。
+    basis: 区间以起始月份为准，避免出现只有终点的区间。
+  - rule: R3
+    case: 详情面板。
+    handling: 同样只在对象类型声明了统计期间时才带月份，已有逻辑如此，不改。
+    basis: 7.2.0 起详情的月份只传给声明了 period 的类型。
+  - rule: R4
+    case: 按月份查看员工时的列表列。
+    handling: 仍显示按月计算的列（7.2.0），listProperties 只用于未选月份或没有按月属性的类型。
+    basis: 月度视图的列要和所选月份一致。
+  - rule: R4
+    case: 「受阻」等需要关注的状态。
+    handling: 本次与其他未完成状态同为灰色（用户要求区分已完成和其他）；需要单独标红时再加颜色规则。
+    basis: 按用户要求的两类区分，不自行扩展口径。

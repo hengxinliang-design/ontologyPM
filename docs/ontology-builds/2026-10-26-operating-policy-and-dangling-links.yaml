@@ -1,0 +1,87 @@
+# 本体构建包：每条规则写明依据（basis）和验收口径（acceptance），并附例外表（exceptions）。
+# 例外表为空直接判不合格。格式见 .claude/skills/tsg-ontology/references/build-package.md。
+kind: OntologyBuild
+topic: 运营口径参数的完整写入与校验、预期悬空关系的声明
+ontologyVersion: 2.0.2
+supersededBy: 2026-10-26-pmo-economics.yaml
+date: 2026-10-26
+scope:
+  - 能力问题：调整阈值时，系统能否拒绝自相矛盾的参数组合？
+  - 能力问题：丢单状态、内部代码改了之后，投入分析是否立即按新口径归类？
+  - 能力问题：哪些关系允许找不到对应对象，原因是什么？
+
+rules:
+  - id: R1
+    statement: 利用率四档阈值必须逐级递增（关注 < 最低 < 优秀 < 过载），且都大于 0、不超过 300%。
+    basis: 《业务规则与计算口径说明》§7「校验要求关注 < 最低 < 优秀 < 过载」；docs/BUSINESS_RULES.md §7。
+    acceptance: 只把最低线改为 95%（优秀线仍为 90%）时，动作返回 422 并提示「阈值必须逐级递增」；把过载线改为 320% 时返回 422 并提示「不超过 300%」；被拒绝的修改不写入。
+    verifiedBy: [test_operating_policy_action_edits_lists_and_rejects_out_of_order_thresholds]
+    ontology: [updateOperatingPolicy, policyThresholdOrder, OperatingPolicy.minimumUtilizationPercent, OperatingPolicy.overloadUtilizationPercent]
+  - id: R2
+    statement: 预算关注线必须小于预算高风险线，两者都大于 0 且小于 100%。
+    basis: 2026-10-25 用户确认「统一预算阈值」（docs/BUSINESS_RULES.md §10.1）；超支线固定为 100%（§6.2）。
+    acceptance: 高风险线设为 100% 时返回 422 并提示「小于 100%」；只把关注线改为 92%（高风险线仍为 90%）时返回 422；同时把两条线改为 92% 和 95% 时提交成功。
+    verifiedBy: [test_operating_policy_action_edits_lists_and_rejects_out_of_order_thresholds]
+    ontology: [updateOperatingPolicy, policyThresholdOrder, OperatingPolicy.budgetAttentionPercent, OperatingPolicy.budgetHighRiskPercent]
+  - id: R3
+    statement: 「调整运营口径」动作能修改全部口径参数，包括丢单状态、内部代码和年度参考工作日；名单至少一项，工时 0–24 小时，年度参考工作日 1–366 天。
+    basis: 2026-10-26 用户指令「让调整运营口径动作能修改丢单状态、内部代码和年度参考工作日」；lint 治理缺口（人工维护属性没有写入动作）。
+    acceptance: 提交「失败、失效、作废」后丢单状态保存为三项列表；内部代码提交 tsg999、int001 后保存为 TSG999、INT001，且 INT001 的成本对象立即归为内部投入；名单只含分隔符时返回 422 并提示「至少要有一项」；年度参考工作日 400 返回 422。
+    verifiedBy: [test_operating_policy_action_edits_lists_and_rejects_out_of_order_thresholds, test_worktime_baseline_rest_path_uses_the_same_ranges]
+    ontology: [updateOperatingPolicy, policyValuesValid, OperatingPolicy.lostStatuses, OperatingPolicy.internalCodes, OperatingPolicy.standardWorkDaysPerYear]
+  - id: R4
+    statement: 已保存的运营口径参数本身必须满足「调整运营口径」的全部提交条件。
+    basis: 所有风险、健康和资源判定都引用这组参数；NeOn-GPT 一致性检查思路（对实例数据做一致性校验）。
+    acceptance: 绕过校验直接把数据库中的预算关注线改为 95% 后运行诊断（带 --database），报告出现严重级 DAT-POLICY。
+    verifiedBy: [test_diagnosis_checks_data_against_the_model]
+    ontology: [OperatingPolicy, updateOperatingPolicy]
+  - id: R5
+    statement: 可能找不到对应对象的关系，必须在关系说明中写「允许悬空：原因」；未声明且悬空比例超过 50% 的关系判为重要问题。
+    basis: 2026-10-26 第 1 轮诊断：CostObject.project 悬空 95%、Project.timeEntries 悬空 100%；docs/INVESTMENT_COST_MODEL.md（未建档投入单列）。
+    acceptance: 声明后重新诊断，这两条关系降为次要并注明「已声明这是预期情况」；未声明的同类关系仍为重要。
+    verifiedBy: [test_diagnosis_checks_data_against_the_model]
+    ontology: [CostObject.project, Project.timeEntries]
+  - id: R6
+    statement: 元数据有任何改动都要升版本号，只改说明文字也要升修订号。
+    basis: SKILL.md 原则 8；compiler.checksum 包含说明文字。
+    acceptance: 内容改变而版本号不变时，服务拒绝启动；诊断带 --database 时报告严重级 CON-VERSION。
+    verifiedBy: [test_version_registry_governs_metadata_changes]
+    ontology: []
+
+exceptions:
+  - rule: R1
+    case: 只提交其中一个阈值。
+    handling: 用「提交值 + 已保存值」组合判断。例如只把最低线改为 95% 会被拒绝，因为优秀线仍是 90%。
+    basis: 校验条件读取 _effective（提交值优先，其次已保存值）。
+  - rule: R2
+    case: 两条预算线需要同时上调，单独改任何一条都会暂时违反顺序。
+    handling: 允许在一次提交中同时修改两条线，按提交后的组合判断。
+    basis: R2 验收口径中的 92%/95% 用例。
+  - rule: R2
+    case: 业务方希望把超支线也做成可配置。
+    handling: 不支持。超支固定为预算使用率超过 100%（剩余预算小于 0），这是会计口径而不是管理阈值。
+    basis: docs/BUSINESS_RULES.md §6.2。
+  - rule: R3
+    case: 内部代码以小写或带空格的形式提交。
+    handling: 去除空白并统一转为大写，tsg999 与 TSG999 视为同一个代码。
+    basis: InvestmentService.update_settings 的规范化。
+  - rule: R3
+    case: 数据库中的丢单状态仍是旧的内置默认值（不含「失效」）。
+    handling: 启动迁移只升级仍为旧默认值的记录；用户自定义过的名单保持不变。
+    basis: db.py _migrate 中的 DEFAULT_LOST_STATUSES_JSON 升级逻辑。
+  - rule: R3
+    case: 通过系统设置页（REST 接口）修改标准工时或年度参考工作日。
+    handling: 本次起 REST 路径使用与动作相同的范围（0–24 小时、1–366 天）。此前 REST 只校验大于 0，是编写本例外表时发现的不一致。
+    basis: project_repository._validate_worktime_baseline。
+  - rule: R4
+    case: 诊断时没有提供数据库。
+    handling: 跳过数据一致性检查，报告中注明未检查数据；发布前必须带 --database 运行一次。
+    basis: diagnose_ontology.py 阶段 2b 为可选。
+  - rule: R5
+    case: 演示或预览数据的悬空比例接近 100%。
+    handling: 不代表生产数据质量；声明只降低严重程度，问题仍以次要级出现在报告中，便于复核。
+    basis: 第 2 轮诊断结果。
+  - rule: R6
+    case: 本地预览库里已登记了同版本号的开发草稿。
+    handling: 只允许在本地预览库删除草稿记录；正式库绝不手工改动版本登记，而是升版本号。
+    basis: references/repo-map.md 陷阱 2。

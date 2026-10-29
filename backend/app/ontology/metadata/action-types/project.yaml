@@ -1,0 +1,84 @@
+kind: ActionType
+version: v1
+definition:
+  apiName: configureProject
+  displayName: 设置项目
+  description: 维护同步后需要人工确认的管理字段：合同类型、生命周期、预算人天、计划周期与项目经理。
+  objectType: Project
+  targetParameter: project
+  parameters:
+    - {apiName: project, displayName: 项目, type: object_ref, objectType: Project, required: true}
+    - {apiName: contractType, displayName: 合同类型, type: enum, valueType: ContractType}
+    - {apiName: lifecycleStatus, displayName: 生命周期, type: enum, valueType: LifecycleStatus}
+    - {apiName: plannedPersonDays, displayName: 预算人天, type: decimal}
+    - {apiName: hoursPerPersonDay, displayName: 每人天小时数, type: decimal}
+    - {apiName: plannedStart, displayName: 计划开始, type: date}
+    - {apiName: plannedEnd, displayName: 计划结束, type: date}
+    - {apiName: projectManager, displayName: 项目经理, type: string}
+    - {apiName: notes, displayName: 备注, type: string}
+  permissions: [projects]
+  edits:
+    - Project.contractType
+    - Project.lifecycleStatus
+    - Project.plannedPersonDays
+    - Project.hoursPerPersonDay
+    - Project.plannedStart
+    - Project.plannedEnd
+    - Project.projectManager
+    - Project.notes
+  writeback: [project_settings]
+  handler: configureProject
+  submissionCriteria:
+    - {description: 系统实施、TSnT365 项目必须有预算人天, rule: cappedBudget}
+    - description: 计划结束日不早于计划开始日
+      rule: dateOrder
+      args: {start: plannedStart, end: plannedEnd, label: 计划结束日期}
+---
+kind: ActionType
+version: v1
+definition:
+  apiName: createMilestone
+  displayName: 新建里程碑
+  description: 为项目新增里程碑；关联回款约定时，以约定金额和计划完成日生成回款节点。
+  objectType: Project
+  targetParameter: project
+  createsObject: true
+  parameters:
+    - {apiName: project, displayName: 项目, type: object_ref, objectType: Project, required: true}
+    - {apiName: name, displayName: 名称, type: string, required: true}
+    - {apiName: plannedEnd, displayName: 计划完成, type: date, required: true}
+    - {apiName: plannedStart, displayName: 计划开始, type: date}
+    - {apiName: owner, displayName: 负责人, type: string}
+    - {apiName: deliverable, displayName: 输出物, type: string}
+    - {apiName: paymentTermId, displayName: 关联回款约定, type: object_ref, objectType: PaymentTerm, description: 关联后以约定金额生成回款节点，回款日期取计划完成日, optionDetails: [plannedAmount, paymentRatio]}
+    - {apiName: sequenceNo, displayName: 序号, type: integer}
+    - {apiName: notes, displayName: 备注, type: string}
+  permissions: [projects]
+  edits: [Milestone.*, PaymentNode.*, PaymentTerm.linkedMilestoneId]
+  writeback: [milestones, payment_nodes, payment_terms]
+  handler: createMilestone
+  submissionCriteria:
+    - description: 计划完成日不早于计划开始日
+      rule: dateOrder
+      args: {start: plannedStart, end: plannedEnd, label: 计划完成日期, ignore_target: true}
+---
+kind: ActionType
+version: v1
+definition:
+  apiName: openIntervention
+  displayName: 发起管理干预
+  description: 针对项目风险登记一项需要跟踪闭环的管理干预。
+  objectType: Project
+  targetParameter: project
+  createsObject: true
+  parameters:
+    - {apiName: project, displayName: 项目, type: object_ref, objectType: Project, required: true}
+    - {apiName: title, displayName: 事项, type: string, required: true}
+    - {apiName: interventionType, displayName: 类型, type: string, description: 缺省为 management}
+    - {apiName: owner, displayName: 负责人, type: string}
+    - {apiName: dueDate, displayName: 截止日期, type: date}
+    - {apiName: notes, displayName: 备注, type: string}
+  permissions: [projects]
+  edits: [Intervention.*]
+  writeback: [interventions]
+  handler: openIntervention

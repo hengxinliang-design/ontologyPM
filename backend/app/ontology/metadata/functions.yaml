@@ -1,0 +1,220 @@
+kind: Function
+version: v1
+definition:
+  apiName: projectRiskAssessment
+  displayName: 项目风险评估
+  description: 按风险规则评估项目：预算超支、里程碑/回款逾期、人工维护缺失、客户确认缺口。
+  parameters:
+    - {apiName: project, displayName: 项目, type: object_ref, objectType: Project, required: true}
+  outputType: RiskAssessment
+  permissions: [projects, health, resource]
+  implementation: projectRiskAssessment
+---
+kind: Function
+version: v1
+definition:
+  apiName: projectBudgetStatus
+  displayName: 项目预算消耗
+  description: 计算预算人天、已填报人天、剩余人天、使用率与客户确认缺口。
+  parameters:
+    - {apiName: project, displayName: 项目, type: object_ref, objectType: Project, required: true}
+  outputType: BudgetStatus
+  permissions: [projects, health, resource]
+  implementation: projectBudgetStatus
+---
+kind: Function
+version: v1
+definition:
+  apiName: projectPaymentStatus
+  displayName: 项目回款状态
+  description: 汇总合同额、开票、CRM 回款、回款率与回款节点计划。
+  parameters:
+    - {apiName: project, displayName: 项目, type: object_ref, objectType: Project, required: true}
+  outputType: PaymentStatus
+  permissions: [projects, crm]
+  implementation: projectPaymentStatus
+---
+kind: Function
+version: v1
+definition:
+  apiName: projectHealthForPeriod
+  displayName: 项目期间健康度
+  description: 按月份或月份区间计算项目人天投入、累计消耗、趋势与健康状态。
+  parameters:
+    - {apiName: project, displayName: 项目, type: object_ref, objectType: Project, required: true}
+    - {apiName: startMonth, displayName: 开始月份, type: string, required: true, description: YYYY-MM}
+    - {apiName: endMonth, displayName: 结束月份, type: string, description: YYYY-MM，缺省同开始月份}
+  outputType: ProjectHealth
+  permissions: [projects, health]
+  implementation: projectHealthForPeriod
+---
+kind: Function
+version: v1
+definition:
+  apiName: employeeUtilization
+  displayName: 员工工时利用率
+  description: 按月对照工时基线评估员工工时充足度。
+  parameters:
+    - {apiName: employee, displayName: 员工, type: object_ref, objectType: Employee, required: true}
+    - {apiName: month, displayName: 月份, type: string, required: true, description: YYYY-MM}
+  outputType: EmployeeUtilization
+  permissions: [employeeWorktime, resource]
+  implementation: employeeUtilization
+---
+kind: Function
+version: v1
+definition:
+  apiName: portfolioSummary
+  displayName: 项目组合概览
+  description: 按条件汇总项目数量、合同额、回款与风险分布。
+  parameters:
+    - {apiName: contractType, displayName: 合同类型, type: enum, valueType: ContractType}
+    - {apiName: lifecycleStatus, displayName: 生命周期, type: enum, valueType: LifecycleStatus}
+    - {apiName: riskLevel, displayName: 风险等级, type: enum, valueType: RiskLevel}
+  outputType: PortfolioSummary
+  permissions: [projects]
+  implementation: portfolioSummary
+---
+kind: Function
+version: v1
+definition:
+  apiName: customerAnnualSummary
+  displayName: 客户年度汇总
+  description: 按合同签约年度和客户汇总合同数、项目数、新签合同额，以及这些合同至今的 CRM 开票、回款金额（按签约年度归集，不是该年实际开票、到账；按到账年度看回款请用部门经营复盘）。不传年度时列出全部年度；没有签约时间的合同单独计数。
+  parameters:
+    - {apiName: year, displayName: 年度, type: integer, description: 签约年度，缺省为全部年度}
+  outputType: CustomerAnnualSummary
+  permissions: [crm, projects, department]
+  implementation: customerAnnualSummary
+---
+kind: Function
+version: v1
+definition:
+  apiName: costObjectInvestment
+  displayName: 项目代码投入分析
+  description: 单个项目代码的投入结构：获客 / 履约 / 在途 / 沉没拆分、签约日、账龄、预期沉没与按月投入。
+  parameters:
+    - {apiName: costObject, displayName: 项目代码, type: object_ref, objectType: CostObject, required: true}
+  outputType: InvestmentProfile
+  permissions: [projects, investment, resource]
+  implementation: costObjectInvestment
+---
+kind: Function
+version: v1
+definition:
+  apiName: portfolioInvestmentAnalysis
+  displayName: 投入与沉没成本分析
+  description: 全公司投入结构、赢单率、平均获单成本、沉没成本率、在途账龄、停滞商机与未建档代码；可按月份区间统计。
+  parameters:
+    - {apiName: startMonth, displayName: 开始月份, type: string, description: YYYY-MM，缺省为全部期间}
+    - {apiName: endMonth, displayName: 结束月份, type: string, description: YYYY-MM}
+  outputType: InvestmentAnalysis
+  permissions: [projects, investment, resource]
+  implementation: portfolioInvestmentAnalysis
+---
+kind: Function
+version: v1
+definition:
+  apiName: workingCalendar
+  displayName: 中国工作日历
+  description: 统计期间内的法定工作日：周一至周五为基础，扣除落在工作日的法定节假日，加上落在周末的调休补班日，起止日期均计入；并给出周期基线工时。日历订阅不可用时回退为只按周一至周五计算，并在结果中标明。
+  parameters:
+    - {apiName: startDate, displayName: 开始日期, type: date, required: true}
+    - {apiName: endDate, displayName: 结束日期, type: date, required: true}
+  outputType: WorkingCalendar
+  permissions: [employeeWorktime, resource, health, projects]
+  implementation: workingCalendar
+---
+kind: Function
+version: v1
+definition:
+  apiName: resourceHealth
+  displayName: 资源健康
+  description: 按月评估员工的过载、疲劳、碎片化与闲置风险，并汇总各状态人数。
+  parameters:
+    - {apiName: month, displayName: 月份, type: string, description: YYYY-MM，缺省为最近有工时的月份}
+  outputType: ResourceHealth
+  permissions: [resource, department]
+  implementation: resourceHealth
+---
+kind: Function
+version: v1
+definition:
+  apiName: departmentOperatingReview
+  displayName: 部门经营复盘
+  description: 按年度经营计划和时间进度对照新签、回款、投入人天、利用率与人数，给出带证据的策略信号（推动验收回款、争取新合同、释放资源）。依赖人天经营口径的指标与信号随经营口径暂停。
+  parameters:
+    - {apiName: year, displayName: 年度, type: integer}
+    - {apiName: month, displayName: 截至月份, type: string, description: YYYY-MM，缺省为本月与最近工时月份中较早者}
+  outputType: DepartmentOperatingReview
+  permissions: [department]
+  implementation: departmentOperatingReview
+---
+kind: Function
+version: v1
+definition:
+  apiName: projectList
+  displayName: 项目台账
+  description: 项目主数据库的台账视图：按条件筛选项目，按风险排序并分页，同时汇总合同额与回款。没有财务金额权限时金额为空。
+  parameters:
+    - {apiName: contractType, displayName: 项目类型, type: enum, valueType: ContractType}
+    - {apiName: lifecycleStatus, displayName: 项目状态, type: enum, valueType: LifecycleStatus}
+    - {apiName: riskLevel, displayName: 风险等级, type: enum, valueType: RiskLevel}
+    - {apiName: category, displayName: CRM 分类, type: string}
+    - {apiName: query, displayName: 搜索, type: string, description: 项目编号、名称、客户或项目经理}
+    - {apiName: cursor, displayName: 游标, type: string}
+    - {apiName: pageSize, displayName: 每页条数, type: integer}
+  outputType: ProjectList
+  permissions: [projects]
+  implementation: projectList
+---
+kind: Function
+version: v1
+definition:
+  apiName: portfolioHealth
+  displayName: 项目运营监控
+  description: 「项目管理」页的数据：按单月或月份区间计算每个项目的投入、上期对比、参与人数、超支预警、月度趋势、综合健康状态与预算耗尽预测，并附项目台账字段。没有财务金额权限时金额为空。
+  parameters:
+    - {apiName: month, displayName: 统计月份, type: string, description: YYYY-MM}
+    - {apiName: startMonth, displayName: 开始月份, type: string, description: YYYY-MM}
+    - {apiName: endMonth, displayName: 结束月份, type: string, description: YYYY-MM}
+    - {apiName: projectNumber, displayName: 项目编号, type: string}
+    - {apiName: masterCategory, displayName: 主数据类别, type: string, description: 项目或商机}
+    - {apiName: maintenance, displayName: 维护状态, type: string, description: missing（待维护）或 complete（已维护）}
+    - {apiName: contractType, displayName: 项目类型, type: enum, valueType: ContractType}
+    - {apiName: lifecycleStatus, displayName: 项目状态, type: enum, valueType: LifecycleStatus}
+    - {apiName: riskLevel, displayName: 风险等级, type: enum, valueType: RiskLevel}
+    - {apiName: category, displayName: CRM 分类, type: string}
+    - {apiName: query, displayName: 搜索, type: string, description: 项目编号、名称、客户或项目经理}
+    - {apiName: cursor, displayName: 游标, type: string}
+    - {apiName: pageSize, displayName: 每页条数, type: integer}
+  outputType: PortfolioHealth
+  permissions: [projects, health]
+  implementation: portfolioHealth
+---
+kind: Function
+version: v1
+definition:
+  apiName: projectOverview
+  displayName: 项目全景
+  description: 项目详情抽屉的数据：主数据与维护记录，以及派生的风险、异常提醒、待办、当前里程碑、回款汇总、月度工时、人员投入和经营口径。没有财务金额权限时金额为空，没有人员工时权限时个人工时为空。
+  parameters:
+    - {apiName: project, displayName: 项目, type: object_ref, objectType: Project, required: true}
+  outputType: ProjectOverview
+  permissions: [projects]
+  implementation: projectOverview
+---
+kind: Function
+version: v1
+definition:
+  apiName: maintenanceWorklist
+  displayName: 待维护清单
+  description: 按对象类型声明的维护要求，列出哪些对象还有待维护的内容、缺什么、由哪个动作维护，并统计每条要求的已维护与待维护数量。
+  parameters:
+    - {apiName: objectType, displayName: 对象类型, type: string, description: 缺省为全部声明了维护要求的对象类型}
+    - {apiName: requirement, displayName: 维护要求, type: string, description: 维护要求的 apiName，例如 planMilestones}
+    - {apiName: onlyPending, displayName: 只看待维护, type: boolean, description: 缺省为是}
+  outputType: MaintenanceWorklist
+  permissions: [projects, health]
+  implementation: maintenanceWorklist
+

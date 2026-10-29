@@ -1,0 +1,57 @@
+# 本体构建包（发布稿）：关联回款约定时带出金额与日期；项目显示回款约定数。本体 5.5.0（参数新增 fills 声明、项目新增属性，非破坏性）。
+# 依据：用户 2026-10-28 在本体浏览器新建里程碑时选择了回款约定「首付款」，回款金额没有带出；项目「合同与回款」中回款节点数为 0，与已设定的 2 个回款约定不符。
+kind: OntologyBuild
+stage: release
+supersededBy: 2026-10-28-retire-create-payment-node.yaml
+topic: 里程碑表单选择回款约定后带出约定金额和回款日期；项目显示回款约定数与待关联数
+ontologyVersion: 5.5.0
+date: 2026-10-28
+scope:
+  - CQ1 里程碑关联某个回款约定后，回款节点的金额和日期是多少？
+  - CQ2 项目设定了几个回款约定，还有几个没有关联里程碑（因而还没有回款节点）？
+
+rules:
+  - id: R1
+    statement: 新建、编辑里程碑时关联了回款约定，「商务回款节点需同时提供回款日期与金额」不再要求填写，回款节点的金额取约定金额、日期取里程碑计划完成日（与基础程序已有的写入逻辑一致）。
+    basis: ProjectRepository.create_milestone / update_milestone 在 payment_term_id 存在时忽略表单的回款日期和金额，以约定的计划金额、里程碑 planned_end 写回款节点；校验条件 paymentFieldsComplete 却仍要求两项都填，导致选择「商务回款节点 = 是」并关联约定、不填金额时被拒绝。
+    acceptance: 对 TPL149 执行新建里程碑「项目启动」（计划完成 2026-09-30，商务回款节点 = 是，关联首付款，不填回款日期和金额）成功；生成的回款节点金额 44970.00、日期 2026-09-30；不关联约定、商务回款节点 = 是且不填金额时仍被拒绝。
+    verifiedBy: [test_linking_a_payment_term_fills_amount_and_date]
+    ontology: [createMilestone, editMilestone, PaymentTerm.plannedAmount]
+  - id: R2
+    statement: 动作参数可声明 fills：选中被引用对象后，表单中的其他参数取被引用对象的属性（如 paymentAmount ← PaymentTerm.plannedAmount）或本表单另一参数（「=plannedEnd」），并锁定为只读、提交时不发送。新建、编辑里程碑的「关联回款约定」声明 fills：回款金额 ← 约定计划金额，回款日期 ← 计划完成。编译器校验 fills 只能写在 object_ref 参数上、键是本动作的其他参数、值是被引用对象的属性或本动作的参数。
+    basis: 带出的值必须与实际写入一致，由本体声明而不是在页面里写死（技能原则 1：本体裁决）；锁定可避免用户修改了一个不会生效的金额。
+    acceptance: TPL149 的新建里程碑动作中，「关联回款约定」的候选项「首付款」带出 paymentAmount = 44970.00；编辑已关联首付款的里程碑时同样带出；fills 引用不存在的参数或属性时编译报错。
+    verifiedBy: [test_linking_a_payment_term_fills_amount_and_date, test_invalid_parameter_fills_are_rejected]
+    ontology: [createMilestone, editMilestone, PaymentTerm.plannedAmount]
+  - id: R3
+    statement: 项目新增「回款约定数」（paymentTermCount）和「待关联回款约定」（unlinkedPaymentTermCount），与「回款节点数」并列显示；回款节点数的说明写明：回款节点由关联了里程碑的回款约定或独立新建的回款节点产生，回款约定未关联里程碑时还没有回款节点。
+    basis: 回款节点数统计的是已生成的回款节点（payment_nodes），口径正确；但项目上看不到已设定的约定，用户会把 0 理解为数据错误。
+    acceptance: TPL149 新设 2 个回款约定、尚未关联时，回款约定数 2、待关联 2（演示库中回款节点数为 0）；把首付款关联到新建里程碑后，回款约定数 2、待关联 1、回款节点数增加 1。
+    verifiedBy: [test_linking_a_payment_term_fills_amount_and_date]
+    ontology: [Project.paymentTermCount, Project.unlinkedPaymentTermCount, Project.paymentNodeTotal]
+
+exceptions:
+  - rule: R1
+    case: 关联约定的同时手工填了回款日期或金额（通过接口直接调用动作）。
+    handling: 照旧以约定金额和里程碑计划完成日为准，手填的值不生效；本体浏览器中这两个字段已锁定。
+    basis: 一个回款约定只对应一个回款事件，金额以合同约定为准。
+  - rule: R1
+    case: 选择的回款约定已经关联了另一个里程碑。
+    handling: 提交被拒绝（基础程序报「payment term is already linked to another milestone」），候选项仍列出；需要先在原里程碑上解除关联。
+    basis: 一个回款约定只对应一个里程碑（ProjectRepository._payment_term_for_link）；回款约定的计划金额必填（payment_terms.planned_amount 非空），所以带出时总有金额。
+  - rule: R2
+    case: 选择「不关联」或「解除关联」。
+    handling: 不带出，回款日期和金额恢复可编辑（用于没有回款约定的历史回款事件）。
+    basis: 4.3.0 起保留的历史回款事件仍可单独填写日期和金额。
+  - rule: R2
+    case: 带出的金额属于 FINANCE 标记，用户没有金额权限。
+    handling: 候选项不返回金额，表单中金额为空并锁定；提交不受影响（金额由后端按约定写入）。
+    basis: 脱敏按属性标记统一执行。
+  - rule: R2
+    case: 项目详情抽屉中的里程碑表单。
+    handling: 不改；抽屉的里程碑表单只提供「关联合同回款约定」选择，不单独填写回款日期和金额（历史回款事件只显示说明，见 milestoneForm.ts）。
+    basis: 本次问题出现在本体浏览器的通用动作表单。
+  - rule: R3
+    case: 独立新建的回款节点（不来自回款约定）。
+    handling: 计入回款节点数，不计入回款约定数；两者不要求相等。
+    basis: 回款节点有两个来源（约定关联里程碑、独立新建）。

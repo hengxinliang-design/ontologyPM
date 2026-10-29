@@ -1,0 +1,51 @@
+# 本体构建包（发布稿）：员工在各项目的工时占比。本体 7.1.0（新增属性，非破坏性）。
+# 依据：用户 2026-10-29「对于类似员工投入项目超过 1 个以上，我希望能看到员工在不同项目投入的工时占比」。
+kind: OntologyBuild
+stage: release
+supersededBy: 2026-10-29-employee-month-period.yaml
+topic: 员工新增「项目投入占比」：各项目（含内部代码）的有效工时和占比
+ontologyVersion: 7.1.0
+date: 2026-10-29
+scope:
+  - CQ1 某个员工的工时分别投在哪些项目上，各占多少？
+  - CQ2 员工有多少时间花在内部非项目工作（TSG999）上？
+
+rules:
+  - id: R1
+    statement: 员工新增派生属性「项目投入占比」（projectEffortShares）：按项目代码列出该员工的有效工时（正常 + 加班，只计已提交和已确认）及其占该员工全部有效工时的百分比（保留 1 位小数），按工时从多到少排列；内部代码（运营口径的内部代码，默认 TSG999）也列出并标为内部，名称取 CRM 主题。属性带 PERSONNEL 标记。
+    basis: 用户 2026-10-29 的要求。分母取该员工全部有效工时（与「累计填报工时」一致），这样各项占比合计为 100%，内部工作的占比也能看到；口径与 5.1.0 的有效工时一致。
+    acceptance: 员工在项目 A 填 24 小时、项目 B 填 8 小时、TSG999 填 8 小时（另有 8 小时已驳回）时，占比依次为 A 60.0%、B 20.0%、TSG999 20.0%（内部），合计等于累计填报工时 40 小时；已驳回的工时不出现；没有 PERSONNEL 权限时该属性被脱敏。
+    verifiedBy: [test_employee_project_effort_shares]
+    ontology: [Employee.projectEffortShares, Employee.reportedHours, TimeEntry.countsAsEffort]
+  - id: R2
+    statement: 本体浏览器员工详情中，「项目投入占比」显示为表格：项目、工时、占比（带比例条），内部代码标「内部」。
+    basis: 通用 JSON 展示把每个值拆成一行，看不出项目与占比的对应关系。
+    acceptance: 吴迪（E107）的详情中显示 3 行：TPL149、TSG999（内部）、WDR101，工时与占比与属性一致。
+    verifiedBy: [test_employee_project_effort_shares]
+    ontology: [Employee.projectEffortShares]
+
+exceptions:
+  - rule: R1
+    case: 「参与项目数」与「参与项目」关系的数量不同（例如吴迪 3 与 2）。
+    handling: 不改。参与项目数统计全部项目代码（含 TSG999），「参与项目」关系只连到项目对象；占比表中 TSG999 标为内部，可以对上两者的差。
+    basis: 两者口径不同，本次只增加占比（原则 9）。
+  - rule: R1
+    case: 只有一个项目的员工。
+    handling: 同样列出，占比 100%。
+    basis: 统一展示，避免有时有、有时无。
+  - rule: R1
+    case: 员工只有已驳回或草稿工时。
+    handling: 占比为空列表（没有有效工时，无法计算占比）。
+    basis: 与 5.1.0 有效工时口径一致。
+  - rule: R1
+    case: 按月或按期间看占比。
+    handling: 本属性是累计口径（与累计填报工时一致）；按月的投入在资源运营监控的人员表中查看。需要按期间的本体函数时另行建设。
+    basis: 对象属性不能带参数。
+  - rule: R1
+    case: 项目代码在 CRM 中没有记录（未建档代码）。
+    handling: 名称为空，只显示代码。
+    basis: 名称取 CRM 主题，没有就不编造。
+  - rule: R2
+    case: 项目名称（CRM 主题）很长。
+    handling: 表格中名称单行显示，超出部分以省略号截断，鼠标悬停显示完整名称；项目代码始终完整显示。
+    basis: 详情面板宽度有限，代码是项目的唯一标识，名称只作辅助识别。

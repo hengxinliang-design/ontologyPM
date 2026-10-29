@@ -1,0 +1,48 @@
+# 本体构建包（发布稿）：维护要求的豁免条件。本体 4.4.0（适用条件新增 notIn 与多条件，非破坏性）。
+# 依据：用户 2026-10-27 决定「售前阶段和已结束、已关闭的项目不要求项目经理和计划起止，在元数据中加适用条件」，
+# 回应 4.3.0 构建包例外表中留给用户决定的两条范围。
+kind: OntologyBuild
+stage: release
+supersededBy: 2026-10-27-retire-resource-sandbox.yaml
+topic: 售前阶段与已结束、已关闭的项目不要求指定项目经理和填写计划起止日期
+ontologyVersion: 4.4.0
+date: 2026-10-27
+scope:
+  - CQ1 哪些交付中的项目还没有项目经理或计划起止日期（不含售前阶段和已结束、已关闭的项目）？
+  - CQ2 一条维护要求在什么条件下适用？
+
+rules:
+  - id: R1
+    statement: 「指定项目经理」「填写计划开始日期」「填写计划结束日期」只适用于项目类型不是售前阶段、且项目状态不是结束或已关闭的项目；不适用的项目在维护清单中不出现这三条，也不计入待维护清单。
+    basis: 用户 2026-10-27 的决定；售前阶段还没有交付安排，已结束、已关闭的项目不再需要补计划。
+    acceptance: 把 WDR101 设为开口合同、执行中并清空项目经理后，维护清单包含这三条，待维护清单「指定项目经理」中有 WDR101；改为售前阶段，或改为结束、已关闭后，三条都不出现，WDR101 也不在待维护清单中，「选择项目类型」「制定里程碑计划」仍然适用。
+    verifiedBy: [test_pre_sales_and_ended_projects_are_exempt_from_manager_and_dates, test_maintenance_requirements_are_declared_in_metadata]
+    ontology: [Project, Project.contractType, Project.lifecycleStatus, maintenanceWorklist]
+  - id: R2
+    statement: 维护要求的适用条件 when 可以写一条或多条（全部满足才适用）；每条写 in（取值在列表中）或 notIn（取值不在列表中）之一。枚举属性的条件取值必须是该枚举的取值。
+    basis: 豁免用「不在」表达比列举全部适用取值更稳定：以后新增项目类型时默认适用，不会悄悄漏掉要求；技能原则 1「本体裁决」——写错取值时启动即失败。
+    acceptance: 元数据编译后，三条要求的条件为「项目类型不在 [售前阶段]」且「项目状态不在 [结束, 已关闭]」；条件里写了不存在的状态 finished 时编译报「不在 LifecycleStatus 中」；同时写 in 和 notIn 时报「必须且只能写 in 或 notIn 之一」；原有的单条 in 条件（预算人天只适用于系统实施、TSnT365）不变。
+    verifiedBy: [test_maintenance_requirements_are_declared_in_metadata, test_invalid_maintenance_requirements_are_rejected]
+    ontology: [Project]
+
+exceptions:
+  - rule: R1
+    case: 项目类型还是「未分类」的项目。
+    handling: 不是售前阶段，三条要求照常适用；先选择项目类型，如果选了售前阶段，这三条随即消失。
+    basis: 未分类表示还不知道，不能当作售前阶段豁免（区分「否」与「不知道」，技能原则 14）。
+  - rule: R1
+    case: 已暂停或计划中的项目。
+    handling: 照常要求项目经理和计划起止。
+    basis: 用户只豁免售前阶段和已结束、已关闭；暂停的项目仍可能恢复执行。
+  - rule: R1
+    case: 豁免的项目已经填了项目经理或计划起止。
+    handling: 数据保留不变，只是不再作为维护要求检查；状态改回执行中时重新检查。
+    basis: 适用条件只决定是否检查，不清除数据。
+  - rule: R1
+    case: 已结束、已关闭的项目没有里程碑。
+    handling: 「制定里程碑计划」仍然适用，已结束、已关闭的项目没有里程碑时照常显示为待维护。
+    basis: 用户 2026-10-27 确认保留这条要求，不对已结束、已关闭的项目豁免。
+  - rule: R2
+    case: 条件引用的属性不是枚举（例如日期、文本）。
+    handling: 按取值原样比较，编译器不校验取值范围。
+    basis: 只有枚举有封闭的取值集合可以核对。

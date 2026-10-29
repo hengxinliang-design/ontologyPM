@@ -1,0 +1,40 @@
+kind: ActionType
+version: v1
+definition:
+  apiName: recordOpportunityOutcome
+  displayName: 记录商机结论
+  description: 确认商机已丢单或已放弃。确认后，该项目代码的售前投入计为沉没成本；可以再次执行以修改原因或日期。
+  objectType: CostObject
+  targetParameter: costObject
+  tone: danger
+  parameters:
+    - {apiName: costObject, displayName: 项目代码, type: object_ref, objectType: CostObject, required: true}
+    - {apiName: outcome, displayName: 结论, type: enum, valueType: OpportunityOutcome, allowedValues: [lost, abandoned], required: true}
+    - {apiName: reason, displayName: 原因, type: enum, valueType: OutcomeReason, required: true}
+    - {apiName: outcomeDate, displayName: 结论日期, type: date, description: 缺省为今天}
+    - {apiName: notes, displayName: 备注, type: string}
+  permissions: [projects, investment]
+  edits: [CostObject.opportunityOutcome, CostObject.outcomeReason, CostObject.outcomeDate]
+  writeback: [opportunity_outcomes]
+  handler: recordOpportunityOutcome
+  submissionCriteria:
+    - {description: 已签约或内部代码不能标记丢单, rule: outcomeApplicable}
+    - {description: 结论日期不早于首次投入、不晚于今天, rule: outcomeDateValid}
+---
+kind: ActionType
+version: v1
+definition:
+  apiName: reopenOpportunity
+  displayName: 重新激活商机
+  description: 撤销人工确认的丢单 / 放弃结论（例如客户重启项目），售前投入重新计为在途投入。
+  objectType: CostObject
+  targetParameter: costObject
+  parameters:
+    - {apiName: costObject, displayName: 项目代码, type: object_ref, objectType: CostObject, required: true}
+    - {apiName: reason, displayName: 激活理由, type: string, required: true}
+  permissions: [projects, investment]
+  edits: [CostObject.opportunityOutcome, CostObject.outcomeReason, CostObject.outcomeDate]
+  writeback: [opportunity_outcomes]
+  handler: reopenOpportunity
+  submissionCriteria:
+    - {description: 只能撤销人工确认的结论, rule: outcomeIsManual}

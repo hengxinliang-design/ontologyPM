@@ -1,0 +1,62 @@
+# 本体构建包（发布稿）：取消里程碑上不关联回款约定的回款事件。本体 7.0.0（删除动作参数与校验条件、参数 fills 改为 optionDetails，破坏性变更）。
+# 依据：用户 2026-10-28 对「里程碑上不关联回款约定的商务回款节点是否一并取消」回答「一并取消」。
+kind: OntologyBuild
+stage: release
+supersededBy: 2026-10-29-employee-project-shares.yaml
+topic: 回款节点只由回款约定关联里程碑产生：取消里程碑上单独填写的回款日期和金额
+ontologyVersion: 7.0.0
+date: 2026-10-28
+scope:
+  - CQ1 里程碑怎样产生回款节点？
+  - CQ2 关联回款约定时，回款节点的金额和日期是多少？
+  - CQ3 已有的历史回款事件怎么处理？
+
+rules:
+  - id: R1
+    statement: 「新建里程碑」「编辑里程碑」删除参数「商务回款节点」（isPaymentNode）、「回款日期」（paymentDate）、「回款金额」（paymentAmount），以及校验条件「商务回款节点需同时提供回款日期与金额」和「回款金额不能为负数」。里程碑只有关联回款约定时才产生回款节点，金额取约定金额、日期取里程碑计划完成日。
+    basis: 用户 2026-10-28 的决定：回款都按合同条款（回款约定）登记，与 6.0.0 取消独立新建回款节点一致。删除动作参数会使传这些参数的调用方失效，按原则 8 升主版本。
+    acceptance: 两个动作的参数中没有 isPaymentNode、paymentDate、paymentAmount；带这些参数调用 createMilestone 被拒绝（未知参数）；不关联约定新建里程碑不产生回款节点；关联约定新建里程碑产生金额为约定金额、日期为计划完成日的回款节点；项目详情抽屉的新建、编辑里程碑照常可用。
+    verifiedBy: [test_milestones_create_payment_nodes_only_through_terms, test_linking_a_payment_term_fills_amount_and_date]
+    ontology: [createMilestone, editMilestone, PaymentTerm.plannedAmount]
+  - id: R2
+    statement: 参数元数据 fills（5.5.0）改为 optionDetails：object_ref 参数可列出被引用对象的若干属性，表单选中候选对象后在下方显示这些属性的值（只读，不作为参数提交）。新建、编辑里程碑的「关联回款约定」显示约定的计划金额和回款比例；参数说明写明回款日期取计划完成日。编译器校验 optionDetails 只写在 object_ref 参数上，且都是被引用对象的属性。
+    basis: fills 带出的目标参数（回款日期、回款金额）已删除，再保留 fills 就是没有用途的机制；用户仍需要在选择约定时看到金额（5.5.0 的需求）。
+    acceptance: TPL149 的新建里程碑动作中，「关联回款约定」候选「首付款」的 details 为计划金额 44970.00、回款比例 30.00；optionDetails 写了不存在的属性时编译报错；元数据中不再有 fills。
+    verifiedBy: [test_linking_a_payment_term_fills_amount_and_date, test_invalid_parameter_option_details_are_rejected]
+    ontology: [createMilestone, editMilestone, PaymentTerm.plannedAmount, PaymentTerm.paymentRatio]
+  - id: R3
+    statement: 编辑已关联回款约定的里程碑时，即使本次没有重新提交回款约定，回款节点的日期也随新的计划完成日更新，金额保持约定金额。
+    basis: 4.3.0 起的规则「关联后以里程碑结束日期生成回款节点」。改造测试时发现：不重新提交约定时，基础程序按历史回款事件处理，回款节点日期停留在旧日期；本体浏览器预选当前约定且不发送未改动的参数，正好会走到这条路径。
+    acceptance: 把关联首付款、计划完成 2026-09-30 的里程碑只改计划完成为 2026-10-15，回款节点日期变为 2026-10-15，金额仍为 44970.00。
+    verifiedBy: [test_linking_a_payment_term_fills_amount_and_date, test_editing_a_milestone_leaves_a_received_term_payment_alone]
+    ontology: [editMilestone, PaymentNode.plannedDate]
+
+exceptions:
+  - rule: R1
+    case: 已有的历史回款事件（里程碑上单独填写日期和金额生成的回款节点）。
+    handling: 保留，照常计入回款节点数、到账确认和逾期提醒；编辑里程碑的其他字段不影响它。要取消它，可在编辑里程碑时关联一个回款约定（关联时旧事件被替换为约定的回款节点），或通过接口以 paymentTermId = null 解除（旧事件随之删除）。项目详情中仍显示「历史回款事件」说明。
+    basis: 存量数据不迁移（原则 9）；ProjectRepository.update_milestone 在传入回款约定参数且里程碑已有回款节点、此前没有关联约定时，先移除旧回款事件。
+  - rule: R1
+    case: 示例数据初始化。
+    handling: 基础程序的 create_milestone 仍接受 is_payment_node 等字段（示例种子使用），本体动作和接口不再提供。
+    basis: 基础程序负责数据初始化，人工维护只走本体动作。
+  - rule: R1
+    case: 兼容接口 POST / PATCH /api/v1/projects/{项目编号}/milestones 收到 is_payment_node、payment_date、payment_amount。
+    handling: 兼容接口只转换动作仍接受的字段，这三个字段被忽略，不报错；直接调用本体动作时传入则报「未知参数」。
+    basis: main.action_parameters 的约定：动作不接受的旧字段忽略。
+  - rule: R1
+    case: 回款节点的金额或日期需要与约定不同（例如实际分两次付款）。
+    handling: 按合同拆成两个回款约定，分别关联里程碑；不再在里程碑上手填金额。
+    basis: 回款金额口径只在回款约定一处。
+  - rule: R2
+    case: 用户没有 FINANCE 权限。
+    handling: 候选项的计划金额不返回，只显示回款比例。
+    basis: 脱敏按属性标记统一执行。
+  - rule: R2
+    case: 回款约定没有填写回款比例。
+    handling: 比例显示为空（—），金额照常显示。
+    basis: 回款比例是可选字段（payment_terms.payment_ratio 可空）。
+  - rule: R3
+    case: 关联约定的回款已确认到账，之后又编辑里程碑（例如改负责人或计划完成日）。
+    handling: 里程碑照常修改，已到账的回款节点不变（名称、日期、金额保持到账时的值）；修改前基础程序会把节点改名为里程碑名称并可能改日期，现已不再改动已到账节点。
+    basis: 已到账的回款节点锁定（_upsert_payment_event_for_term 对已到账节点拒绝修改）；编辑里程碑不应因为已到账而失败。

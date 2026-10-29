@@ -1,0 +1,47 @@
+# 本体构建包（发布稿）：取消资源调度沙盘。本体 5.0.0（删除函数，破坏性变更）。
+# 依据：用户 2026-10-27「“资源调度沙盘”这个功能不再适用，可以取消，我们后面考虑基于本体去做分析测算」。
+kind: OntologyBuild
+stage: release
+supersededBy: 2026-10-28-effective-worktime.yaml
+topic: 取消资源调度沙盘：删除本体函数、接口与页面，资源运营监控保留
+ontologyVersion: 5.0.0
+date: 2026-10-27
+scope:
+  - CQ1 资源相关的分析还能从哪里得到？（资源运营监控页面与本体函数 resourceHealth、workingCalendar）
+  - CQ2 运营口径中的利用率最低线、优秀线现在用在哪里？
+
+rules:
+  - id: R1
+    statement: 删除本体函数「资源调度沙盘」（resourceSandbox），以及基础程序中的沙盘计算、两个接口（沙盘查询与新项目需求模拟）和「资源调度沙盘」页面。
+    basis: 用户 2026-10-27 决定取消该功能，后续基于本体重新设计分析测算。删除函数会使调用方失效，按原则 8 升主版本。
+    acceptance: 本体结构中没有 resourceSandbox，函数共 15 个；执行该函数返回 404；/api/v1/resource-sandbox 与 /api/v1/resource-sandbox/simulate 不再提供；资源运营监控接口和本体函数 resourceHealth、workingCalendar 照常可用；导航中没有「资源调度沙盘」。
+    verifiedBy: [test_resource_sandbox_is_retired, test_metadata_compiles_with_derived_edits_and_stable_checksum]
+    ontology: [resourceHealth, workingCalendar]
+  - id: R2
+    statement: 运营口径的利用率最低线、优秀线保留，说明中去掉沙盘用途；它们继续用于资源运营监控的可调剂人天和负荷分级。
+    basis: 这两个参数不只服务沙盘（技能原则 9：不顺带改变其他口径）。
+    acceptance: OperatingPolicy 仍有 minimumUtilizationPercent、excellentUtilizationPercent，阈值顺序校验不变；说明中不再提到沙盘。
+    verifiedBy: [test_operating_policy_action_edits_lists_and_rejects_out_of_order_thresholds, test_resource_operations_identifies_capacity_and_project_staffing_gap]
+    ontology: [OperatingPolicy.minimumUtilizationPercent, OperatingPolicy.excellentUtilizationPercent]
+
+exceptions:
+  - rule: R1
+    case: 历史构建包和设计稿中提到资源调度沙盘。
+    handling: 保留原文不改，它们记录当时的决定；历史构建包已标注被取代，诊断不再按当前版本检查。
+    basis: 构建包是带版本的历史工件（原则 8）。
+  - rule: R1
+    case: 沙盘依赖的中国工作日历、工时数据和运营口径参数。
+    handling: 全部保留；工作日历仍由 workingCalendar 函数和资源运营监控使用。
+    basis: 只删除沙盘自身的计算和展示，不扩大删除范围（经验库 L22：沿推导链核对下游）。
+  - rule: R1
+    case: 已打开旧页面或收藏了旧接口的用户。
+    handling: 旧接口返回 404，导航中不再出现该页；系统不记住上次打开的页面，刷新后从默认页面（项目管理）开始，不会落到已删除的页面。
+    basis: 功能取消后不再保留兼容接口，避免留下没有维护的口径。
+  - rule: R1
+    case: 后续「基于本体的分析测算」。
+    handling: 不在本次范围；届时先写能力问题，再以本体对象、推导规则和函数实现，并另出构建包。
+    basis: 用户说明「后面考虑」，范围尚未确定（原则 2：先划定范围）。
+  - rule: R2
+    case: 系统设置页利用率阈值的说明文字。
+    handling: 删去「资源调度沙盘同样引用适度支持与高负荷起点」这句说明，参数取值和校验不变。
+    basis: 页面说明要与本体口径一致。

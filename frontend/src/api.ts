@@ -1,4 +1,4 @@
-import type { AuthenticatedUser, AuthSession, ContractType, CrmImportLogsResponse, EmployeeWorktimeResponse, LifecycleStatus, ManagedUser, MenuPermission, PmAssistantChatMessage, PmAssistantResponse, PortfolioResponse, ProjectDetail, ProjectHealthResponse, RecordsResponse, ResourceOperationsResponse, SyncStatus, WorktimeBaseline } from "./types";
+import type { AuthenticatedUser, AuthSession, ChinaHolidayCalendarResponse, ContractType, CrmImportLogsResponse, EmployeeWorktimeResponse, LifecycleStatus, ManagedUser, MenuPermission, PmAssistantChatMessage, PmAssistantResponse, PortfolioResponse, ProjectDetail, ProjectHealthResponse, RecordsResponse, ResourceOperationsResponse, SyncStatus, WorktimeBaseline } from "./types";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "";
 const API_TOKEN = import.meta.env.VITE_API_TOKEN ?? "";
@@ -7,7 +7,7 @@ const SESSION_USER_KEY = "tsg-pm-session-user";
 let sessionToken = window.localStorage.getItem(SESSION_TOKEN_KEY) ?? "";
 
 export class ApiError extends Error {
-  constructor(message: string, public readonly status: number) { super(message); }
+  constructor(message: string, public readonly status: number, public readonly body?: unknown) { super(message); }
 }
 
 function headers(): HeadersInit {
@@ -15,14 +15,14 @@ function headers(): HeadersInit {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, {
     ...init,
     headers: { ...headers(), ...(init?.headers ?? {}) }
   });
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: response.statusText }));
-    throw new ApiError(error.detail ?? `HTTP ${response.status}`, response.status);
+    throw new ApiError(error.detail ?? `HTTP ${response.status}`, response.status, error);
   }
   return response.json() as Promise<T>;
 }
@@ -92,9 +92,11 @@ export interface RecordFilters {
   dataType?: string;
   query?: string;
   status?: string;
+  salesStage?: string;
   owner?: string;
   page: number;
   pageSize: number;
+  cursor?: string;
 }
 
 export function fetchRecords(filters: RecordFilters): Promise<RecordsResponse> {
@@ -103,15 +105,21 @@ export function fetchRecords(filters: RecordFilters): Promise<RecordsResponse> {
     page_size: String(filters.pageSize),
     sort: "-signed_at"
   });
+  if (filters.cursor) params.set("cursor", filters.cursor);
   if (filters.dataType) params.set("data_type", filters.dataType);
   if (filters.query) params.set("q", filters.query);
   if (filters.status) params.set("status", filters.status);
+  if (filters.salesStage) params.set("sales_stage", filters.salesStage);
   if (filters.owner) params.set("owner", filters.owner);
   return request(`/api/v1/records?${params}`);
 }
 
 export function fetchSyncStatus(): Promise<SyncStatus> {
   return request("/api/v1/sync-status");
+}
+
+export function fetchChinaHolidayCalendar(): Promise<ChinaHolidayCalendarResponse> {
+  return request("/api/v1/calendar/china-holidays");
 }
 
 export function fetchCrmImportLogs(filters: { page: number; pageSize: number }): Promise<CrmImportLogsResponse> {
@@ -123,15 +131,19 @@ export function fetchProjects(filters: {
   query?: string;
   contractType?: string;
   lifecycleStatus?: string;
+  category?: string;
   riskLevel?: string;
-  contractStatus?: string;
+  cursor?: string;
+  pageSize?: number;
 }): Promise<PortfolioResponse> {
   const params = new URLSearchParams();
   if (filters.query) params.set("q", filters.query);
   if (filters.contractType) params.set("contract_type", filters.contractType);
   if (filters.lifecycleStatus) params.set("lifecycle_status", filters.lifecycleStatus);
+  if (filters.category) params.set("category", filters.category);
   if (filters.riskLevel) params.set("risk_level", filters.riskLevel);
-  if (filters.contractStatus) params.set("contract_status", filters.contractStatus);
+  if (filters.cursor) params.set("cursor", filters.cursor);
+  if (filters.pageSize) params.set("page_size", String(filters.pageSize));
   const query = params.toString();
   return request(`/api/v1/projects${query ? `?${query}` : ""}`);
 }
@@ -141,18 +153,23 @@ export function fetchProjectHealth(filters: {
   startMonth?: string;
   endMonth?: string;
   projectNumber?: string;
-  contractStatus?: string;
+  lifecycleStatus?: string;
+  contractType?: string;
+  riskLevel?: string;
+  maintenance?: string;
+  masterCategory?: string;
+  category?: string;
   query?: string;
+  cursor?: string;
+  pageSize?: number;
 }): Promise<ProjectHealthResponse> {
-  const params = new URLSearchParams();
-  if (filters.month) params.set("month", filters.month);
-  if (filters.startMonth) params.set("start_month", filters.startMonth);
-  if (filters.endMonth) params.set("end_month", filters.endMonth);
-  if (filters.projectNumber) params.set("project_number", filters.projectNumber);
-  if (filters.contractStatus) params.set("contract_status", filters.contractStatus);
-  if (filters.query) params.set("q", filters.query);
-  const query = params.toString();
-  return request(`/api/v1/project-health${query ? `?${query}` : ""}`);
+  // Project monitoring is derived in the ontology (function portfolioHealth); amounts follow the FINANCE marking.
+  return ontologyFunction<ProjectHealthResponse>("portfolioHealth", {
+    month: filters.month, startMonth: filters.startMonth, endMonth: filters.endMonth, projectNumber: filters.projectNumber,
+    lifecycleStatus: filters.lifecycleStatus, contractType: filters.contractType, riskLevel: filters.riskLevel,
+    maintenance: filters.maintenance, masterCategory: filters.masterCategory, category: filters.category, query: filters.query,
+    cursor: filters.cursor, pageSize: filters.pageSize
+  });
 }
 
 export function fetchEmployeeWorktime(filters: {
@@ -173,12 +190,16 @@ export function fetchResourceOperations(filters: {
   startMonth?: string;
   endMonth?: string;
   employeeName?: string;
+  cursor?: string;
+  pageSize?: number;
 } = {}): Promise<ResourceOperationsResponse> {
   const params = new URLSearchParams();
   if (filters.month) params.set("month", filters.month);
   if (filters.startMonth) params.set("start_month", filters.startMonth);
   if (filters.endMonth) params.set("end_month", filters.endMonth);
   if (filters.employeeName) params.set("employee_name", filters.employeeName);
+  if (filters.cursor) params.set("cursor", filters.cursor);
+  if (filters.pageSize) params.set("page_size", String(filters.pageSize));
   const query = params.toString();
   return request(`/api/v1/resource-operations${query ? `?${query}` : ""}`);
 }
@@ -225,8 +246,19 @@ function fileToBase64(file: File): Promise<string> {
 }
 
 export async function fetchProject(projectNumber: string): Promise<ProjectDetail> {
-  const response = await request<{ data: ProjectDetail }>(`/api/v1/projects/${projectNumber}`);
-  return response.data;
+  // Master data plus every derived project fact, from the ontology (function projectOverview).
+  return ontologyFunction<ProjectDetail>("projectOverview", { project: projectNumber });
+}
+
+/** Run an ontology function; empty parameters are left out so optional filters stay unset. */
+export async function ontologyFunction<T>(name: string, parameters: Record<string, unknown>): Promise<T> {
+  const body = Object.fromEntries(Object.entries(parameters).filter(([, value]) => value !== undefined && value !== null && value !== ""));
+  const response = await request<{ data: { result: T } }>(`/api/v1/ontology/functions/${encodeURIComponent(name)}/execute`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ parameters: body })
+  });
+  return response.data.result;
 }
 
 export async function chatWithPmAssistant(message: string, history: PmAssistantChatMessage[]): Promise<PmAssistantResponse> {
@@ -245,19 +277,31 @@ export async function analyzeProjectWithPmAssistant(projectNumber: string): Prom
   return response.data;
 }
 
+// Maintenance after import happens in the ontology: every helper below runs an ontology action, which
+// validates, checks permissions and writes the audit log. The project view is refreshed afterwards.
+export async function ontologyAction(name: string, parameters: Record<string, unknown>): Promise<void> {
+  const body = Object.fromEntries(Object.entries(parameters).filter(([, value]) => value !== undefined));
+  await request(`/api/v1/ontology/actions/${encodeURIComponent(name)}/apply`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ parameters: body })
+  });
+}
+
 export async function updateProjectSettings(projectNumber: string, payload: {
   contract_type: ContractType;
   lifecycle_status: LifecycleStatus;
   planned_person_days: string | null;
   hours_per_person_day: string;
   project_manager: string;
-}): Promise<ProjectDetail> {
-  const response = await request<{ data: ProjectDetail }>(`/api/v1/projects/${projectNumber}/settings`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload)
+  planned_start?: string;
+  planned_end?: string;
+}): Promise<void> {
+  await ontologyAction("configureProject", {
+    project: projectNumber, contractType: payload.contract_type, lifecycleStatus: payload.lifecycle_status,
+    plannedPersonDays: payload.planned_person_days, hoursPerPersonDay: payload.hours_per_person_day,
+    projectManager: payload.project_manager, plannedStart: payload.planned_start, plannedEnd: payload.planned_end
   });
-  return response.data;
 }
 
 export interface MilestoneInput {
@@ -269,28 +313,49 @@ export interface MilestoneInput {
   is_payment_node: boolean;
   payment_date?: string;
   payment_amount?: string;
+  payment_term_id?: string | null;
+}
+
+function milestoneParameters(payload: MilestoneInput): Record<string, unknown> {
+  return {
+    name: payload.name, plannedStart: payload.planned_start, plannedEnd: payload.planned_end, owner: payload.owner,
+    deliverable: payload.deliverable, paymentTermId: payload.payment_term_id
+  };
 }
 
 export async function createMilestone(projectNumber: string, payload: MilestoneInput): Promise<void> {
-  await request(`/api/v1/projects/${projectNumber}/milestones`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload)
-  });
+  await ontologyAction("createMilestone", { project: projectNumber, ...milestoneParameters(payload) });
 }
 
-export async function updateMilestone(projectNumber: string, milestoneId: string, payload: MilestoneInput): Promise<void> {
-  await request(`/api/v1/projects/${projectNumber}/milestones/${milestoneId}`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload)
-  });
+export async function updateMilestone(_projectNumber: string, milestoneId: string, payload: MilestoneInput): Promise<void> {
+  await ontologyAction("editMilestone", { milestone: milestoneId, ...milestoneParameters(payload) });
 }
 
-export async function deleteMilestone(projectNumber: string, milestoneId: string): Promise<void> {
-  await request(`/api/v1/projects/${projectNumber}/milestones/${milestoneId}`, {
-    method: "DELETE"
-  });
+export async function deleteMilestone(_projectNumber: string, milestoneId: string): Promise<void> {
+  await ontologyAction("deleteMilestone", { milestone: milestoneId });
+}
+
+export interface PaymentTermInput {
+  name: string;
+  payment_ratio?: string;
+  planned_amount: string;
+  notes?: string;
+}
+
+function paymentTermParameters(payload: PaymentTermInput): Record<string, unknown> {
+  return { name: payload.name, paymentRatio: payload.payment_ratio, plannedAmount: payload.planned_amount, notes: payload.notes };
+}
+
+export async function createPaymentTerm(projectNumber: string, payload: PaymentTermInput): Promise<void> {
+  await ontologyAction("createPaymentTerm", { project: projectNumber, ...paymentTermParameters(payload) });
+}
+
+export async function updatePaymentTerm(_projectNumber: string, paymentTermId: string, payload: PaymentTermInput): Promise<void> {
+  await ontologyAction("editPaymentTerm", { paymentTerm: paymentTermId, ...paymentTermParameters(payload) });
+}
+
+export async function deletePaymentTerm(_projectNumber: string, paymentTermId: string): Promise<void> {
+  await ontologyAction("deletePaymentTerm", { paymentTerm: paymentTermId });
 }
 
 export interface PaymentNodeInput {
@@ -300,34 +365,23 @@ export interface PaymentNodeInput {
   notes?: string;
 }
 
-export async function updatePaymentNode(projectNumber: string, paymentNodeId: string, payload: PaymentNodeInput): Promise<void> {
-  await request(`/api/v1/projects/${projectNumber}/payment-nodes/${paymentNodeId}`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload)
+export async function updatePaymentNode(_projectNumber: string, paymentNodeId: string, payload: PaymentNodeInput): Promise<void> {
+  await ontologyAction("editPaymentNode", {
+    paymentNode: paymentNodeId, name: payload.name, plannedDate: payload.planned_date,
+    plannedAmount: payload.planned_amount, notes: payload.notes
   });
 }
 
-export async function deletePaymentNode(projectNumber: string, paymentNodeId: string): Promise<void> {
-  await request(`/api/v1/projects/${projectNumber}/payment-nodes/${paymentNodeId}`, {
-    method: "DELETE"
-  });
+export async function deletePaymentNode(_projectNumber: string, paymentNodeId: string): Promise<void> {
+  await ontologyAction("deletePaymentNode", { paymentNode: paymentNodeId });
 }
 
-export async function confirmMilestone(projectNumber: string, milestoneId: string, confirmedBy: string): Promise<void> {
-  await request(`/api/v1/projects/${projectNumber}/milestones/${milestoneId}/confirm`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ confirmed_by: confirmedBy })
-  });
+export async function confirmMilestone(_projectNumber: string, milestoneId: string, confirmedBy: string): Promise<void> {
+  await ontologyAction("confirmMilestoneCompletion", { milestone: milestoneId, confirmedBy });
 }
 
-export async function confirmPayment(projectNumber: string, paymentNodeId: string, confirmedBy: string): Promise<void> {
-  await request(`/api/v1/projects/${projectNumber}/payment-nodes/${paymentNodeId}/confirm`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ confirmed_by: confirmedBy })
-  });
+export async function confirmPayment(_projectNumber: string, paymentNodeId: string, confirmedBy: string): Promise<void> {
+  await ontologyAction("confirmPaymentReceived", { paymentNode: paymentNodeId, confirmedBy });
 }
 
 export interface CrmImportResult {

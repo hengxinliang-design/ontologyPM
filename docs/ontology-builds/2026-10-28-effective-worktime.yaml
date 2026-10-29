@@ -1,0 +1,78 @@
+# 本体构建包（发布稿）：有效工时口径与审批状态更新。本体 5.1.0（新增属性 TimeEntry.countsAsEffort，改变多处派生口径，非破坏性）。
+# 依据：用户 2026-10-28 选择推荐方案「已驳回和草稿不计入有效工时，已提交仍计入；修复 Excel 重复导入时审批状态不更新（只按已提交 → 已审批 / 已驳回方向更新）」。
+# 起因：WDR101 测试工时（docs/test-data/wdr101-time-entries.json）显示草稿 4 小时、已驳回 8 小时被计入累计实际人天和确认缺口。
+kind: OntologyBuild
+stage: release
+supersededBy: 2026-10-28-opportunity-conversion.yaml
+topic: 有效工时只含已提交和已审批；Excel 重复导入时更新审批状态
+ontologyVersion: 5.1.0
+date: 2026-10-28
+scope:
+  - CQ1 一条工时是否计入项目实际人天、预算使用率、员工利用率和投入成本？
+  - CQ2 项目还有多少工时等待客户确认（确认缺口）？
+  - CQ3 Excel 再次导入同一批工时时，审批结果能否进入系统？
+  - CQ4 哪些工时被驳回或仍是草稿，因而没有计入？
+
+rules:
+  - id: R1
+    statement: 有效工时只包括审批状态为已提交（submitted）和已确认（approved）的工时；已驳回（rejected）和草稿（draft）不计入。工时记录新增派生属性「计入有效工时」（countsAsEffort）。
+    basis: 用户 2026-10-28 的决定。业务规则第 3 节「实际工时不以审批通过为前提」只针对等待审批的工时；被驳回的工时已被判定不属于该项目，草稿尚未提交，都不代表已经发生的项目投入。
+    acceptance: 导入 WDR101 测试工时后，草稿（TEST-WDR101-028）和已驳回（TEST-WDR101-029）的「计入有效工时」为否，其余为是；可以用对象集查询出这 2 条不计入的工时。
+    verifiedBy: [test_rejected_and_draft_entries_do_not_count_as_effort]
+    ontology: [TimeEntry, TimeEntry.countsAsEffort, TimeEntry.approvalStatus]
+  - id: R2
+    statement: 项目的已填报人天、累计实际人天、预算使用率、期间投入、月度工时与人员投入汇总，只统计有效工时；确认缺口 = max（有效工时 − 已确认工时，0），即只剩已提交待确认的部分。月度工时清单仍列出全部工时，不计入的工时单独标明。
+    basis: R1；确认缺口提醒客户还没确认的工作，被驳回的工时不会再被确认，留在缺口里会让提醒永远无法消除。
+    acceptance: WDR101 的已填报和累计实际人天从 43.00 变为 41.50（扣除草稿 4 小时、已驳回 8 小时），客户确认 38.50 不变，确认缺口从 4.50 变为 3.00；9 月月度清单仍列出 34 条，其中 2 条标为不计入（1.50 人天）。
+    verifiedBy: [test_rejected_and_draft_entries_do_not_count_as_effort]
+    ontology: [Project.reportedPersonDays, Project.customerConfirmedPersonDays, Project.confirmationGapPersonDays, Project.budgetUtilization, projectOverview]
+  - id: R3
+    statement: 员工利用率、负荷评估、可调剂人天（员工工时数据、资源运营监控）、部门经营的资源健康、员工的累计填报工时，以及投入成本分析的各类投入人天，同样只统计有效工时；TSG999 等内部代码的规则不变。
+    basis: R1；同一条工时在项目和员工两侧必须同口径，否则项目算了、员工没算（或相反）。
+    acceptance: 李婷（E201）2026 年 9 月的填报工时从 148 小时变为 136 小时，利用率按 136 ÷ 176 计算；WDR101 投入成本分析的总投入和在途投入从 43.00 变为 41.50 人天；员工对象「累计填报工时」同样扣除这 12 小时。
+    verifiedBy: [test_rejected_and_draft_entries_do_not_count_as_effort]
+    ontology: [Employee.reportedHours, Employee.monthUtilizationPercent, CostObject.totalPersonDays, CostObject.atRiskPersonDays, resourceHealth]
+  - id: R4
+    statement: Excel 再次导入已存在的工时（同一人员、项目、日期、工时和工作内容）时，审批状态从已提交变为已确认或已驳回会更新状态和确认工时，计入「更新」数；状态不回退：已确认或已驳回的工时遇到「进行中」不改，已确认与已驳回之间也不互相覆盖。
+    basis: 用户 2026-10-28 的决定。Excel 导出没有可靠的更新时间（源更新时间取工作日期），无法判断两份导出谁更新；只允许「已提交 → 终态」可以避免导入旧文件把已确认改回去。复现：先导入「进行中」再导入「流转完成」，原先返回 unchanged，确认工时一直为 0。
+    acceptance: 先导入「进行中」再导入「流转完成」，第二次返回 updated 1，项目客户确认工时变为该条工时；再导入「进行中」返回 unchanged 1，确认工时不变；先导入「驳回」再导入「流转完成」返回 unchanged，状态仍为已驳回；重复导入不新增记录。
+    verifiedBy: [test_excel_reimport_moves_approval_status_forward_only, test_import_timesheet_xlsx_upload]
+    ontology: [TimeEntry.approvalStatus, TimeEntry.approvedHours]
+
+exceptions:
+  - rule: R1
+    case: 工时系统接口（API 导入）对已驳回的工时重新提交，审批状态从已驳回回到已提交。
+    handling: 接口导入按 external_id 和源更新时间覆盖，新的版本可以把已驳回改回已提交，重新计入有效工时。状态只进不退的限制只用于 Excel。
+    basis: 接口有可靠的源更新时间，能判断先后（业务规则 10.3）；Excel 没有。
+  - rule: R1
+    case: Excel 导入从不产生草稿；「草稿」只可能来自接口导入。
+    handling: 规则照样适用；Excel 中「驳回」「拒绝」映射为已驳回，「流转完成」为已确认，其余为已提交，映射不变。
+    basis: xlsx_timesheet._approval_status 的现有映射。
+  - rule: R1
+    case: 计入的审批状态集合写在代码里，没有做成运营口径参数。
+    handling: 审批状态只有 4 个固定取值，口径由业务规则决定而不是可调阈值；需要调整时改代码并升版本。
+    basis: 技能原则 7：数值做成参数，判定逻辑留在代码；丢单状态做成参数是因为 CRM 状态名会变化，审批状态是本系统的枚举。
+  - rule: R2
+    case: 本次之前已经形成的确认缺口和风险提醒。
+    handling: 不保存历史结果，所有指标在读取时重新计算；改版后已驳回和草稿的部分立即从缺口、实际人天中消失，相关的「存在客户未确认工时」提醒随之减少或消失。
+    basis: 派生属性按实际数据实时推导，没有快照。
+  - rule: R2
+    case: 月度清单中只有不计入工时的月份。
+    handling: 月份仍然显示，条数为该月全部工时，填报和确认都是 0，并标明不计入的条数和人天，便于追溯。
+    basis: 原始工时保留可审计（与 TSG999 的处理一致：保存但不计入项目指标）。
+  - rule: R3
+    case: 员工只有被驳回或草稿工时的月份。
+    handling: 员工仍出现在员工工时数据和资源运营监控中（已知员工），利用率为 0，按负荷规则归为可优先调剂。
+    basis: 现有逻辑：有过工时记录的员工都列入，不因本月没有有效工时而消失。
+  - rule: R3
+    case: 投入成本分析的「疑似停滞」用最后一次投入日期判断。
+    handling: 只看有效工时的最后日期；某商机最近只有被驳回的工时时，可能更早被判为疑似停滞。
+    basis: 被驳回的工时不算该商机上的投入。
+  - rule: R4
+    case: 同一条工时在 Excel 中先「流转完成」后又出现「驳回」（例如审批被撤回后驳回）。
+    handling: 保持已确认，不自动改为已驳回；需要更正时由工时系统修正后用接口导入，或人工删除后重新导入。
+    basis: Excel 无法区分「后来被驳回」和「导入了更早的文件」，按不回退处理，宁可漏改也不误改已确认的工时。
+  - rule: R4
+    case: 工时或工作内容在 Excel 中被修改。
+    handling: 视为另一条工时（语义标识变了），按新增导入；旧记录不会自动删除。
+    basis: 现有的 Excel 去重方式（人员、项目、日期、工时、工作内容），本次不改。

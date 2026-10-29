@@ -1,0 +1,18 @@
+sequenceDiagram
+  autonumber
+  actor Admin as 数据维护人员
+  actor PM as 项目经理 / PMO
+  participant Sys as TSG PM
+  participant Onto as 本体语义层
+  Admin->>Sys: 上传 CRM 合同/商机文件
+  Sys->>Sys: 解析校验，按 CRM 内部 ID 或项目编号<br/>识别新增、更新、无变化
+  Sys->>Sys: 生成只读快照，失败保留上次成功版本
+  Admin->>Sys: 导入工时 Excel
+  Sys->>Sys: 按 external_id 幂等写入
+  Sys->>Onto: 数据集版本变化，刷新对象索引
+  Onto-->>PM: 项目列表出现「待人工维护」提醒
+  PM->>Onto: 在项目详情中配置项目、建里程碑与回款节点
+  Onto->>Onto: 权限检查、校验、写回、写审计日志
+  Onto-->>PM: 重新计算风险、健康度、待办
+  PM->>Onto: 到期后确认里程碑完成 / 回款到账
+  PM->>Onto: 高风险项目在本体浏览器发起管理干预，跟踪到关闭

@@ -1,0 +1,133 @@
+kind: ActionType
+version: v1
+definition:
+  apiName: createPaymentTerm
+  displayName: 新建回款约定
+  description: 登记合同中的回款条款；之后可在里程碑上关联它，以里程碑结束日期生成回款节点。
+  objectType: Project
+  targetParameter: project
+  parameters:
+    - {apiName: project, displayName: 项目, type: object_ref, objectType: Project, required: true}
+    - {apiName: name, displayName: 名称, type: string, required: true}
+    - {apiName: plannedAmount, displayName: 约定金额, type: money, required: true}
+    - {apiName: paymentRatio, displayName: 回款比例, type: decimal, description: 0–100}
+    - {apiName: notes, displayName: 备注, type: string}
+  permissions: [projects]
+  edits: [PaymentTerm.*]
+  writeback: [payment_terms]
+  handler: createPaymentTerm
+  submissionCriteria:
+    - description: 约定金额不能为负数
+      rule: nonNegative
+      args: {parameters: [plannedAmount]}
+---
+kind: ActionType
+version: v1
+definition:
+  apiName: editPaymentTerm
+  displayName: 编辑回款约定
+  description: 修改回款约定的名称、比例、金额和备注；已到账的约定受保护。
+  objectType: PaymentTerm
+  targetParameter: paymentTerm
+  parameters:
+    - {apiName: paymentTerm, displayName: 回款约定, type: object_ref, objectType: PaymentTerm, required: true}
+    - {apiName: name, displayName: 名称, type: string}
+    - {apiName: plannedAmount, displayName: 约定金额, type: money}
+    - {apiName: paymentRatio, displayName: 回款比例, type: decimal, description: 0–100}
+    - {apiName: notes, displayName: 备注, type: string}
+  permissions: [projects]
+  edits: [PaymentTerm.name, PaymentTerm.plannedAmount, PaymentTerm.paymentRatio, PaymentTerm.notes]
+  writeback: [payment_terms, payment_nodes]
+  handler: editPaymentTerm
+  submissionCriteria:
+    - description: 已到账的回款约定锁定
+      rule: termNotPaid
+    - description: 约定金额不能为负数
+      rule: nonNegative
+      args: {parameters: [plannedAmount]}
+---
+kind: ActionType
+version: v1
+definition:
+  apiName: deletePaymentTerm
+  displayName: 删除回款约定
+  description: 删除尚未关联里程碑的回款约定。已关联的约定需先在里程碑上解除关联。
+  objectType: PaymentTerm
+  targetParameter: paymentTerm
+  tone: danger
+  parameters:
+    - {apiName: paymentTerm, displayName: 回款约定, type: object_ref, objectType: PaymentTerm, required: true}
+  permissions: [projects]
+  edits: [PaymentTerm.*]
+  writeback: [payment_terms]
+  handler: deletePaymentTerm
+  submissionCriteria:
+    - {description: 未关联里程碑, rule: termNotLinked}
+---
+kind: ActionType
+version: v1
+definition:
+  apiName: updateOperatingPolicy
+  displayName: 调整运营口径
+  description: 修改标准工时、年度参考工作日、利用率阈值、预算关注线与高风险线、商机停滞天数、丢单状态、内部代码，以及资源健康与年度计划的阈值（加班占比关注线、连续过载月数、同期项目数上限、年度计划落后容差）。修改即时作用于风险、健康度、资源与投入分析。
+  objectType: OperatingPolicy
+  targetParameter: policy
+  tone: danger
+  parameters:
+    - {apiName: policy, displayName: 运营口径, type: object_ref, objectType: OperatingPolicy, required: true}
+    - {apiName: standardHoursPerDay, displayName: 标准每日小时数, type: decimal}
+    - {apiName: standardWorkDaysPerYear, displayName: 年度参考工作日, type: decimal, description: 仅作参考，当期基线按中国工作日历计算}
+    - {apiName: attentionUtilizationPercent, displayName: 利用率关注线, type: decimal}
+    - {apiName: minimumUtilizationPercent, displayName: 利用率最低线, type: decimal}
+    - {apiName: excellentUtilizationPercent, displayName: 利用率优秀线, type: decimal}
+    - {apiName: overloadUtilizationPercent, displayName: 利用率过载线, type: decimal}
+    - {apiName: budgetAttentionPercent, displayName: 预算关注线, type: decimal}
+    - {apiName: budgetHighRiskPercent, displayName: 预算高风险线, type: decimal}
+    - {apiName: stallDays, displayName: 商机停滞天数, type: integer}
+    - {apiName: lostStatuses, displayName: 丢单状态, type: json, description: CRM 中表示丢单的商机状态，多项用「、」分隔}
+    - {apiName: internalCodes, displayName: 内部代码, type: json, description: 不计入项目投入的内部代码，多项用「、」分隔}
+    - {apiName: overtimeShareAttentionPercent, displayName: 加班占比关注线, type: decimal}
+    - {apiName: overloadConsecutiveMonths, displayName: 连续过载月数, type: integer}
+    - {apiName: maxConcurrentProjects, displayName: 同期项目数上限, type: integer}
+    - {apiName: planLagTolerancePoints, displayName: 年度计划落后容差, type: decimal}
+    - {apiName: notes, displayName: 备注, type: string}
+  permissions: [settings, employeeWorktime]
+  edits: [OperatingPolicy.standardHoursPerDay, OperatingPolicy.standardWorkDaysPerYear, OperatingPolicy.lostStatuses, OperatingPolicy.internalCodes, OperatingPolicy.attentionUtilizationPercent, OperatingPolicy.minimumUtilizationPercent, OperatingPolicy.excellentUtilizationPercent, OperatingPolicy.overloadUtilizationPercent, OperatingPolicy.budgetAttentionPercent, OperatingPolicy.budgetHighRiskPercent, OperatingPolicy.stallDays, OperatingPolicy.overtimeShareAttentionPercent, OperatingPolicy.overloadConsecutiveMonths, OperatingPolicy.maxConcurrentProjects, OperatingPolicy.planLagTolerancePoints, OperatingPolicy.notes]
+  writeback: [worktime_baseline_config, investment_settings]
+  handler: updateOperatingPolicy
+  submissionCriteria:
+    - description: 利用率阈值逐级递增（关注 < 最低 < 优秀 < 过载 ≤ 300%）
+      rule: policyThresholdOrder
+      args: {group: utilization, upper: "300"}
+    - description: 预算阈值逐级递增（关注线 < 高风险线 < 100%）
+      rule: policyThresholdOrder
+      args: {group: budget, upper: "100", inclusive: false}
+    - description: 工时、工作日、停滞天数在合理范围内，名单至少一项
+      rule: policyValuesValid
+    - description: 资源健康与年度计划参数在合理范围内（与系统设置页同一范围）
+      rule: policyRangesValid
+---
+kind: ActionType
+version: v1
+definition:
+  apiName: setAnnualOperatingPlan
+  displayName: 设定年度经营计划
+  description: 新建或修改部门某一年的经营目标（新签、回款、投入人天、人员编制、利用率）。部门经营复盘按时间进度对照这些目标，并据此给出策略信号。
+  objectType: OperatingPolicy
+  targetParameter: policy
+  parameters:
+    - {apiName: policy, displayName: 运营口径, type: object_ref, objectType: OperatingPolicy, required: true}
+    - {apiName: year, displayName: 年度, type: integer, required: true}
+    - {apiName: department, displayName: 部门, type: string, description: 缺省为实施交付部}
+    - {apiName: newContractTarget, displayName: 新签合同额目标, type: money}
+    - {apiName: collectionTarget, displayName: 回款目标, type: money}
+    - {apiName: capacityPersonDaysTarget, displayName: 项目投入人天目标, type: decimal}
+    - {apiName: headcountTarget, displayName: 人员编制, type: decimal}
+    - {apiName: utilizationTargetPercent, displayName: 利用率目标, type: decimal}
+    - {apiName: notes, displayName: 备注, type: string}
+  permissions: [department, settings]
+  edits: [AnnualOperatingPlan.*]
+  writeback: [annual_operating_plans]
+  handler: setAnnualOperatingPlan
+  submissionCriteria:
+    - {description: 年度在 2000–2100 之间，目标不为负数，百分比不超过 100%, rule: annualPlanValuesValid}

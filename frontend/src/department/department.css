@@ -1,0 +1,78 @@
+/* Department operations. Status colors reuse the app's success / warning / danger tokens and always come
+   with a text label; the utilization chart is a single series (no legend) with a data table. */
+.department { display: grid; gap: 20px; }
+.department-intro .panel-head { align-items: flex-start; }
+.department-period { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; color: var(--text-secondary); font-size: 13px; }
+.department-period label { display: flex; align-items: center; gap: 6px; }
+.department-period select, .department-period input { min-height: 38px; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--text); font-size: 13px; }
+.department-empty { margin: 0; padding: 0 26px 24px; color: var(--text-tertiary); font-size: 13px; }
+
+.department-plan-form { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px 14px; padding: 0 26px 22px; }
+.department-plan-form label { display: grid; gap: 5px; color: var(--text-secondary); font-size: 12px; font-weight: 650; }
+.department-plan-form input { min-height: 38px; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px; font-size: 13px; }
+.department-plan-form .form-actions { grid-column: 1 / -1; align-items: center; }
+.department-plan-form .form-actions .button { flex: 0 0 auto; }
+.department-plan-form .form-actions small { color: var(--text-tertiary); font-size: 12px; }
+
+.department-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 14px; }
+.department-kpi { display: grid; align-content: start; gap: 6px; padding: 16px 18px; border: 1px solid var(--line-subtle); border-top: 3px solid #c9d6e8; border-radius: var(--radius-lg); background: var(--surface); box-shadow: var(--shadow-sm); }
+.department-kpi.good { border-top-color: var(--success); }
+.department-kpi.bad { border-top-color: var(--danger); }
+.department-kpi-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.department-kpi-head span { color: var(--text-secondary); font-size: 12.5px; font-weight: 650; }
+.department-kpi strong { color: var(--text); font-size: 22px; font-variant-numeric: tabular-nums; font-weight: 760; letter-spacing: -.3px; }
+.department-kpi small { color: var(--text-tertiary); font-size: 11.5px; line-height: 1.4; }
+.plan-status { padding: 3px 7px; border-radius: 999px; background: #eef3fa; color: #52647b; font-size: 10.5px; font-style: normal; font-weight: 750; white-space: nowrap; }
+.plan-status.on_track { background: var(--success-soft); color: var(--success); }
+.plan-status.behind { background: var(--danger-soft); color: var(--danger); }
+.kpi-meter { position: relative; height: 6px; margin-top: 4px; border-radius: 999px; background: #e7edf4; }
+.kpi-meter i { position: absolute; inset: 0 auto 0 0; border-radius: 999px; background: var(--primary); }
+.kpi-meter b { position: absolute; top: -3px; width: 2px; height: 12px; margin-left: -1px; border-radius: 1px; background: var(--text); }
+
+.department-columns { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 20px; align-items: start; }
+.signal-list { display: grid; gap: 10px; margin: 0; padding: 0 26px 24px; list-style: none; }
+.signal { padding: 12px 14px; border: 1px solid var(--line-subtle); border-left: 3px solid var(--primary); border-radius: var(--radius-md); background: #fbfcfe; }
+.signal.push_acceptance, .signal.control_cost { border-left-color: var(--danger); }
+.signal.staffing_support, .signal.win_contracts { border-left-color: var(--warning); }
+.signal.hold { border-left-color: var(--success); }
+.signal-head { display: flex; align-items: center; gap: 10px; }
+.signal-rank { display: grid; width: 22px; height: 22px; place-items: center; border-radius: 50%; background: #263f68; color: #fff; font-size: 11px; font-weight: 800; }
+.signal-head strong { color: var(--text); font-size: 14px; }
+.signal ul { margin: 8px 0 0; padding-left: 32px; color: var(--text-secondary); font-size: 12.5px; line-height: 1.6; }
+
+.portfolio-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 0; padding: 0 26px 14px; }
+.portfolio-grid div { padding: 11px 13px; border: 1px solid var(--line-subtle); border-radius: var(--radius-md); }
+.portfolio-grid dt { color: var(--text-tertiary); font-size: 12px; }
+.portfolio-grid dd { margin: 4px 0 0; color: var(--text); font-size: 17px; font-variant-numeric: tabular-nums; font-weight: 740; }
+.portfolio-grid dd small { display: block; margin-top: 3px; color: var(--text-tertiary); font-size: 11px; font-weight: 500; line-height: 1.4; }
+.portfolio-flags { display: grid; gap: 8px; padding: 0 26px 22px; color: var(--text-secondary); font-size: 12.5px; }
+.portfolio-flags span { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+
+.util-chart { position: relative; display: flex; align-items: flex-end; gap: 10px; height: 180px; margin: 0 26px 10px; padding-bottom: 24px; border-bottom: 1px solid var(--line); }
+.util-col { position: relative; display: flex; height: 100%; min-width: 30px; flex: 1 1 0; flex-direction: column; align-items: center; justify-content: flex-end; }
+.util-bar { width: 22px; min-height: 2px; border-radius: 4px 4px 0 0; background: #2a78d6; }
+.util-col:hover .util-bar { filter: brightness(1.1); }
+.util-col b { position: absolute; top: -18px; color: var(--text); font-size: 11px; font-variant-numeric: tabular-nums; }
+.util-col small { position: absolute; bottom: -20px; color: var(--text-tertiary); font-size: 11px; white-space: nowrap; }
+.util-target { position: absolute; left: 0; right: 0; height: 0; margin-bottom: 24px; border-top: 2px dashed #8a9ab0; pointer-events: none; }
+.department-data { padding: 4px 26px 20px; color: var(--text-secondary); font-size: 12.5px; }
+.department-data summary { cursor: pointer; }
+.department-data table { margin-top: 8px; border-collapse: collapse; }
+.department-data td, .department-data th { padding: 5px 14px 5px 0; text-align: left; }
+
+.status-chips button { min-height: 32px; padding: 0 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); color: var(--text-secondary); cursor: pointer; font-size: 12px; font-weight: 650; }
+.status-chips button.active { border-color: var(--primary); background: var(--primary-soft); color: var(--primary); }
+.department .block { display: block; margin-top: 3px; color: var(--text-tertiary); font-size: 11px; }
+.department td.reasons { min-width: 240px; max-width: 420px; }
+.department td.reasons ul { margin: 0; padding-left: 16px; color: var(--text-secondary); font-size: 12px; line-height: 1.5; }
+.health-summary { display: flex; flex-wrap: wrap; gap: 14px; padding: 0 26px 16px; color: var(--text-secondary); font-size: 12.5px; }
+.health-summary i { font-style: normal; }
+.tag-row { display: flex; flex-wrap: wrap; gap: 4px; }
+
+@media (max-width: 1120px) {
+  .department-columns { grid-template-columns: 1fr; }
+  .department-plan-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 480px) {
+  .department-plan-form, .portfolio-grid { grid-template-columns: 1fr; }
+}

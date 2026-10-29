@@ -1,0 +1,72 @@
+kind: ObjectType
+version: v1
+definition:
+  apiName: Project
+  displayName: 项目
+  pluralDisplayName: 项目
+  description: 以项目编号聚合 CRM 合同/商机、工时、里程碑、回款与人工维护设置的核心业务对象。
+  primaryKey: projectNumber
+  titleProperty: subject
+  datasource: projects
+  derivations: [maintenanceStatus, projectFacts, projectInvestment]
+  # 导入后需要人工补充的内容。maintenanceStatus 按这里的声明推导「哪些已维护、哪些待维护」，改要求只改元数据。
+  maintenanceRequirements:
+    - {apiName: setContractType, displayName: 选择项目类型, property: contractType, missingValues: [unknown], action: configureProject}
+    - {apiName: setPlannedPersonDays, displayName: 填写初始预算人天, property: plannedPersonDays, when: {property: contractType, in: [construction, maintenance]}, action: configureProject}
+    - {apiName: assignProjectManager, displayName: 指定项目经理, property: projectManager, when: [{property: contractType, notIn: [sales]}, {property: lifecycleStatus, notIn: [completed, closed]}], action: configureProject}
+    - {apiName: setPlannedStart, displayName: 填写计划开始日期, property: plannedStart, when: [{property: contractType, notIn: [sales]}, {property: lifecycleStatus, notIn: [completed, closed]}], action: configureProject}
+    - {apiName: setPlannedEnd, displayName: 填写计划结束日期, property: plannedEnd, when: [{property: contractType, notIn: [sales]}, {property: lifecycleStatus, notIn: [completed, closed]}], action: configureProject}
+    - {apiName: planMilestones, displayName: 制定里程碑计划, link: milestones, minCount: 1, action: createMilestone}
+  backingDatasets: [records, project_settings, time_entries, milestones, payment_nodes, payment_terms, interventions, opportunity_outcomes, investment_settings, worktime_baseline_config]
+  readPermissions: [projects, health, resource, department]
+  icon: briefcase
+  displayOrder: 1
+  defaultOrder: projectNumber
+  properties:
+    - {apiName: projectNumber, displayName: 项目编号, type: string, sourceKind: system, source: records.project_number, description: 跨 CRM 与工时数据源的业务主键, searchable: true}
+    - {apiName: subject, displayName: 项目名称, type: string, sourceKind: system, source: records.subject（主合同/商机）, searchable: true}
+    - {apiName: customerName, displayName: 客户, type: string, sourceKind: system, source: records.customer（主合同/商机）, searchable: true}
+    - {apiName: crmOwner, displayName: 销售人员, type: string, sourceKind: system, source: records.owner（CRM 我方签约人/所有者）, searchable: true}
+    - {apiName: projectManager, displayName: 项目经理, type: string, sourceKind: manual, source: project_settings.project_manager（独立的人工维护字段，不取 CRM 销售人员）, searchable: true}
+    - {apiName: masterCategory, displayName: 主数据类别, type: string, sourceKind: derived, source: 有合同或状态为“成功”的商机为“项目”，否则为“商机”；销售阶段不作为判断依据, derivedFrom: projectFacts}
+    - {apiName: category, displayName: CRM 分类, type: string, sourceKind: system, source: records.category，多份合同的分类去重后以“、”合并；与人工维护的项目类型不是同一字段, searchable: true}
+    - {apiName: contractType, displayName: 项目类型, type: enum, valueType: ContractType, sourceKind: manual, source: project_settings.contract_type（交付管理类型）}
+    - {apiName: lifecycleStatus, displayName: 项目状态, type: enum, valueType: LifecycleStatus, sourceKind: manual, source: 人工维护优先；未配置时由合同来源状态推导（全部关闭类为已关闭，全部结束类为结束，含执行类为执行中，全部暂停类为已暂停），再无匹配为计划中}
+    - {apiName: lifecycleSource, displayName: 项目状态来源, type: enum, valueType: LifecycleSource, sourceKind: derived, source: 人工维护 / 合同来源状态推导 / 默认计划中, derivedFrom: projectFacts}
+    - {apiName: plannedStart, displayName: 计划开始, type: date, sourceKind: manual, source: project_settings.planned_start}
+    - {apiName: plannedEnd, displayName: 计划结束, type: date, sourceKind: manual, source: project_settings.planned_end}
+    - {apiName: hoursPerPersonDay, displayName: 每人天小时数, type: decimal, sourceKind: manual, source: project_settings.hours_per_person_day, unit: hour}
+    - {apiName: notes, displayName: 备注, type: string, sourceKind: manual, source: project_settings.notes}
+    - {apiName: contractCount, displayName: 合同数, type: integer, sourceKind: derived, source: count(records where contract_order), derivedFrom: projectFacts, unit: count}
+    - {apiName: signedYear, displayName: 签约年度, type: integer, sourceKind: derived, source: 全部合同/订单中最早签订日期的年份（项目在首份合同签订的年度成为新签项目；追加合同不改变）；没有合同时为空, derivedFrom: projectFacts, unit: none}
+    - {apiName: opportunityCount, displayName: 商机数, type: integer, sourceKind: derived, source: count(records where sales_opportunity), derivedFrom: projectFacts, unit: count}
+    - {apiName: contractValue, displayName: 合同金额, type: money, sourceKind: system, source: Σ records.total_amount, marking: FINANCE, unit: yuan}
+    - {apiName: invoicedAmount, displayName: 已开票, type: money, sourceKind: system, source: Σ records.invoiced_amount, marking: FINANCE, unit: yuan}
+    - {apiName: crmReceivedAmount, displayName: CRM 已回款, type: money, sourceKind: system, source: Σ records.received_amount, marking: FINANCE, unit: yuan}
+    - {apiName: revenueSettlementBasis, displayName: 收入结算方式, type: enum, valueType: SettlementBasis, sourceKind: derived, source: 项目类型为开口合同，或开票/回款金额超过合同总额时按工作量结算，否则按合同额结算, derivedFrom: projectFacts}
+    - {apiName: outstandingReceivableAmount, displayName: 待回款, type: money, sourceKind: derived, source: 按合同额结算：max(合同总额 − CRM 已回款，0)；按工作量结算：max(CRM 开票 − CRM 已回款，0), marking: FINANCE, derivedFrom: projectFacts, unit: yuan}
+    - {apiName: receivedAmount, displayName: 节点已到账, type: money, sourceKind: derived, source: Σ payment_nodes.actual_amount, marking: FINANCE, derivedFrom: projectFacts, unit: yuan}
+    - {apiName: plannedPersonDays, displayName: 预算人天, type: decimal, sourceKind: manual, source: project_settings.planned_person_days, unit: personDay}
+    - {apiName: reportedPersonDays, displayName: 已填报人天, type: decimal, sourceKind: derived, source: Σ(正常工时 + 加班工时) / 项目每人天小时数（默认 8，可配置）；只计有效工时：已提交和已确认计入（不以审批通过为前提），已驳回和草稿不计入, derivedFrom: projectFacts, unit: personDay}
+    - {apiName: customerConfirmedPersonDays, displayName: 客户确认人天, type: decimal, sourceKind: derived, source: 仅审批状态为 approved 的 approved_hours 之和 / 每人天小时数, derivedFrom: projectFacts, unit: personDay}
+    - {apiName: confirmationGapPersonDays, displayName: 确认缺口人天, type: decimal, sourceKind: derived, source: max(已填报 − 客户确认，0)；已驳回和草稿不在已填报中，缺口只剩已提交待确认的工时, derivedFrom: projectFacts, unit: personDay}
+    - {apiName: budgetUtilization, displayName: 预算使用率, type: percent, sourceKind: derived, source: 已填报人天 / 预算人天 × 100%；按工作量结算的项目不参与预算规则, derivedFrom: projectFacts, unit: percent}
+    - {apiName: milestoneTotal, displayName: 里程碑数, type: integer, sourceKind: derived, source: count(milestones), derivedFrom: projectFacts, unit: count}
+    - {apiName: milestoneCompleted, displayName: 已完成里程碑, type: integer, sourceKind: derived, source: count(milestones where completed), derivedFrom: projectFacts, unit: count}
+    - {apiName: overdueMilestones, displayName: 逾期里程碑, type: integer, sourceKind: derived, source: 计划结束日已过且未完成, derivedFrom: projectFacts, unit: count}
+    - {apiName: paymentNodeTotal, displayName: 回款节点数, type: integer, sourceKind: derived, source: count(payment_nodes)：已生成的回款节点，来自关联了里程碑的回款约定或独立新建的回款节点；回款约定未关联里程碑时还没有回款节点, derivedFrom: projectFacts, unit: count}
+    - {apiName: paymentTermCount, displayName: 回款约定数, type: integer, sourceKind: derived, source: count(payment_terms)：项目设定的合同回款约定, derivedFrom: projectFacts, unit: count}
+    - {apiName: unlinkedPaymentTermCount, displayName: 待关联回款约定, type: integer, sourceKind: derived, source: 尚未关联里程碑的回款约定数（关联后才生成回款节点）, derivedFrom: projectFacts, unit: count}
+    - {apiName: overduePaymentNodes, displayName: 逾期回款节点, type: integer, sourceKind: derived, source: 计划日期已过且未到账, derivedFrom: projectFacts, unit: count}
+    - {apiName: openInterventions, displayName: 未关闭干预, type: integer, sourceKind: derived, source: count(interventions where status != closed), derivedFrom: projectFacts, unit: count}
+    - {apiName: maintenanceComplete, displayName: 人工维护完整, type: boolean, sourceKind: derived, source: 对象类型声明的维护要求全部满足（项目类型、预算人天、项目经理、计划起止、里程碑；项目经理与计划起止不适用于售前阶段和已结束、已关闭的项目；见 maintenanceRequirements）, derivedFrom: maintenanceStatus}
+    - {apiName: maintenanceGapCount, displayName: 待维护项数, type: integer, sourceKind: derived, source: 未满足的维护要求数, derivedFrom: maintenanceStatus, unit: count}
+    - {apiName: maintenanceChecklist, displayName: 维护清单, type: json, sourceKind: derived, source: 每条适用的维护要求及是否已维护、由哪个动作维护, derivedFrom: maintenanceStatus}
+    - {apiName: riskLevel, displayName: 风险等级, type: enum, valueType: RiskLevel, sourceKind: derived, source: 严重：预算使用率 > 100%、里程碑或回款节点逾期；关注：使用率达到运营口径的预算关注线、项目类型或预算未设置、计划中/执行中无里程碑、存在工时确认缺口, derivedFrom: projectFacts}
+    - {apiName: riskReasons, displayName: 风险原因, type: json, sourceKind: derived, source: 风险规则引擎, derivedFrom: projectFacts}
+    - {apiName: conversionDate, displayName: 签约日, type: date, sourceKind: derived, source: 最早的合同签订日, derivedFrom: projectInvestment}
+    - {apiName: opportunityOutcome, displayName: 商机结论, type: enum, valueType: OpportunityOutcome, sourceKind: derived, source: 成本对象的商机结论, derivedFrom: projectInvestment}
+    - {apiName: costToWinPersonDays, displayName: 获客成本人天, type: decimal, sourceKind: derived, source: 签约日前的投入, derivedFrom: projectInvestment, unit: personDay}
+    - {apiName: deliveryPersonDays, displayName: 履约成本人天, type: decimal, sourceKind: derived, source: 签约日及之后的投入, derivedFrom: projectInvestment, unit: personDay}
+    - {apiName: atRiskPersonDays, displayName: 在途投入人天, type: decimal, sourceKind: derived, source: 商机进行中的投入, derivedFrom: projectInvestment, unit: personDay}
+    - {apiName: sunkPersonDays, displayName: 沉没成本人天, type: decimal, sourceKind: derived, source: 商机丢单或放弃后的投入, derivedFrom: projectInvestment, unit: personDay}

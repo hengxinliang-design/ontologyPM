@@ -1,6 +1,6 @@
 export type DataType = "contract_order" | "sales_opportunity";
 
-export type MenuPermission = "projects" | "health" | "resource" | "crm" | "employeeWorktime" | "sync" | "settings";
+export type MenuPermission = "projects" | "health" | "resource" | "crm" | "investment" | "department" | "employeeWorktime" | "sync" | "ontology" | "settings";
 
 export interface AuthenticatedUser {
   username: string;
@@ -39,18 +39,36 @@ export interface CrmRecord {
   invoiced_amount: Money | null;
   owner: string;
   probability: number | null;
+  sales_stage: string | null;
   status: string | null;
+  source_updated_at: string | null;
   merged_from_opportunity: boolean;
   updated_at: string;
+}
+
+export interface ChinaHolidayCalendarDay {
+  date: string;
+  name: string;
+  kind: "holiday" | "makeup_workday";
+}
+
+export interface ChinaHolidayCalendarResponse {
+  data: ChinaHolidayCalendarDay[];
+  meta: {
+    available: boolean;
+    stale: boolean;
+    cached_at: string | null;
+    source: string;
+  };
 }
 
 export interface RecordsResponse {
   data: CrmRecord[];
   meta: {
-    page: number;
     page_size: number;
     total_records: number;
     total_pages: number;
+    next_cursor: string | null;
     schema_version: string;
     updated_at: string;
   };
@@ -162,6 +180,8 @@ export interface MonthlyTimeEntries {
   overtime_person_days: string;
   approved_person_days: string;
   confirmation_gap_person_days: string;
+  excluded_entry_count: number;
+  excluded_person_days: string;
   entries: TimeEntry[];
 }
 
@@ -196,9 +216,13 @@ export interface ProjectSummary {
   project_number: string;
   subject: string;
   customer: string | null;
+  /** Imported CRM owner / signer, representing the salesperson. */
+  sales_owner: string | null;
   owner: string | null;
   project_manager: string | null;
   master_category: "项目" | "商机";
+  /** Corresponds to the imported contract/order CSV's “分类” field. */
+  category: string | null;
   contract_type: ContractType;
   lifecycle_status: LifecycleStatus;
   status: LifecycleStatus;
@@ -207,9 +231,12 @@ export interface ProjectSummary {
   contract_count: number;
   opportunity_count: number;
   contract_value: string;
-  contract_status: "已结束" | "进行中" | null;
   crm_received_amount: string;
-  outstanding_receivable_amount: string | null;
+  /** 开口合同按已确认工作量结算，不以框架合同额计算回款比例。 */
+  revenue_settlement_basis: "contract" | "workload";
+  /** CRM 开票金额，作为开口合同的已确认收入。 */
+  recognized_revenue_amount: string;
+  outstanding_receivable_amount: string;
   received_amount: string;
   invoiced_amount: string;
   planned_person_days: string | null;
@@ -231,9 +258,20 @@ export interface ProjectSummary {
   payment_node_total: number;
   overdue_payment_nodes: number;
   payment_summary: PaymentSummary;
+  payment_term_summary: Array<{
+    name: string;
+    payment_ratio: string | null;
+    planned_amount: string;
+    linked_milestone_id: string | null;
+    payment_node_id: string | null;
+    node_status: string | null;
+    planned_date: string | null;
+  }>;
   open_interventions: number;
   maintenance_complete: boolean;
   maintenance_reasons: string[];
+  /** Every applicable maintenance requirement and whether it is met (ontology derivation maintenanceStatus). */
+  maintenance_checklist?: Array<{ requirement: string; label: string; met: boolean; action: string; property: string | null; link: string | null }>;
   pending_todos: number;
   overdue_todos: number;
   next_todo: TodoEvent | null;
@@ -266,6 +304,7 @@ export interface ProjectDetail extends ProjectSummary {
     deliverable: string | null;
     is_payment_node: number;
     payment_node_id: string | null;
+    payment_term_id?: string | null;
     payment_date: string | null;
     payment_amount: string | null;
     payment_status: string | null;
@@ -282,6 +321,15 @@ export interface ProjectDetail extends ProjectSummary {
     status: string;
     notes?: string | null;
   }>;
+  payment_terms: Array<{
+    payment_term_id: string;
+    name: string;
+    payment_ratio: string | null;
+    planned_amount: string;
+    notes?: string | null;
+    linked_milestone_id: string | null;
+    payment_node_id: string | null;
+  }>;
   interventions: Array<{
     intervention_id: string;
     title: string;
@@ -295,6 +343,8 @@ export interface ProjectDetail extends ProjectSummary {
     hours_per_person_day?: string;
     notes?: string | null;
   };
+  /** Markings the viewer lacks; their values are null (FINANCE: amounts, PERSONNEL: per-person hours). */
+  redacted_markings?: string[];
 }
 
 export interface Deadline {
@@ -311,6 +361,11 @@ export interface TodoEvent extends Deadline {
   amount: string | null;
   deliverable: string | null;
   completed: boolean;
+  completed_at: string | null;
+  confirmed_by: string | null;
+  completion_state: "on_time" | "delayed" | "unknown" | null;
+  completion_label: string | null;
+  delay_days: number;
 }
 
 export interface PortfolioResponse {
@@ -319,18 +374,40 @@ export interface PortfolioResponse {
     total_projects: number;
     contract_value: string;
     received_amount: string;
+    outstanding_receivable_amount: string;
     critical_projects: number;
     warning_projects: number;
+  };
+  meta: {
+    page_size: number;
+    next_cursor: string | null;
+    lifecycle_statuses: LifecycleStatus[];
+    categories: string[];
   };
 }
 
 export interface ProjectHealthRow {
   project_number: string;
   project_name: string;
-  pm_owner: string | null;
-  project_status: LifecycleStatus;
-  contract_status: "已结束" | "进行中" | null;
+  customer: string | null;
+  master_category: ProjectSummary["master_category"];
+  category: string | null;
+  contract_type: ContractType;
+  risk_level: ProjectSummary["risk_level"];
+  contract_value: string;
+  crm_received_amount: string;
+  revenue_settlement_basis: ProjectSummary["revenue_settlement_basis"];
+  recognized_revenue_amount: string;
   outstanding_receivable_amount: string | null;
+  payment_term_summary: ProjectSummary["payment_term_summary"];
+  anomaly_count: number;
+  anomaly_alerts: ProjectSummary["anomaly_alerts"];
+  budget_utilization: number | null;
+  billable_person_days: string | null;
+  actual_person_days: string;
+  pm_owner: string | null;
+  sales_owner: string | null;
+  project_status: LifecycleStatus;
   planned_start: string | null;
   planned_end: string | null;
   budget_person_days: string | null;
@@ -340,12 +417,18 @@ export interface ProjectHealthRow {
   period_actual_hours: string;
   period_actual_person_days: string;
   previous_month_person_days: string;
+  previous_period: { start_month: string; end_month: string };
+  previous_period_person_days: string;
   participant_count: number;
+  cumulative_participant_count: number;
   burn_rate_percent: string | null;
   overrun_warning: string;
   monthly_trend: string;
-  health_status: "健康" | "需关注" | "已超预算" | "无基线";
-  completion_forecast: string;
+  health_status: "健康" | "需关注" | "额外投入" | "已超预算" | "无基线";
+  budget_exhaustion_forecast: {
+    label: string;
+    basis: string;
+  };
   remaining_budget_person_days: string | null;
   current_milestone: CurrentMilestone | null;
   payment_summary: PaymentSummary;
@@ -353,9 +436,18 @@ export interface ProjectHealthRow {
 }
 
 export interface ProjectHealthResponse {
+  /** Markings the viewer lacks; their values are null. */
+  redacted_markings?: string[];
   data: ProjectHealthRow[];
   summary: {
     total_projects: number;
+    contract_value: string;
+    received_amount: string;
+    outstanding_receivable_amount: string;
+    risk_critical_projects: number;
+    risk_warning_projects: number;
+    /** Projects with unmet maintenance requirements (declared in the ontology metadata). */
+    maintenance_pending_projects?: number;
     critical_projects: number;
     warning_projects: number;
     healthy_projects: number;
@@ -365,6 +457,10 @@ export interface ProjectHealthResponse {
     start_month: string;
     end_month: string;
     mode: "month" | "range";
+    page_size: number;
+    next_cursor: string | null;
+    lifecycle_statuses: LifecycleStatus[];
+    categories: string[];
   };
 }
 
@@ -379,6 +475,9 @@ export interface WorktimeBaseline {
   minimum_utilization_percent: string;
   excellent_utilization_percent: string;
   attention_utilization_percent: string;
+  overload_utilization_percent: string;
+  budget_attention_percent: string;
+  budget_high_risk_percent: string;
   notes: string | null;
   updated_at: string;
 }
@@ -416,6 +515,11 @@ export interface EmployeeWorktimeResponse {
     start_date: string;
     end_date: string;
     baseline_hours: string;
+    working_days: number;
+    holiday_excluded_days: number;
+    makeup_workdays: number;
+    calendar_available: boolean;
+    calendar_stale: boolean;
     latest_work_month: string | null;
   };
 }
@@ -428,16 +532,6 @@ export interface ResourceOperationProject {
   is_internal_nonproject?: boolean;
 }
 
-export interface ResourceStaffingCandidate {
-  project_number: string;
-  project_name: string;
-  resource_gap_person_days: string;
-  monthly_budget_person_days: string;
-  period_actual_person_days: string;
-  priority: "高优先" | "需关注";
-  reason: string;
-}
-
 export interface ResourceOperationRow extends EmployeeWorktimeRow {
   allocation_status: "可优先调剂" | "可适度支持" | "负荷过高" | "负荷较高" | "安排基本均衡";
   available_person_days: string;
@@ -448,13 +542,11 @@ export interface ResourceOperationRow extends EmployeeWorktimeRow {
 
 export interface ResourceOperationsResponse {
   data: ResourceOperationRow[];
-  staffing_candidates: ResourceStaffingCandidate[];
   summary: {
     total_employees: number;
     available_count: number;
     high_load_count: number;
     overloaded_count: number;
-    projects_needing_support: number;
     available_person_days: string;
   };
   baseline: WorktimeBaseline;
@@ -467,7 +559,15 @@ export interface ResourceOperationsResponse {
     start_date: string;
     end_date: string;
     baseline_hours: string;
+    working_days: number;
+    holiday_excluded_days: number;
+    makeup_workdays: number;
+    calendar_available: boolean;
+    calendar_stale: boolean;
     latest_work_month: string | null;
     recommendation_limitations: string;
+    page_size: number;
+    next_cursor: string | null;
   };
 }
+

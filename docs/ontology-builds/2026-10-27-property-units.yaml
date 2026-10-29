@@ -1,0 +1,69 @@
+# 本体构建包（发布稿）：属性量纲（unit）。本体 4.1.0（新增元数据字段，非破坏性）。
+# 依据：用户 2026-10-27「先给本体属性加量纲（unit）字段，lint 和页面格式化改用量纲判断，按技能要求交付构建包」；
+# 论文 Kokar 等《Ontology-based situation awareness》(2009) 的量纲类型（DIM）；经验库 L06、L15（lint 两次按名称误判金额）。
+kind: OntologyBuild
+stage: release
+supersededBy: 2026-10-27-ontology-maintenance.yaml
+topic: 属性量纲：数值属性声明单位，lint 与页面格式化改用量纲判断
+ontologyVersion: 4.1.0
+date: 2026-10-27
+scope:
+  - CQ1 每个数值属性的单位是什么（元、人天、小时、天、月、%、百分点、人、个，或无量纲）？
+  - CQ2 哪些属性是金额，需要财务金额标记？
+  - CQ3 页面显示数值时该加什么单位？
+
+rules:
+  - id: R1
+    statement: 每个数值属性（integer、decimal、money、percent）必须声明量纲 unit，取值只能是 yuan、personDay、hour、day、month、percent、percentagePoint、person、count、none；非数值属性不能声明量纲。
+    basis: 用户 2026-10-27 的要求；论文 Kokar 等 (2009) 为属性值引入量纲类型，没有量纲就无法比较和计算；技能原则 5「单位也要对齐」。
+    acceptance: 元数据中全部 81 个数值属性都有量纲；去掉一个属性的量纲时，元数据编译报「数值属性必须声明量纲」并指出文件和属性。
+    verifiedBy: [test_numeric_properties_declare_their_dimension, test_invalid_metadata_is_rejected_with_location]
+    ontology: [Project.reportedPersonDays, Project.hoursPerPersonDay, OperatingPolicy.planLagTolerancePoints]
+  - id: R2
+    statement: 类型与量纲保持一致：money 类型当且仅当量纲为 yuan，percent 类型当且仅当量纲为 percent。
+    basis: 一个概念一个名字（原则 5）：金额和百分比已经有专门的类型，量纲不能与类型矛盾。
+    acceptance: 把每人天小时数的量纲改成 yuan 时编译报「money 类型与量纲 yuan 必须同时使用」；把人天属性的量纲改成 percent 时报「percent 类型与量纲 percent 必须同时使用」。
+    verifiedBy: [test_invalid_metadata_is_rejected_with_location]
+    ontology: [Project.contractValue, Project.budgetUtilization]
+  - id: R3
+    statement: lint 按量纲识别金额：量纲为元而没有 FINANCE 标记的属性报安全提示；不再按属性名称猜测金额。
+    basis: 经验库 L06、L15：按名称里的 cost、value 等词猜测金额，先后把获客成本人天、成本超前（百分点）误报为金额；同一模式出现两次，按升级规则改为检查。
+    acceptance: 现有元数据 lint 没有提示；lint 脚本中不再有按名称判断金额的规则；名称含 cost 但量纲为人天或百分点的属性不会被报为金额。
+    verifiedBy: [test_ontology_metadata_passes_the_skill_lint]
+    ontology: [Project.costToWinPersonDays, Project.contractValue]
+  - id: R4
+    statement: 本体结构接口为每个属性返回 unit 与中文单位名 unitLabel；本体浏览器的属性表在类型后显示单位，对象详情按量纲给数值加单位（个数与标识不加）。
+    basis: 用户要求页面格式化改用量纲判断；原先的页面靠属性名后缀猜单位。
+    acceptance: 项目的已填报人天返回 personDay / 人天，项目名称的量纲为空；量纲为人天、百分点时数值后加「人天」「个百分点」，个数和无量纲不加后缀，仅凭名称不再加单位。
+    verifiedBy: [test_numeric_properties_declare_their_dimension]
+    ontology: [Project.reportedPersonDays, Project.subject]
+
+exceptions:
+  - rule: R1
+    case: 年度、里程碑序号这类整数标识。
+    handling: 声明为 none（无量纲），页面不加单位。
+    basis: 它们是编号，不是可以加减比较的量。
+  - rule: R1
+    case: 名称里带「PersonDay」但计量的是小时（每人天小时数）。
+    handling: 量纲按实际含义声明为 hour；测试专门守护这一项。
+    basis: 首次标注时按名称规则误标成人天，核对时发现并改正——这正是不能按名称猜单位的原因。
+  - rule: R1
+    case: 动作参数和函数参数中的数值。
+    handling: 这次只给对象属性加量纲；参数仍按类型显示，后续需要时再扩展到参数。
+    basis: 用户要求的是本体属性；参数的格式化需求尚未出现。
+  - rule: R1
+    case: 函数返回的页面数据（项目运营监控、部门复盘等）中的数值。
+    handling: 这些结果沿用原有字段和页面格式，不带量纲元信息；它们的口径来源于带量纲的属性。
+    basis: 页面函数的返回格式在 3.1.0 承诺保留一个版本。
+  - rule: R2
+    case: 百分点（成本超前、计划落后容差）与百分比。
+    handling: 百分点用 decimal 类型加 percentagePoint 量纲，不用 percent 类型，避免把差值当成比例。
+    basis: 「落后 15 个百分点」与「完成 15%」含义不同。
+  - rule: R3
+    case: 金额以文本保存（例如说明里写的金额）。
+    handling: 不是数值属性，不在检查范围；金额必须用 money 类型保存才能被识别和脱敏。
+    basis: 量纲只描述数值属性。
+  - rule: R4
+    case: 个数（合同数、里程碑数）显示时是否加「个」。
+    handling: 不加后缀，避免「工时条数 300 个」这类别扭的读法；单位名仍在属性表中显示。
+    basis: 可读性优先，单位信息在模型页可查。

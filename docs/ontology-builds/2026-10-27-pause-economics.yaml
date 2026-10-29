@@ -1,0 +1,86 @@
+# 本体构建包（发布稿）：暂停人天经营口径。本体 4.0.0（破坏性：删除属性、函数和动作参数）。
+# 依据：用户 2026-10-26「目前红框所选择的财务相关的内容，暂时不用做维护，可全部取消不展示。也许以后项目管理成熟了，
+# 我们在本体对象中新建属性维护」，并在同日选择「连同经营口径一起暂停（推荐）」。
+# 被暂停的规则卡见 2026-10-26-pmo-economics.yaml（R01–R11、R16 以及 R15 中依赖经营口径的信号）；纯计算函数与 SEY 示例的单元测试保留，
+# 重新启用时把推导规则、属性、函数和页面接回即可。
+kind: OntologyBuild
+stage: release
+supersededBy: 2026-10-27-property-units.yaml
+topic: 暂停人天经营口径：取消财务字段的维护与展示，部门经营只保留不依赖单价的指标
+ontologyVersion: 4.0.0
+date: 2026-10-27
+scope:
+  - CQ1 本体中还有没有需要人工维护的财务字段（合同人天单价、税率、外部采购、商务费用、目标毛利率、覆盖原因、剩余人天估算）？
+  - CQ2 页面上还有没有依赖这些字段的经营指标？
+  - CQ3 部门经营还能回答哪些问题？
+  - CQ4 以后恢复经营口径需要做什么？
+
+rules:
+  - id: R1
+    statement: 本体不再包含经营口径的人工输入：项目的合同人天单价、税率、外部采购、商务费用、目标毛利率及覆盖原因、剩余人天估算全部删除，「设置项目」动作不再提供这些参数；基础程序的项目设置接口也不再接收和保存它们。
+    basis: 用户 2026-10-26「财务相关的内容，暂时不用做维护，可全部取消不展示」。
+    acceptance: 本体结构中项目没有上述属性，「设置项目」动作没有合同人天单价参数；通过项目设置接口提交合同人天单价和税率后，项目设置中的单价仍为空。
+    verifiedBy: [test_person_day_economics_is_paused]
+    ontology: [Project, configureProject]
+  - id: R2
+    statement: 依赖单价的经营口径整体暂停：删除推导规则 projectEconomics、项目的 15 个经营属性、客户的经营汇总属性、回款节点的「计入确认收入」，以及函数 projectEconomics、customerEconomics、portfolioEconomics、customerEconomicsRollup；项目管理页的「经营口径」列组和项目详情的「经营口径」区块不再展示。
+    basis: 用户 2026-10-26 选择「连同经营口径一起暂停（推荐）」：没有单价时所有项目都只能显示「无基线」。
+    acceptance: 项目只剩 projectFacts、projectInvestment 两条推导规则；项目运营监控和项目全景的结果中没有 economics；本体中不存在上述四个函数；/api/v1/department/customers 与 /api/v1/department/projects 返回 404。
+    verifiedBy: [test_person_day_economics_is_paused, test_project_properties_are_computed_by_declared_derivations]
+    ontology: [Project, projectFacts, projectInvestment, portfolioHealth, projectOverview]
+  - id: R3
+    statement: 部门经营复盘只保留不依赖单价的内容：新签合同额、回款、项目投入人天、产能利用率、在岗人数五项指标对照年度计划；策略信号只给出推动验收回款、争取新合同（按利用率）、释放资源（按计划结束日）和保持；年度计划不再维护确认收入目标和毛利率目标。
+    basis: 用户 2026-10-26 部门管理逻辑中的年度考核与资源释放仍然需要；暂停的只是依赖单价的部分。
+    acceptance: 复盘的指标恰好是这五项，不再返回项目组合、在手合同覆盖、未来需求和预计完工毛利率，信号中没有控制成本和招聘或外部支援；设定年度经营计划保存回款目标后，复盘显示回款目标和 75% 的时间进度；计划结束日在下月、本月仍有投入的项目出现「释放资源」。
+    verifiedBy: [test_person_day_economics_is_paused, test_annual_plan_completion_against_time_progress, test_release_signal_for_burnt_out_projects]
+    ontology: [departmentOperatingReview, AnnualOperatingPlan, setAnnualOperatingPlan]
+  - id: R4
+    statement: 运营口径参数中只服务于经营口径的五项（默认税率、默认目标毛利率、成本超前预警线、在手合同覆盖线、控制成本的超标项目数）从本体移除；保留的资源健康与计划容差参数，在两条写入路径上使用同一取值范围（校验规则 policyRangesValid）。
+    basis: 原则 7「数值做成参数」——不再参与任何计算的参数不应出现在本体中；经验库 L10（两条写入路径的校验一致）。
+    acceptance: 运营口径参数中没有上述五项；保留参数超出范围时，系统设置接口与「调整运营口径」动作都拒绝。
+    verifiedBy: [test_person_day_economics_is_paused, test_resource_health_statuses]
+    ontology: [OperatingPolicy, updateOperatingPolicy, policyRangesValid]
+  - id: R5
+    statement: 经营口径的纯计算函数与验收测试保留，财务示例仍逐项复现，以便日后恢复时直接接回。
+    basis: 用户说明「也许以后项目管理成熟了，我们在本体对象中新建属性维护」。
+    acceptance: SEY 示例的暂估收入、可用成本、可支配人天、毛利率、确认收入、成本超前与经营状态测试全部通过。
+    verifiedBy: [test_estimated_revenue_matches_finance_example, test_available_cost_uses_target_margin_with_project_override, test_disposable_person_days_from_contract_rate, test_estimated_margin_matches_finance_example, test_confirmed_revenue_from_paid_milestone_nodes, test_cost_ahead_flags_strict_monitoring, test_economics_status_order, test_payment_reconciliation_warning]
+    ontology: [Project]
+
+exceptions:
+  - rule: R1
+    case: 数据库中已经录入的单价、税率等历史值。
+    handling: 数据库列和已有数据保留，不删除；本体与页面不再读取，接口也不再修改它们。
+    basis: 删除数据不可恢复；以后恢复经营口径时可以复用。
+  - rule: R1
+    case: 外部调用方仍向项目设置接口提交这些字段。
+    handling: 接口忽略这些字段，不报错，其余字段照常保存。
+    basis: 避免已有调用方因多传字段而失败。
+  - rule: R2
+    case: 本体浏览器或对象集查询中已保存的视图引用了经营属性。
+    handling: 查询这些属性时返回「未知属性」错误，需要重新选择列；本次没有内置视图引用它们。
+    basis: 4.0.0 是破坏性变更，版本差异页会把删除的属性标为破坏性。
+  - rule: R2
+    case: 经营口径恢复时的数据入口。
+    handling: 按用户设想在本体对象中新建属性维护，并重新走规则卡、例外表与诊断；不直接回滚到 3.1.0。
+    basis: 用户说明「我们在本体对象中新建属性维护」。
+  - rule: R3
+    case: 部门在手合同是否够明年开工（原「争取新合同」的覆盖率依据）。
+    handling: 暂时只按最近一月利用率不高于关注线触发「争取新合同」；覆盖率依据随经营口径恢复。
+    basis: 覆盖率需要可支配人天，可支配人天需要单价。
+  - rule: R3
+    case: 项目可支配人天用完仍在投入（原「释放资源」的依据之一）。
+    handling: 暂时只按计划结束日判断释放；超出预算人天的项目仍由项目风险和运营监控提示。
+    basis: 可支配人天需要单价；预算人天口径不受影响。
+  - rule: R3
+    case: 年度计划中已经保存的确认收入目标和毛利率目标。
+    handling: 列和数据保留，复盘和计划读取时不再返回它们。
+    basis: 与 R1 相同，避免丢失数据。
+  - rule: R4
+    case: 系统设置接口仍可能收到已移除的五项参数。
+    handling: 基础程序继续按原范围校验并保存（列保留），本体与页面不再使用。
+    basis: 参数表的默认行在建表时写入（经验库 L04），删除列的代价大于保留。
+  - rule: R5
+    case: 纯函数与本体脱节，日后恢复时口径可能已变。
+    handling: 恢复时先用这些测试复核，再按新的业务确认调整规则卡。
+    basis: 原则 9：口径取舍交给用户。

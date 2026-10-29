@@ -13,11 +13,14 @@ from .db import Database
 
 ALL_MENU_PERMISSIONS = (
     "projects",
+    "department",
     "health",
     "resource",
     "crm",
+    "investment",
     "employeeWorktime",
     "sync",
+    "ontology",
     "settings",
 )
 

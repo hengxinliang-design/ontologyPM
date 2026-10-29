@@ -1,0 +1,41 @@
+# 本体构建包（发布稿）：客户的已回款、已开票汇总。本体 5.3.0（新增属性，非破坏性）。
+# 依据：用户 2026-10-28「（客户）属性展示中增加‘已回款’、‘已开票’的统计」。
+kind: OntologyBuild
+stage: release
+supersededBy: 2026-10-28-signing-year.yaml
+topic: 客户新增已回款、已开票汇总
+ontologyVersion: 5.3.0
+date: 2026-10-28
+scope:
+  - CQ1 某个客户的合同总额中，已经开票多少、回款多少？
+  - CQ2 哪些客户开票了但还没有回款？
+
+rules:
+  - id: R1
+    statement: 客户新增两个派生属性：「已回款」（totalReceivedAmount）= 该客户全部合同/订单的 CRM 回款金额之和；「已开票」（totalInvoicedAmount）= 全部合同/订单的 CRM 开票金额之和。金额加 FINANCE 标记，量纲为元；在对象详情的「CRM 汇总」中紧接合同总额显示。
+    basis: 用户 2026-10-28 的要求。与同组的「合同总额」口径一致：都取 CRM 合同/订单记录（records.received_amount、records.invoiced_amount），对应项目上的 Project.crmReceivedAmount、Project.invoicedAmount。
+    acceptance: 示例数据中 TPL 的已回款为 0.00、已开票为 74950.00（与合同总额 149900.00 同来自合同 TPL149）；客户的销售机会不计入；两个属性与合同总额一样声明 FINANCE 标记、量纲为元。
+    verifiedBy: [test_customers_sum_received_and_invoiced_amounts]
+    ontology: [Customer, Customer.totalReceivedAmount, Customer.totalInvoicedAmount, Customer.totalContractValue]
+
+exceptions:
+  - rule: R1
+    case: 项目上人工确认的回款节点到账金额。
+    handling: 不计入客户的「已回款」；客户汇总只取 CRM 回款金额，与合同总额同源。按回款节点统计的到账见项目的回款节点汇总。
+    basis: 两个来源可能不同步，混合相加会重复或缺漏；同一组汇总属性应同源。
+  - rule: R1
+    case: CRM 中回款金额或开票金额为空的合同。
+    handling: 按 0 计，不影响其他合同的合计。
+    basis: 与合同总额的处理一致（空金额不计入合计）。
+  - rule: R1
+    case: 开口合同的开票、回款超过合同框架额。
+    handling: 照实汇总，不按合同总额封顶。
+    basis: 开口合同按工作量结算，合同金额只是框架额（业务规则 4 节）。
+  - rule: R1
+    case: 没有客户名称的 CRM 记录（如示例数据中的两个商机）。
+    handling: 不形成客户对象，也不计入任何客户的汇总，与现有客户识别规则一致。
+    basis: 客户对象由 records.customer 去重得到。
+  - rule: R1
+    case: 只能读客户、不能看金额的用户。
+    handling: 目前不存在：能读客户的权限（项目管理、CRM 查询、部门经营）都持有 FINANCE 标记。以后若给客户增加不含 FINANCE 的读权限，这两项与合同总额一起自动脱敏。
+    basis: 脱敏按属性的 marking 统一执行（Safe 层），不需要为新属性单独处理。

@@ -1,0 +1,89 @@
+kind: ObjectType
+version: v1
+definition:
+  apiName: Contract
+  displayName: 合同/订单
+  pluralDisplayName: 合同/订单
+  description: CRM 当前快照中的合同或订单记录，只读，经 CRM 导入更新。
+  primaryKey: recordId
+  titleProperty: subject
+  datasource: contracts
+  backingDatasets: [records]
+  readPermissions: [crm, projects]
+  icon: file-text
+  displayOrder: 3
+  defaultOrder: -signedAt
+  properties:
+    - {apiName: recordId, displayName: 记录 ID, type: string, sourceKind: system, source: records.record_id（由 CRM 内部 ID 生成的稳定 ID）}
+    - {apiName: projectNumber, displayName: 项目编号, type: string, sourceKind: system, source: records.project_number，缺省从主题识别, searchable: true}
+    - {apiName: subject, displayName: 主题, type: string, sourceKind: system, source: records.subject, searchable: true}
+    - {apiName: customerName, displayName: 客户, type: string, sourceKind: system, source: records.customer, searchable: true}
+    - {apiName: category, displayName: 分类, type: string, sourceKind: system, source: records.category}
+    - {apiName: signedAt, displayName: 签订日期, type: date, sourceKind: system, source: records.signed_at}
+    - {apiName: signedYear, displayName: 签约年度, type: integer, sourceKind: derived, source: 签订日期（CRM 签约时间）的年份；没有签订日期时为空, unit: none}
+    - {apiName: totalAmount, displayName: 合同金额, type: money, sourceKind: system, source: records.total_amount, marking: FINANCE, unit: yuan}
+    - {apiName: receivedAmount, displayName: CRM 已回款, type: money, sourceKind: system, source: records.received_amount, marking: FINANCE, unit: yuan}
+    - {apiName: invoicedAmount, displayName: 已开票, type: money, sourceKind: system, source: records.invoiced_amount, marking: FINANCE, unit: yuan}
+    - {apiName: mergedFromOpportunity, displayName: 由商机转化, type: boolean, sourceKind: system, source: records.merged_from_opportunity}
+    - {apiName: crmOwner, displayName: CRM 负责人, type: string, sourceKind: system, source: records.owner, searchable: true}
+    - {apiName: status, displayName: 状态, type: string, sourceKind: system, source: records.status}
+    - {apiName: updatedAt, displayName: 源更新时间, type: datetime, sourceKind: system, source: records.updated_at}
+---
+kind: ObjectType
+version: v1
+definition:
+  apiName: Opportunity
+  displayName: 销售机会
+  pluralDisplayName: 销售机会
+  description: CRM 当前快照中的销售机会，只读。已转化为合同的商机保留（原始记录供审计），用「已转化为合同」区分仍在跟进的商机。
+  primaryKey: recordId
+  titleProperty: subject
+  datasource: opportunities
+  backingDatasets: [records]
+  readPermissions: [crm, projects]
+  icon: target
+  displayOrder: 4
+  defaultOrder: -signedAt
+  properties:
+    - {apiName: recordId, displayName: 记录 ID, type: string, sourceKind: system, source: records.record_id（由 CRM 内部 ID 生成的稳定 ID）}
+    - {apiName: subject, displayName: 主题, type: string, sourceKind: system, source: records.subject, searchable: true}
+    - {apiName: projectNumber, displayName: 项目编号, type: string, sourceKind: system, source: records.project_number，缺省从主题识别, searchable: true}
+    - {apiName: status, displayName: 状态, type: string, sourceKind: system, source: records.status}
+    - {apiName: probability, displayName: 赢率, type: percent, sourceKind: system, source: records.probability, unit: percent}
+    - {apiName: convertedToContract, displayName: 已转化为合同, type: boolean, sourceKind: derived, source: 同一项目编号在 CRM 当前快照中已有合同或订单时为是（与导入时的商机转化规则一致）；商机原始记录保留供审计}
+    - {apiName: salesStage, displayName: 销售阶段, type: string, sourceKind: system, source: records.sales_stage（只描述销售过程，不作为转项目的判断依据）}
+    - {apiName: signedAt, displayName: 预计签单日期, type: date, sourceKind: system, source: records.signed_at（商机导入的「预计签单日期」）}
+    - {apiName: customerName, displayName: 客户, type: string, sourceKind: system, source: records.customer, searchable: true}
+    - {apiName: category, displayName: 分类, type: string, sourceKind: system, source: records.category}
+    - {apiName: totalAmount, displayName: 预计金额, type: money, sourceKind: system, source: records.total_amount, marking: FINANCE, unit: yuan}
+    - {apiName: crmOwner, displayName: CRM 负责人, type: string, sourceKind: system, source: records.owner, searchable: true}
+    - {apiName: updatedAt, displayName: 源更新时间, type: datetime, sourceKind: system, source: records.updated_at}
+---
+kind: ObjectType
+version: v1
+definition:
+  apiName: Customer
+  displayName: 客户
+  pluralDisplayName: 客户
+  description: 语义层识别的客户实体：物理层只有 records.customer 一列，本体将其提升为可关联的对象。
+  primaryKey: customerName
+  titleProperty: customerName
+  datasource: customers
+  backingDatasets: [records]
+  readPermissions: [crm, projects, department]
+  icon: building
+  displayOrder: 5
+  defaultOrder: customerName
+  properties:
+    - {apiName: customerName, displayName: 客户名称, type: string, sourceKind: derived, source: distinct(records.customer), searchable: true}
+    - {apiName: contractCount, displayName: 合同数, type: integer, sourceKind: derived, source: count(contract_order), unit: count}
+    - {apiName: opportunityCount, displayName: 商机数, type: integer, sourceKind: derived, source: count(sales_opportunity), unit: count}
+    - {apiName: projectCount, displayName: 项目数, type: integer, sourceKind: derived, source: count(distinct project_number), unit: count}
+    - {apiName: totalContractValue, displayName: 合同总额, type: money, sourceKind: derived, source: Σ records.total_amount, marking: FINANCE, unit: yuan}
+    - {apiName: totalReceivedAmount, displayName: 已回款, type: money, sourceKind: derived, source: 该客户全部合同/订单的 Σ records.received_amount（CRM 回款金额；不含回款节点的人工到账）, marking: FINANCE, unit: yuan}
+    - {apiName: totalInvoicedAmount, displayName: 已开票, type: money, sourceKind: derived, source: 该客户全部合同/订单的 Σ records.invoiced_amount（CRM 开票金额）, marking: FINANCE, unit: yuan}
+    - {apiName: currentYearContractValue, displayName: 本年合同总额, type: money, sourceKind: derived, source: 签约年度等于本年度（服务器当前日期）的合同/订单 Σ records.total_amount, marking: FINANCE, unit: yuan}
+    - {apiName: currentYearReceivedAmount, displayName: 本年已回款, type: money, sourceKind: derived, source: 本年度签订的合同/订单至今的 Σ records.received_amount（CRM 回款金额，按签约年度归集，不是本年到账）, marking: FINANCE, unit: yuan}
+    - {apiName: currentYearInvoicedAmount, displayName: 本年已开票, type: money, sourceKind: derived, source: 本年度签订的合同/订单至今的 Σ records.invoiced_amount（CRM 开票金额，按签约年度归集）, marking: FINANCE, unit: yuan}
+    - {apiName: latestSignedAt, displayName: 最近签订, type: date, sourceKind: derived, source: 该客户合同/订单签订日期的最大值（不含商机的预计签单日期）；没有合同时为空}
+    - {apiName: crmOwners, displayName: CRM 负责人, type: json, sourceKind: derived, source: distinct(records.owner)}

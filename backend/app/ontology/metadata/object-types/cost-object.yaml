@@ -1,0 +1,43 @@
+kind: ObjectType
+version: v1
+definition:
+  apiName: CostObject
+  displayName: 成本对象
+  pluralDisplayName: 成本对象（项目代码）
+  description: 项目代码是全生命周期的成本归集对象。商机阶段的售前投入、签约后的交付投入都记在同一代码上；按商机结论把投入分为获客成本、履约成本、在途投入和沉没成本（管理口径，单位人天）。
+  primaryKey: code
+  titleProperty: title
+  datasource: costObjects
+  backingDatasets: [records, time_entries, project_settings, opportunity_outcomes, investment_settings]
+  readPermissions: [projects, investment, resource]
+  icon: coins
+  displayOrder: 2
+  defaultOrder: -totalPersonDays
+  properties:
+    - {apiName: code, displayName: 项目代码, type: string, sourceKind: system, source: time_entries.project_number ∪ records.project_number, searchable: true}
+    - {apiName: title, displayName: 名称, type: string, sourceKind: derived, source: CRM 主题，未建档时为项目代码, searchable: true}
+    - {apiName: customerName, displayName: 客户, type: string, sourceKind: system, source: records.customer, searchable: true}
+    - {apiName: registration, displayName: 建档状态, type: enum, valueType: CodeRegistration, sourceKind: derived, source: 有合同为已签约，仅有商机为商机，CRM 无记录为未建档，内部代码清单为内部}
+    - {apiName: opportunityOutcome, displayName: 商机结论, type: enum, valueType: OpportunityOutcome, sourceKind: derived, source: 人工确认优先；合同或“成功”商机为赢单；CRM 失败状态为丢单, derivedFrom: costObjectInvestment}
+    - {apiName: outcomeSource, displayName: 结论来源, type: string, sourceKind: derived, source: 合同 / CRM 商机成功 / CRM 状态 / 人工确认}
+    - {apiName: outcomeReason, displayName: 丢单原因, type: string, sourceKind: manual, source: opportunity_outcomes.reason 或 CRM 状态}
+    - {apiName: outcomeDate, displayName: 结论日期, type: date, sourceKind: manual, source: opportunity_outcomes.outcome_date}
+    - {apiName: winProbability, displayName: 赢率, type: percent, sourceKind: system, source: records.probability（商机）, unit: percent}
+    - {apiName: conversionDate, displayName: 签约日, type: date, sourceKind: derived, source: 最早的合同签订日；赢单商机无合同时取商机签单日期}
+    - {apiName: firstWorkDate, displayName: 首次投入, type: date, sourceKind: derived, source: min(time_entries.work_date)}
+    - {apiName: lastWorkDate, displayName: 最近投入, type: date, sourceKind: derived, source: max(time_entries.work_date)}
+    - {apiName: employeeCount, displayName: 投入人数, type: integer, sourceKind: derived, source: count(distinct employee_id), unit: person}
+    - {apiName: totalPersonDays, displayName: 总投入人天, type: decimal, sourceKind: derived, source: Σ(hours + overtime_hours) / 每人天小时数，只计有效工时（已驳回和草稿不计入）, derivedFrom: costObjectInvestment, unit: personDay}
+    - {apiName: presalesPersonDays, displayName: 售前投入人天, type: decimal, sourceKind: derived, source: 获客成本 + 在途投入 + 沉没成本, derivedFrom: costObjectInvestment, unit: personDay}
+    - {apiName: costToWinPersonDays, displayName: 获客成本人天, type: decimal, sourceKind: derived, source: 赢单代码签约日前的投入, derivedFrom: costObjectInvestment, unit: personDay}
+    - {apiName: deliveryPersonDays, displayName: 履约成本人天, type: decimal, sourceKind: derived, source: 赢单代码签约日及之后的投入, derivedFrom: costObjectInvestment, unit: personDay}
+    - {apiName: atRiskPersonDays, displayName: 在途投入人天, type: decimal, sourceKind: derived, source: 进行中商机的投入（风险敞口）, derivedFrom: costObjectInvestment, unit: personDay}
+    - {apiName: sunkPersonDays, displayName: 沉没成本人天, type: decimal, sourceKind: derived, source: 已丢单或已放弃商机的投入, derivedFrom: costObjectInvestment, unit: personDay}
+    - {apiName: expectedSunkPersonDays, displayName: 预期沉没人天, type: decimal, sourceKind: derived, source: 在途投入 × (1 − 赢率)，无赢率时用历史赢单率, derivedFrom: costObjectInvestment, unit: personDay}
+    - {apiName: unregisteredPersonDays, displayName: 未建档投入人天, type: decimal, sourceKind: derived, source: CRM 无记录代码的投入, derivedFrom: costObjectInvestment, unit: personDay}
+    - {apiName: internalPersonDays, displayName: 内部投入人天, type: decimal, sourceKind: derived, source: 内部代码的投入, derivedFrom: costObjectInvestment, unit: personDay}
+    - {apiName: costToWinShare, displayName: 获客成本占比, type: percent, sourceKind: derived, source: 获客成本 ÷（获客成本 + 履约成本）, derivedFrom: costObjectInvestment, unit: percent}
+    - {apiName: presalesAgeDays, displayName: 在途账龄（天）, type: integer, sourceKind: derived, source: 今天 − 首次售前投入日（仅进行中商机）, derivedFrom: costObjectInvestment, unit: day}
+    - {apiName: stalled, displayName: 疑似停滞, type: boolean, sourceKind: derived, source: 进行中商机超过停滞天数无新投入, derivedFrom: costObjectInvestment}
+    - {apiName: estimatedCost, displayName: 折算成本, type: money, sourceKind: derived, source: 总投入人天 × 标准人天成本（未配置时为空）, marking: FINANCE, derivedFrom: costObjectInvestment, unit: yuan}
+    - {apiName: dataFlags, displayName: 数据提示, type: json, sourceKind: derived, source: 缺少签约日期、缺少赢率等}

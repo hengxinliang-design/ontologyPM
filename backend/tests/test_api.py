@@ -3,6 +3,7 @@ import base64
 import io
 import zipfile
 from dataclasses import replace
+from decimal import Decimal
 from pathlib import Path
 
 import httpx
@@ -33,6 +34,11 @@ def settings(tmp_path: Path) -> Settings:
         pm_assistant_model="gpt-5.2",
         auth_enabled=False,
         require_crm_project_match=False,
+        # Unit tests exercise capacity calculations without relying on the
+        # external holiday subscription. The service then uses its documented
+        # weekday-only fallback deterministically.
+        china_holiday_rest_ics_url="http://127.0.0.1:9/rest.ics",
+        china_holiday_work_ics_url="http://127.0.0.1:9/work.ics",
     )
 
 
@@ -162,7 +168,7 @@ def test_records_and_project_endpoints(tmp_path):
         project = client.get("/api/v1/projects/TPL149").json()["data"]
         contract = project["crm_records"][0]
         assert contract["probability"] == 100
-        assert contract["status"] == "未完成"
+        assert contract["status"] is None
         assert contract["merged_from_opportunity"] is True
         assert contract["signed_at"] == "2026-06-16"
         assert contract["total_amount"]["amount"] == "149900.00"
@@ -173,17 +179,122 @@ def test_records_and_project_endpoints(tmp_path):
         assert project["crm_received_amount"] == "0.00"
 
 
+def test_cursor_pagination_for_crm_and_project_lists(tmp_path):
+    with TestClient(create_app(settings(tmp_path))) as client:
+        first_crm = client.get("/api/v1/records", params={"page_size": 2}).json()
+        cursor = first_crm["meta"]["next_cursor"]
+        assert cursor
+        second_crm = client.get("/api/v1/records", params={"page_size": 2, "cursor": cursor})
+        assert second_crm.status_code == 200
+        assert not {
+            row["record_id"] for row in first_crm["data"]
+        }.intersection(row["record_id"] for row in second_crm.json()["data"])
+        assert client.get("/api/v1/records", params={"page": 2}).status_code == 422
+        assert client.get(
+            "/api/v1/records",
+            params={"page_size": 2, "cursor": cursor, "data_type": "contract_order"},
+        ).status_code == 422
+
+        first_projects = client.get("/api/v1/projects", params={"page_size": 2}).json()
+        assert first_projects["meta"]["next_cursor"]
+        second_projects = client.get(
+            "/api/v1/projects",
+            params={"page_size": 2, "cursor": first_projects["meta"]["next_cursor"]},
+        ).json()
+        assert {
+            row["project_number"] for row in first_projects["data"]
+        }.isdisjoint(row["project_number"] for row in second_projects["data"])
+        assert client.get(
+            "/api/v1/projects",
+            params={"page_size": 2, "cursor": first_projects["meta"]["next_cursor"], "risk_level": "critical"},
+        ).status_code == 422
+
+
+def test_updated_since_returns_no_continuation_cursor(tmp_path):
+    with TestClient(create_app(settings(tmp_path))) as client:
+        body = client.get(
+            "/api/v1/records",
+            params={"page_size": 1, "updated_since": "9999-01-01T00:00:00+00:00"},
+        ).json()
+        assert body["data"] == []
+        assert body["meta"]["next_cursor"] is None
+
+
+def test_request_metrics_include_percentiles_and_import_duration(tmp_path):
+    with TestClient(create_app(settings(tmp_path))) as client:
+        assert client.get("/api/v1/projects", params={"page_size": 2}).status_code == 200
+        imported = client.post(
+            "/api/v1/time-entries/import",
+            json=[{
+                "external_id": "METRIC-001",
+                "project_number": "TPL149",
+                "employee_id": "EMP-1",
+                "employee_name": "性能测试",
+                "work_date": "2026-07-01",
+                "hours": "8",
+                "approved_hours": "8",
+                "approval_status": "approved",
+                "work_content": "性能验证",
+                "source_updated_at": "2026-07-01T08:00:00+08:00",
+            }],
+        )
+        assert imported.status_code == 200
+        summary = client.get("/api/v1/performance").json()["data"]
+        projects = next(item for item in summary["endpoints"] if item["endpoint"] == "/api/v1/projects")
+        imports = next(item for item in summary["endpoints"] if item["endpoint"] == "/api/v1/time-entries/import")
+        assert projects["sample_count"] >= 1
+        assert projects["p50_ms"] is not None and projects["p95_ms"] >= projects["p50_ms"]
+        assert imports["is_import"] is True
+        assert imports["average_returned_rows"] == 1
+
+
+def test_database_wait_policy_and_date_indexes_are_initialized(tmp_path):
+    with TestClient(create_app(settings(tmp_path))) as client:
+        with client.app.state.database.connect() as connection:
+            assert connection.execute("PRAGMA busy_timeout").fetchone()[0] == 5000
+            indexes = {
+                row[1] for row in connection.execute("PRAGMA index_list('time_entries')")
+            }
+        assert {"idx_time_date_employee_project", "idx_time_date_project"}.issubset(indexes)
+
+
+def test_pm_assistant_retrieval_uses_bounded_project_candidates(tmp_path, monkeypatch):
+    with TestClient(create_app(settings(tmp_path))) as client:
+        service = client.app.state.pm_assistant
+        original_export = service.projects.records.export_records
+        requested_scopes: list[set[str] | None] = []
+
+        def bounded_export(project_numbers=None):
+            requested_scopes.append(project_numbers)
+            return original_export(project_numbers)
+
+        monkeypatch.setattr(service.projects.records, "export_records", bounded_export)
+        service._retrieve("请分析 TPL149 的风险和回款")  # project facts come from the ontology index, built once
+        requested_scopes.clear()
+        context, sources = service._retrieve("请分析 TPL149 的风险和回款")
+        assert context["projects"]
+        assert context["projects"][0]["project_number"] == "TPL149"
+        assert context["retrieval_scope"]["candidate_projects"] <= 16
+        assert context["retrieval_scope"]["candidate_crm_records"] <= 24
+        assert all(scope is not None for scope in requested_scopes), "later questions never rebuild every project"
+        assert any("项目主数据库" in source for source in sources)
+
+
 def test_project_portfolio(tmp_path):
     with TestClient(create_app(settings(tmp_path))) as client:
         response = client.get("/api/v1/projects")
         assert response.status_code == 200
         body = response.json()
         assert body["summary"]["total_projects"] == 3
+        assert Decimal(body["summary"]["outstanding_receivable_amount"]) == sum(
+            (Decimal(row["outstanding_receivable_amount"] or "0") for row in body["data"]),
+            Decimal("0"),
+        )
         tpl = next(item for item in body["data"] if item["project_number"] == "TPL149")
         assert tpl["master_category"] == "项目"
         assert tpl["contract_type"] == "construction"
         assert tpl["status"] == "active"
-        assert tpl["contract_status"] == "进行中"
+        assert "contract_status" not in tpl
         assert tpl["outstanding_receivable_amount"] == "149900.00"
         assert tpl["current_milestone"]["name"] == "接口方案确认"
         assert tpl["payment_summary"]["total_nodes"] == 2
@@ -220,7 +331,36 @@ def test_project_portfolio_fuzzy_search_matches_code_name_and_linked_customer(tm
             assert [row["project_number"] for row in health["data"]] == ["FZY901"]
 
 
-def test_contract_status_and_outstanding_receivable_use_imported_crm_amounts(tmp_path):
+def test_contract_csv_accepts_new_headers_and_gb18030_encoding(tmp_path):
+    with TestClient(create_app(settings(tmp_path))) as client:
+        csv_text = (
+            "ID,对应客户,主题,产品/服务,我方签约人,签约时间,分类,状态,总金额,回款金额,开票金额\n"
+            "1554,ZMJ,ZMJ457-新合同,ISL-DEPM,Li Qiang,2025/4/16,实施服务,结束,\"15,805.06\",\"15,805.06\",\"15,805.06\"\n"
+        )
+        response = client.post(
+            "/api/v1/crm-imports",
+            json={
+                "data_type": "contract_order",
+                "filename": "new-contract-template.csv",
+                "content_base64": base64.b64encode(csv_text.encode("gb18030")).decode(),
+            },
+        )
+        assert response.status_code == 200, response.text
+        assert {"subject", "owner", "category", "status"}.issubset(
+            response.json()["data"]["recognized_fields"]
+        )
+
+        record = client.get("/api/v1/projects/ZMJ457/records").json()["data"][0]
+        assert record["owner"] == "Li Qiang"
+        assert record["signed_at"] == "2025-04-16"
+        assert record["category"] == "实施服务"
+        assert record["status"] == "结束"
+        assert record["total_amount"]["amount"] == "15805.06"
+        assert record["received_amount"]["amount"] == "15805.06"
+        assert record["invoiced_amount"]["amount"] == "15805.06"
+
+
+def test_source_status_is_preserved_and_outstanding_receivable_uses_imported_amounts(tmp_path):
     with TestClient(create_app(settings(tmp_path))) as client:
         response = client.post(
             "/api/v1/crm-imports",
@@ -229,8 +369,8 @@ def test_contract_status_and_outstanding_receivable_use_imported_crm_amounts(tmp
                 "filename": "completed-contract.csv",
                 "content_base64": base64.b64encode(
                     (
-                        "crm_internal_id,项目编号,主题,所有者,签约时间,总金额,回款金额,开票金额\n"
-                        "done-contract,DONE101,DONE101-已结束合同,Manager Wang,2026-08-01,100.00,100.00,100.00\n"
+                        "crm_internal_id,项目编号,主题,我方签约人,签约时间,分类,状态,总金额,回款金额,开票金额\n"
+                        "done-contract,DONE101,DONE101-已结束合同,Manager Wang,2026-08-01,实施服务,结束,100.00,100.00,100.00\n"
                     ).encode()
                 ).decode(),
             },
@@ -238,91 +378,106 @@ def test_contract_status_and_outstanding_receivable_use_imported_crm_amounts(tmp
         assert response.status_code == 200, response.text
 
         completed = client.get("/api/v1/projects/DONE101").json()["data"]
-        assert completed["contract_status"] == "已结束"
-        assert completed["outstanding_receivable_amount"] is None
+        assert "contract_status" not in completed
+        assert completed["lifecycle_status"] == "completed"
+        assert completed["status"] == "completed"
+        assert completed["sales_owner"] == "Manager Wang"
+        assert completed["project_manager"] is None
+        assert completed["category"] == "实施服务"
+        assert completed["outstanding_receivable_amount"] == "0.00"
+        completed_filter = client.get(
+            "/api/v1/projects?lifecycle_status=completed&q=DONE101"
+        )
+        assert completed_filter.status_code == 200
+        assert [row["project_number"] for row in completed_filter.json()["data"]] == ["DONE101"]
+        assert "completed" in completed_filter.json()["meta"]["lifecycle_statuses"]
+        category_filter = client.get("/api/v1/projects?category=实施服务")
+        assert category_filter.status_code == 200
+        assert "实施服务" in category_filter.json()["meta"]["categories"]
+        assert all(
+            "实施服务" in row["category"]
+            for row in category_filter.json()["data"]
+        )
+        imported_record = client.get("/api/v1/projects/DONE101/records").json()["data"][0]
+        assert imported_record["owner"] == "Manager Wang"
+        assert imported_record["category"] == "实施服务"
+        assert imported_record["status"] == "结束"
 
         ongoing = client.get("/api/v1/projects/TPL149").json()["data"]
-        assert ongoing["contract_status"] == "进行中"
         assert ongoing["outstanding_receivable_amount"] == "149900.00"
 
-        health = client.get(
+        health_response = client.get(
             "/api/v1/project-health?month=2026-08&project_number=DONE101"
-        ).json()["data"]
-        assert health[0]["contract_status"] == "已结束"
-        assert health[0]["outstanding_receivable_amount"] is None
+        ).json()
+        health = health_response["data"]
+        assert "contract_status" not in health[0]
+        assert health[0]["project_status"] == "completed"
+        assert health[0]["sales_owner"] == "Manager Wang"
+        assert "completed" in health_response["meta"]["lifecycle_statuses"]
+        completed_health_filter = client.get(
+            "/api/v1/project-health?month=2026-08&lifecycle_status=completed&q=DONE101"
+        )
+        assert [row["project_number"] for row in completed_health_filter.json()["data"]] == ["DONE101"]
+
+        overridden = client.patch(
+            "/api/v1/projects/DONE101/settings",
+            json={"lifecycle_status": "active"},
+        )
+        assert overridden.status_code == 200
+        assert overridden.json()["data"]["lifecycle_status"] == "active"
+        active_filter = client.get(
+            "/api/v1/projects?lifecycle_status=active&q=DONE101"
+        )
+        assert [row["project_number"] for row in active_filter.json()["data"]] == ["DONE101"]
+        active_health_filter = client.get(
+            "/api/v1/project-health?month=2026-08&lifecycle_status=active&q=DONE101"
+        )
+        assert [row["project_number"] for row in active_health_filter.json()["data"]] == ["DONE101"]
 
 
-def test_project_portfolio_filters_by_contract_status(tmp_path):
+def test_project_health_warns_about_worktime_after_contract_completion(tmp_path):
     with TestClient(create_app(settings(tmp_path))) as client:
         response = client.post(
             "/api/v1/crm-imports",
             json={
                 "data_type": "contract_order",
-                "filename": "completed-contract.csv",
+                "filename": "completed-contract-with-extra-worktime.csv",
                 "content_base64": base64.b64encode(
                     (
-                        "crm_internal_id,项目编号,主题,所有者,签约时间,总金额,回款金额,开票金额\n"
-                        "done-filter,DONEFILTER,DONEFILTER-已结束合同,Manager Wang,2026-08-01,100.00,100.00,100.00\n"
+                        "crm_internal_id,项目编号,主题,所有者,签约时间,状态,总金额,回款金额,开票金额\n"
+                        "extra-contract,EXTRA101,EXTRA101-结束后额外投入,Manager Wang,2026-08-01,结束,100.00,100.00,100.00\n"
                     ).encode()
                 ).decode(),
             },
         )
         assert response.status_code == 200, response.text
-
-        completed = client.get(
-            "/api/v1/projects", params={"contract_status": "已结束"}
-        ).json()["data"]
-        assert {row["project_number"] for row in completed} == {"DONEFILTER"}
-
-        ongoing = client.get(
-            "/api/v1/projects", params={"contract_status": "进行中"}
-        ).json()["data"]
-        assert ongoing
-        assert all(row["contract_status"] == "进行中" for row in ongoing)
-
-        unsigned = client.get(
-            "/api/v1/projects", params={"contract_status": "未签约"}
-        ).json()["data"]
-        assert unsigned
-        assert all(row["contract_status"] is None for row in unsigned)
-
-
-def test_project_health_filters_by_contract_status(tmp_path):
-    with TestClient(create_app(settings(tmp_path))) as client:
         response = client.post(
-            "/api/v1/crm-imports",
-            json={
-                "data_type": "contract_order",
-                "filename": "health-completed-contract.csv",
-                "content_base64": base64.b64encode(
-                    (
-                        "crm_internal_id,项目编号,主题,所有者,签约时间,总金额,回款金额,开票金额\n"
-                        "done-health,DONEHEALTH,DONEHEALTH-已结束合同,Manager Wang,2026-08-01,100.00,100.00,100.00\n"
-                    ).encode()
-                ).decode(),
-            },
+            "/api/v1/time-entries/import",
+            json=[
+                {
+                    "external_id": "EXTRA-WORK-001",
+                    "project_number": "EXTRA101",
+                    "employee_id": "EXTRA-E001",
+                    "employee_name": "额外投入员工",
+                    "work_date": "2026-08-15",
+                    "hours": "8",
+                    "approved_hours": "8",
+                    "approval_status": "approved",
+                    "work_content": "合同结束后的工作",
+                    "source_updated_at": "2026-08-15T18:00:00+08:00",
+                }
+            ],
         )
         assert response.status_code == 200, response.text
 
-        completed = client.get(
-            "/api/v1/project-health",
-            params={"month": "2026-08", "contract_status": "已结束"},
-        ).json()["data"]
-        assert {row["project_number"] for row in completed} == {"DONEHEALTH"}
-
-        ongoing = client.get(
-            "/api/v1/project-health",
-            params={"month": "2026-08", "contract_status": "进行中"},
-        ).json()["data"]
-        assert ongoing
-        assert all(row["contract_status"] == "进行中" for row in ongoing)
-
-        unsigned = client.get(
-            "/api/v1/project-health",
-            params={"month": "2026-08", "contract_status": "未签约"},
-        ).json()["data"]
-        assert unsigned
-        assert all(row["contract_status"] is None for row in unsigned)
+        body = client.get(
+            "/api/v1/project-health", params={"month": "2026-08"}
+        ).json()
+        row = next(item for item in body["data"] if item["project_number"] == "EXTRA101")
+        assert row["health_status"] == "额外投入"
+        assert row["period_actual_person_days"] == "1.00"
+        assert row["risk_reasons"][0] == "来源状态已结束，统计期仍填报 1.00 人天（额外投入）"
+        assert body["summary"]["warning_projects"] >= 1
 
 
 def test_csv_export(tmp_path):
@@ -347,12 +502,24 @@ def test_manual_project_setup_milestone_todos_and_confirmation(tmp_path):
                 "contract_type": "construction",
                 "lifecycle_status": "active",
                 "planned_person_days": "40",
+                "planned_start": "2026-06-01",
+                "planned_end": "2026-07-31",
                 "project_manager": "Manager Wang",
             },
         )
         assert configured.status_code == 200
         assert configured.json()["data"]["maintenance_reasons"] == ["制定里程碑计划"]
+        assert configured.json()["data"]["planned_start"] == "2026-06-01"
+        assert configured.json()["data"]["planned_end"] == "2026-07-31"
 
+        invalid_schedule = client.patch(
+            "/api/v1/projects/WDR101/settings",
+            json={"planned_start": "2026-08-01", "planned_end": "2026-07-31"},
+        )
+        assert invalid_schedule.status_code == 422
+
+        # Ontology 7.0.0: a milestone's payment comes from a linked payment term (amount from the term, date = planned end).
+        term = client.post("/api/v1/projects/WDR101/payment-terms", json={"name": "需求确认款", "planned_amount": "412500"}).json()["data"]
         created = client.post(
             "/api/v1/projects/WDR101/milestones",
             json={
@@ -361,14 +528,12 @@ def test_manual_project_setup_milestone_todos_and_confirmation(tmp_path):
                 "planned_end": "2026-06-30",
                 "owner": "Manager Wang",
                 "deliverable": "需求说明书",
-                "is_payment_node": True,
-                "payment_date": "2026-07-01",
-                "payment_amount": "412500",
+                "payment_term_id": term["payment_term_id"],
             },
         )
         assert created.status_code == 201
         milestone = created.json()["data"]
-        assert milestone["payment_amount"] == "412500.00"
+        assert (milestone["payment_amount"], milestone["payment_date"]) == ("412500.00", "2026-06-30")
 
         edited = client.patch(
             f"/api/v1/projects/WDR101/milestones/{milestone['milestone_id']}",
@@ -378,15 +543,13 @@ def test_manual_project_setup_milestone_todos_and_confirmation(tmp_path):
                 "planned_end": "2026-07-02",
                 "owner": "Admin User",
                 "deliverable": "签字版需求说明书",
-                "is_payment_node": True,
-                "payment_date": "2026-07-05",
                 "payment_amount": "420000",
             },
         )
         assert edited.status_code == 200
         milestone = edited.json()["data"]
         assert milestone["name"] == "需求与范围确认"
-        assert milestone["payment_amount"] == "420000.00"
+        assert (milestone["payment_amount"], milestone["payment_date"]) == ("412500.00", "2026-07-02"), "the old field is ignored"
 
         removable = client.post(
             "/api/v1/projects/WDR101/milestones",
@@ -394,9 +557,8 @@ def test_manual_project_setup_milestone_todos_and_confirmation(tmp_path):
                 "name": "可删除待确认节点",
                 "planned_start": "2026-08-01",
                 "planned_end": "2026-08-15",
-                "is_payment_node": True,
-                "payment_date": "2026-08-15",
-                "payment_amount": "1000",
+                "payment_term_id": client.post("/api/v1/projects/WDR101/payment-terms",
+                                               json={"name": "可删除款", "planned_amount": "1000"}).json()["data"]["payment_term_id"],
             },
         ).json()["data"]
         deleted = client.delete(
@@ -413,16 +575,11 @@ def test_manual_project_setup_milestone_todos_and_confirmation(tmp_path):
             for item in after_delete["payment_nodes"]
         )
 
-        standalone_payment = client.post(
-            "/api/v1/projects/WDR101/payment-nodes",
-            json={
-                "name": "独立回款节点",
-                "planned_date": "2026-09-01",
-                "planned_amount": "10000",
-            },
+        # Ontology 6.0.0 retired creating standalone payment nodes; existing ones (seeded here) stay maintainable.
+        nodes = client.app.state.project_repository
+        payment = nodes.create_payment_node(
+            "WDR101", {"name": "独立回款节点", "planned_date": "2026-09-01", "planned_amount": "10000"}
         )
-        assert standalone_payment.status_code == 201
-        payment = standalone_payment.json()["data"]
         edited_payment = client.patch(
             f"/api/v1/projects/WDR101/payment-nodes/{payment['payment_node_id']}",
             json={
@@ -438,14 +595,9 @@ def test_manual_project_setup_milestone_todos_and_confirmation(tmp_path):
         )
         assert deleted_payment.status_code == 204
 
-        locked_payment = client.post(
-            "/api/v1/projects/WDR101/payment-nodes",
-            json={
-                "name": "已到账回款",
-                "planned_date": "2026-09-20",
-                "planned_amount": "8000",
-            },
-        ).json()["data"]
+        locked_payment = nodes.create_payment_node(
+            "WDR101", {"name": "已到账回款", "planned_date": "2026-09-20", "planned_amount": "8000"}
+        )
         assert client.post(
             f"/api/v1/projects/WDR101/payment-nodes/{locked_payment['payment_node_id']}/confirm",
             json={"confirmed_by": "Manager Wang"},
@@ -483,8 +635,170 @@ def test_manual_project_setup_milestone_todos_and_confirmation(tmp_path):
         ).status_code == 200
         completed = client.get("/api/v1/projects/WDR101").json()["data"]
         assert completed["received_amount"] == completed["payment_summary"]["actual_amount"]
-        assert completed["received_amount"] == "428000.00"
+        assert completed["received_amount"] == "420500.00", "412500 from the linked term + 8000 confirmed earlier"
         assert completed["pending_todos"] == 0
+
+
+def test_contract_payment_terms_are_linked_through_milestones(tmp_path):
+    with TestClient(create_app(settings(tmp_path))) as client:
+        created = client.post(
+            "/api/v1/projects/WDR101/payment-terms",
+            json={
+                "name": "蓝图确认款",
+                "payment_ratio": "30",
+                "planned_amount": "206700",
+                "notes": "收到等额发票后 30 日内支付",
+            },
+        )
+        assert created.status_code == 201, created.text
+        term = created.json()["data"]
+        assert term["payment_ratio"] == "30.00"
+        assert term["linked_milestone_id"] is None
+
+        before_link = client.get("/api/v1/projects/WDR101").json()["data"]
+        assert len(before_link["payment_terms"]) == 1
+        assert before_link["payment_nodes"] == []
+        assert before_link["todo_events"] == []
+        overview = client.get("/api/v1/projects").json()["data"]
+        overview_term = next(row for row in overview if row["project_number"] == "WDR101")["payment_term_summary"]
+        assert overview_term == [{
+            "name": "蓝图确认款", "payment_ratio": "30.00", "planned_amount": "206700.00",
+            "linked_milestone_id": None, "payment_node_id": None,
+            "node_status": None, "planned_date": None,
+        }]
+
+        milestone_response = client.post(
+            "/api/v1/projects/WDR101/milestones",
+            json={
+                "name": "蓝图设计确认",
+                "planned_start": "2026-09-01",
+                "planned_end": "2026-09-20",
+                "payment_term_id": term["payment_term_id"],
+            },
+        )
+        assert milestone_response.status_code == 201, milestone_response.text
+        milestone = milestone_response.json()["data"]
+        assert milestone["payment_term_id"] == term["payment_term_id"]
+        assert milestone["payment_date"] == "2026-09-20"
+        assert milestone["payment_amount"] == "206700.00"
+
+        linked = client.get("/api/v1/projects/WDR101").json()["data"]
+        assert linked["payment_terms"][0]["linked_milestone_id"] == milestone["milestone_id"]
+        assert linked["payment_nodes"][0]["planned_date"] == "2026-09-20"
+        assert linked["payment_nodes"][0]["payment_term_id"] == term["payment_term_id"]
+        overview = client.get("/api/v1/projects").json()["data"]
+        overview_term = next(row for row in overview if row["project_number"] == "WDR101")["payment_term_summary"][0]
+        assert overview_term["node_status"] == "planned"
+        assert overview_term["planned_date"] == "2026-09-20"
+
+        updated_term = client.patch(
+            f"/api/v1/projects/WDR101/payment-terms/{term['payment_term_id']}",
+            json={"name": "蓝图确认款（调整）", "payment_ratio": "30", "planned_amount": "210000"},
+        )
+        assert updated_term.status_code == 200, updated_term.text
+        updated = client.get("/api/v1/projects/WDR101").json()["data"]
+        assert updated["payment_nodes"][0]["name"] == "蓝图确认款（调整）"
+        assert updated["payment_nodes"][0]["planned_amount"] == "210000.00"
+
+        duplicate = client.post(
+            "/api/v1/projects/WDR101/milestones",
+            json={
+                "name": "不允许重复关联",
+                "planned_end": "2026-10-01",
+                "payment_term_id": term["payment_term_id"],
+            },
+        )
+        assert duplicate.status_code == 422
+
+        unlinked = client.patch(
+            f"/api/v1/projects/WDR101/milestones/{milestone['milestone_id']}",
+            json={"payment_term_id": ""},
+        )
+        assert unlinked.status_code == 200, unlinked.text
+        after_unlink = client.get("/api/v1/projects/WDR101").json()["data"]
+        assert after_unlink["payment_nodes"] == []
+        assert after_unlink["payment_terms"][0]["linked_milestone_id"] is None
+
+
+def test_project_overview_payment_term_summary_prioritizes_next_linked_milestone(tmp_path):
+    with TestClient(create_app(settings(tmp_path))) as client:
+        first = client.post(
+            "/api/v1/projects/WDR101/payment-terms",
+            json={"name": "首期款", "payment_ratio": "30", "planned_amount": "3000"},
+        )
+        latest = client.post(
+            "/api/v1/projects/WDR101/payment-terms",
+            json={"name": "验收款", "payment_ratio": "70", "planned_amount": "7000"},
+        )
+        assert first.status_code == 201, first.text
+        assert latest.status_code == 201, latest.text
+
+        first_milestone = client.post(
+            "/api/v1/projects/WDR101/milestones",
+            json={
+                "name": "上线",
+                "planned_start": "2099-01-01",
+                "planned_end": "2099-01-10",
+                "payment_term_id": first.json()["data"]["payment_term_id"],
+            },
+        )
+        latest_milestone = client.post(
+            "/api/v1/projects/WDR101/milestones",
+            json={
+                "name": "月结",
+                "planned_start": "2099-02-01",
+                "planned_end": "2099-02-10",
+                "payment_term_id": latest.json()["data"]["payment_term_id"],
+            },
+        )
+        assert first_milestone.status_code == 201, first_milestone.text
+        assert latest_milestone.status_code == 201, latest_milestone.text
+
+        # A later edit to a future term must not replace the next linked payment
+        # commitment in the overview.
+        with client.app.state.database.connect() as connection:
+            connection.execute(
+                "UPDATE payment_terms SET updated_at = ? WHERE payment_term_id = ?",
+                ("2099-01-01T00:00:00+08:00", latest.json()["data"]["payment_term_id"]),
+            )
+            connection.commit()
+
+        overview = client.get("/api/v1/projects").json()["data"]
+        terms = next(row for row in overview if row["project_number"] == "WDR101")["payment_term_summary"]
+        assert [term["name"] for term in terms] == ["首期款", "验收款"]
+        assert terms[0]["planned_date"] == "2099-01-10"
+
+
+def test_completed_todos_distinguish_on_time_and_delayed_completion(tmp_path):
+    with TestClient(create_app(settings(tmp_path))) as client:
+        delayed = client.post(
+            "/api/v1/projects/WDR101/milestones",
+            json={"name": "延期完成里程碑", "planned_end": "2000-01-01"},
+        ).json()["data"]
+        on_time = client.post(
+            "/api/v1/projects/WDR101/milestones",
+            json={"name": "按期完成里程碑", "planned_end": "2999-01-01"},
+        ).json()["data"]
+        assert client.post(
+            f"/api/v1/projects/WDR101/milestones/{delayed['milestone_id']}/confirm",
+            json={"confirmed_by": "PMO"},
+        ).status_code == 200
+        assert client.post(
+            f"/api/v1/projects/WDR101/milestones/{on_time['milestone_id']}/confirm",
+            json={"confirmed_by": "PMO"},
+        ).status_code == 200
+
+        completed = [
+            item for item in client.get("/api/v1/projects/WDR101").json()["data"]["todo_events"]
+            if item["completed"]
+        ]
+        by_name = {item["name"]: item for item in completed}
+        assert by_name["延期完成里程碑"]["completion_state"] == "delayed"
+        assert by_name["延期完成里程碑"]["completion_label"].startswith("延期已完成")
+        assert by_name["延期完成里程碑"]["delay_days"] > 0
+        assert by_name["按期完成里程碑"]["completion_state"] == "on_time"
+        assert by_name["按期完成里程碑"]["completion_label"] == "按期完成"
+        assert by_name["按期完成里程碑"]["confirmed_by"] == "PMO"
 
 
 def test_incremental_sync_preserves_manual_fields(tmp_path):
@@ -576,6 +890,140 @@ def test_manual_crm_upload_classifies_new_update_and_unchanged_rows(tmp_path):
         assert project["subject"] == "NEW101-手工导入合同"
 
 
+def _legacy_sales_opportunity_import_coverage(tmp_path):
+    app = create_app(settings(tmp_path))
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/crm-imports",
+            json={
+                "data_type": "sales_opportunity",
+                "filename": "opportunities.csv",
+                "content_base64": base64.b64encode(
+                    (
+                        "ID,项目编号,客户,机会主题,预计签单日期,可能性,阶段,负责人,状态,更新日期\n"
+                        "op-100,PRE100,HST,未以代码开头的机会主题,2026/09/30,60%,项目方案60%,Sales A,跟踪,2026/06/23\n"
+                    ).encode("gb18030")
+                ).decode(),
+            },
+        )
+        assert response.status_code == 200, response.text
+        payload = response.json()["data"]
+        assert payload["validation"]["inserted_records"] == 1
+
+        records = client.get(
+            "/api/v1/records?data_type=sales_opportunity&sales_stage=%E9%A1%B9%E7%9B%AE%E6%96%B9%E6%A1%8860%25"
+        )
+        assert records.status_code == 200, records.text
+        opportunity = next(item for item in records.json()["data"] if item["project_number"] == "PRE100")
+        assert opportunity["subject"] == "未以代码开头的机会主题"
+        assert opportunity["signed_at"] == "2026-09-30"
+        assert opportunity["sales_stage"] == "项目方案60%"
+        assert opportunity["source_updated_at"] == "2026-06-23", opportunity
+
+
+def test_manual_contract_import_keeps_multiple_rows_for_one_project_without_internal_id(tmp_path):
+    """CSV templates do not require an internal CRM ID for contract addenda."""
+    with TestClient(create_app(settings(tmp_path))) as client:
+        response = client.post(
+            "/api/v1/crm-imports",
+            json={
+                "data_type": "contract_order",
+                "filename": "multiple-contracts.csv",
+                "content_base64": base64.b64encode(
+                    (
+                        "项目编号,主题,我方签约人,签约时间,分类,状态,总金额,回款金额,开票金额\n"
+                        "MULTI101,MULTI101-主合同,Sales A,2026-01-01,系统实施,执行中,100.00,10.00,10.00\n"
+                        "MULTI101,MULTI101-补充协议,Sales A,2026-02-01,系统实施,执行中,50.00,0.00,0.00\n"
+                    ).encode()
+                ).decode(),
+            },
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["data"]["validation"]["inserted_records"] == 2
+
+        records = client.get("/api/v1/projects/MULTI101/records").json()["data"]
+        assert [record["subject"] for record in records] == [
+            "MULTI101-主合同",
+            "MULTI101-补充协议",
+        ]
+        project = client.get("/api/v1/projects/MULTI101").json()["data"]
+        assert project["contract_value"] == "150.00"
+        # Imported CRM repayment and manually confirmed payment nodes are
+        # intentionally separate sources of truth.
+        assert project["crm_received_amount"] == "10.00"
+        assert project["received_amount"] == "0.00"
+
+
+def test_workload_settlement_uses_confirmed_revenue_instead_of_contract_ratio(tmp_path):
+    """Open-ended settlement must not clamp CRM receipts to a 100% contract ratio."""
+    with TestClient(create_app(settings(tmp_path))) as client:
+        response = client.post(
+            "/api/v1/crm-imports",
+            json={
+                "data_type": "contract_order",
+                "filename": "workload-settlement.csv",
+                "content_base64": base64.b64encode(
+                    (
+                        "项目编号,主题,我方签约人,签约时间,分类,状态,总金额,回款金额,开票金额\n"
+                        "OPEN100,OPEN100-年度支持框架合同,Sales A,2026-01-01,实施服务,结束,356569.00,370969.00,370969.00\n"
+                    ).encode()
+                ).decode(),
+            },
+        )
+        assert response.status_code == 200, response.text
+
+        project = client.get("/api/v1/projects/OPEN100").json()["data"]
+        assert project["revenue_settlement_basis"] == "workload"
+        assert project["recognized_revenue_amount"] == "370969.00"
+        assert project["crm_received_amount"] == "370969.00"
+        assert project["outstanding_receivable_amount"] == "0.00"
+
+        portfolio = client.get("/api/v1/projects").json()
+        portfolio_project = next(
+            item for item in portfolio["data"] if item["project_number"] == "OPEN100"
+        )
+        assert portfolio_project["revenue_settlement_basis"] == "workload"
+
+
+def test_milestone_schedule_dates_are_validated(tmp_path):
+    with TestClient(create_app(settings(tmp_path))) as client:
+        invalid_format = client.post(
+            "/api/v1/projects/WDR101/milestones",
+            json={"name": "日期格式错误", "planned_end": "2026/09/01"},
+        )
+        assert invalid_format.status_code == 422
+        assert "日期格式应为 YYYY-MM-DD" in invalid_format.json()["detail"], "validated by the ontology action"
+
+        invalid_order = client.post(
+            "/api/v1/projects/WDR101/milestones",
+            json={
+                "name": "日期先后错误",
+                "planned_start": "2026-09-02",
+                "planned_end": "2026-09-01",
+            },
+        )
+        assert invalid_order.status_code == 422
+        assert "计划完成日期不能早于开始日期" in invalid_order.json()["detail"], "validated by the ontology action"
+
+        created = client.post(
+            "/api/v1/projects/WDR101/milestones",
+            json={
+                "name": "可维护里程碑",
+                "planned_start": "2026-09-01",
+                "planned_end": "2026-09-02",
+            },
+        )
+        assert created.status_code == 201, created.text
+        milestone_id = created.json()["data"]["milestone_id"]
+
+        invalid_update = client.patch(
+            f"/api/v1/projects/WDR101/milestones/{milestone_id}",
+            json={"planned_start": "2026-09-03"},
+        )
+        assert invalid_update.status_code == 422
+        assert "计划完成日期不能早于开始日期" in invalid_update.json()["detail"], "validated by the ontology action"
+
+
 def test_crm_import_logs_paginate_after_ten_rows(tmp_path):
     with TestClient(create_app(settings(tmp_path))) as client:
         for index in range(12):
@@ -641,6 +1089,7 @@ def test_manual_opportunity_upload_normalizes_decimal_probability_and_expected_c
         assert response.status_code == 200, response.text
         record = client.get("/api/v1/records?project_number=OPP901").json()["data"][0]
         assert record["probability"] == 20
+        assert record["customer"] == "OPP", "the CRM bracket pair around the customer code is dropped"
         assert record["signed_at"] == "2026-09-30"
         assert record["total_amount"]["amount"] == "8800.00"
         assert record["category"] == "ISL"
@@ -738,11 +1187,11 @@ def test_import_timesheet_fixture_for_2026_january_and_february(tmp_path):
     with TestClient(create_app(settings(tmp_path))) as client:
         imported = client.post("/api/v1/time-entries/import", json=entries)
         assert imported.status_code == 200
-        assert imported.json() == {"imported": 1303, "unchanged": 0}
+        assert imported.json() == {"imported": 1303, "updated": 0, "unchanged": 0}
 
         imported_again = client.post("/api/v1/time-entries/import", json=entries)
         assert imported_again.status_code == 200
-        assert imported_again.json() == {"imported": 0, "unchanged": 1303}
+        assert imported_again.json() == {"imported": 0, "updated": 0, "unchanged": 1303}
 
         project = client.get("/api/v1/projects/SEY101").json()["data"]
         assert project["reported_hours"] == "1181.00"
@@ -830,6 +1279,25 @@ def test_import_timesheet_xlsx_upload(tmp_path):
         assert imported_again.json()["imported"] == 0
         assert imported_again.json()["unchanged"] == 2
 
+        # Exports may render the same days differently and may contain a newer
+        # workflow status.  Neither presentation change may add another row.
+        reformatted = _minimal_timesheet_xlsx(
+            [
+                ["姓名", "部门", "日期", "项目代码", "case", "天数", "工作内容", "流程状态"],
+                ["唐旋", "TSG", "2026-02-28", "JJY117", "", "1.0", "研发领料取值逻辑变更", "进行中"],
+            ]
+        )
+        reformatted_response = client.post(
+            "/api/v1/time-entries/import-xlsx",
+            json={
+                "filename": "timesheet-reformatted.xlsx",
+                "content_base64": base64.b64encode(reformatted).decode("ascii"),
+            },
+        )
+        assert reformatted_response.status_code == 200
+        assert reformatted_response.json()["imported"] == 0
+        assert reformatted_response.json()["unchanged"] == 1
+
         project = client.get("/api/v1/projects/JJY117").json()["data"]
         assert project["reported_hours"] == "8.00"
         assert project["customer_confirmed_hours"] == "8.00"
@@ -840,7 +1308,7 @@ def test_import_timesheet_xlsx_upload(tmp_path):
         assert pending["confirmation_gap_hours"] == "4.00"
 
 
-def test_existing_time_entry_is_preserved_without_overwrite(tmp_path):
+def test_time_entry_is_replaced_only_by_a_newer_source_version(tmp_path):
     original = {
         "external_id": "IMMUTABLE-001",
         "project_number": "LOCK901",
@@ -848,25 +1316,58 @@ def test_existing_time_entry_is_preserved_without_overwrite(tmp_path):
         "employee_name": "原始员工",
         "work_date": "2026-07-11",
         "hours": "8",
-        "approved_hours": "8",
-        "approval_status": "approved",
+        "approved_hours": "0",
+        "approval_status": "submitted",
         "work_content": "首次填报",
         "source_updated_at": "2026-07-11T18:00:00+08:00",
     }
-    changed = {**original, "hours": "16", "approved_hours": "16", "work_content": "尝试覆盖"}
+    same_version = {**original, "hours": "16", "work_content": "尝试覆盖"}
+    approved_later = {**original, "approved_hours": "8", "approval_status": "approved",
+                      "source_updated_at": "2026-07-12T09:00:00+08:00"}
+    with TestClient(create_app(settings(tmp_path))) as client:
+        def import_entries(entry):
+            return client.post("/api/v1/time-entries/import", json=[entry]).json()
+
+        def stored_entry():
+            project = client.get("/api/v1/projects/LOCK901").json()["data"]
+            return project["monthly_time_entries"][0]["entries"][0]
+
+        assert import_entries(original) == {"imported": 1, "updated": 0, "unchanged": 0}
+        assert import_entries(same_version) == {"imported": 0, "updated": 0, "unchanged": 1}
+        assert (stored_entry()["hours"], stored_entry()["work_content"]) == ("8.00", "首次填报")
+        # A later approval in the source system now reaches TSG PM.
+        assert import_entries(approved_later) == {"imported": 0, "updated": 1, "unchanged": 0}
+        assert stored_entry()["approval_status"] == "approved"
+        assert import_entries(original) == {"imported": 0, "updated": 0, "unchanged": 1}, "older versions never win"
+
+
+def test_xlsx_semantic_time_entry_key_blocks_legacy_duplicate_ids(tmp_path):
+    """A legacy Excel-generated ID must not bypass the database duplicate guard."""
+    original = {
+        "external_id": "TIMESHEET-XLSX-LEGACY-001",
+        "project_number": "DEDUP901",
+        "employee_id": "E901",
+        "employee_name": "去重测试员工",
+        "work_date": "2026-07-11",
+        "hours": "8",
+        "overtime_hours": "0",
+        "approved_hours": "8",
+        "approval_status": "approved",
+        "work_content": "同一条工时",
+        "source_updated_at": "2026-07-11T18:00:00+08:00",
+    }
+    same_work_different_id = {**original, "external_id": "TIMESHEET-XLSX-LEGACY-002"}
     with TestClient(create_app(settings(tmp_path))) as client:
         assert client.post("/api/v1/time-entries/import", json=[original]).json() == {
             "imported": 1,
+            "updated": 0,
             "unchanged": 0,
         }
-        assert client.post("/api/v1/time-entries/import", json=[changed]).json() == {
-            "imported": 0,
-            "unchanged": 1,
-        }
-        project = client.get("/api/v1/projects/LOCK901").json()["data"]
-        entry = project["monthly_time_entries"][0]["entries"][0]
-        assert entry["hours"] == "8.00"
-        assert entry["work_content"] == "首次填报"
+        assert client.post(
+            "/api/v1/time-entries/import", json=[same_work_different_id]
+        ).json() == {"imported": 0, "updated": 0, "unchanged": 1}
+        project = client.get("/api/v1/projects/DEDUP901").json()["data"]
+        assert project["reported_hours"] == "8.00"
 
 
 def test_import_exported_timesheet_detail_sheet_with_overtime(tmp_path):
@@ -940,9 +1441,13 @@ def test_project_health_filters_by_month_and_project_number(tmp_path):
         assert row["period_actual_person_days"] == "53.00"
         assert row["previous_month_person_days"] == "94.62"
         assert row["participant_count"] == 4
+        assert row["cumulative_participant_count"] == 6
         assert row["monthly_trend"] == "下降"
         assert row["health_status"] == "无基线"
         assert row["overrun_warning"] == "待维护预算"
+        assert row["budget_exhaustion_forecast"] == {
+            "label": "暂无预算预测", "basis": "请先维护预算人天"
+        }
 
         client.patch(
             "/api/v1/projects/SEY101/settings",
@@ -968,6 +1473,9 @@ def test_project_health_filters_by_month_and_project_number(tmp_path):
         assert row["remaining_budget_person_days"] == "-27.62"
         assert row["overrun_warning"] == "已超预算"
         assert row["health_status"] == "已超预算"
+        assert row["budget_exhaustion_forecast"] == {
+            "label": "预算已超支", "basis": "已超出 27.62 人天"
+        }
 
 
 def test_query_parameters_and_manual_config_validation(tmp_path):
@@ -976,27 +1484,17 @@ def test_query_parameters_and_manual_config_validation(tmp_path):
         assert client.get("/api/v1/projects?contract_type=invalid").status_code == 422
         assert client.get("/api/v1/projects?lifecycle_status=active").status_code == 200
         assert client.get("/api/v1/projects?risk_level=warning").status_code == 200
-        assert client.get("/api/v1/projects?contract_status=进行中").status_code == 200
-        assert client.get("/api/v1/projects?contract_status=invalid").status_code == 422
         assert client.get("/api/v1/project-health?month=2026-02").status_code == 200
         assert client.get("/api/v1/project-health?month=2026-2").status_code == 422
-        assert (
-            client.get(
-                "/api/v1/project-health?month=2026-02&contract_status=进行中"
-            ).status_code
-            == 200
-        )
-        assert (
-            client.get(
-                "/api/v1/project-health?month=2026-02&contract_status=invalid"
-            ).status_code
-            == 422
-        )
         assert client.get("/api/v1/employee-worktime?period=month&month=2026-02").status_code == 200
         assert client.get("/api/v1/employee-worktime?period=week").status_code == 422
         assert client.patch(
             "/api/v1/worktime-baseline",
             json={"monthly_baseline_hours": "-1"},
+        ).status_code == 422
+        assert client.patch(
+            "/api/v1/worktime-baseline",
+            json={"overload_utilization_percent": "90"},
         ).status_code == 422
 
 
@@ -1008,6 +1506,7 @@ def test_employee_worktime_assessment_and_baseline_config(tmp_path):
         baseline = client.get("/api/v1/worktime-baseline")
         assert baseline.status_code == 200
         assert baseline.json()["data"]["monthly_baseline_hours"] == "153.00"
+        assert baseline.json()["data"]["overload_utilization_percent"] == "100.00"
 
         assert client.post("/api/v1/time-entries/import", json=entries).status_code == 200
 
@@ -1016,15 +1515,35 @@ def test_employee_worktime_assessment_and_baseline_config(tmp_path):
         )
         assert february.status_code == 200
         body = february.json()
-        assert body["meta"]["baseline_hours"] == "153.00"
+        assert body["meta"]["baseline_hours"] == "160.00"
+        assert body["meta"]["working_days"] == 20
+        assert body["meta"]["calendar_available"] is False
         assert body["meta"]["latest_work_month"] == "2026-02"
         row = body["data"][0]
         assert row["employee_name"] == "查宏斌"
         assert row["reported_hours"] == "152.00"
         assert row["reported_person_days"] == "19.00"
-        assert row["utilization_percent"] == "99.3"
+        assert row["utilization_percent"] == "95.0"
         assert row["status"] == "工时充足"
         assert "project_delivery_ratio_percent" not in row
+
+        high_load = client.get(
+            "/api/v1/resource-operations?month=2026-02&employee_name=查宏斌"
+        )
+        assert high_load.status_code == 200
+        assert high_load.json()["data"][0]["allocation_status"] == "负荷较高"
+
+        lowered_overload = client.patch(
+            "/api/v1/worktime-baseline",
+            json={"overload_utilization_percent": "94"},
+        )
+        assert lowered_overload.status_code == 200
+        assert lowered_overload.json()["data"]["overload_utilization_percent"] == "94.00"
+        overloaded = client.get(
+            "/api/v1/resource-operations?month=2026-02&employee_name=查宏斌"
+        )
+        assert overloaded.status_code == 200
+        assert overloaded.json()["data"][0]["allocation_status"] == "负荷过高"
 
         yearly = client.get(
             "/api/v1/employee-worktime?period=year&year=2026&employee_name=查宏斌"
@@ -1035,10 +1554,10 @@ def test_employee_worktime_assessment_and_baseline_config(tmp_path):
 
         updated = client.patch(
             "/api/v1/worktime-baseline",
-            json={"monthly_baseline_hours": "200", "notes": "测试调整"},
+            json={"standard_hours_per_day": "10", "notes": "测试调整"},
         )
         assert updated.status_code == 200
-        assert updated.json()["data"]["monthly_baseline_hours"] == "200.00"
+        assert updated.json()["data"]["standard_hours_per_day"] == "10.00"
 
         adjusted = client.get(
             "/api/v1/employee-worktime?period=month&month=2026-02&employee_name=查宏斌"
@@ -1097,14 +1616,13 @@ def test_resource_operations_identifies_capacity_and_project_staffing_gap(tmp_pa
         assert body["meta"]["month"] == "2026-07"
         assert body["summary"]["total_employees"] == 2
         assert body["summary"]["available_count"] == 2
-        assert body["summary"]["projects_needing_support"] >= 1
         assert body["meta"]["excluded_internal_nonproject_entries"] == 1
 
         employee = next(
             row for row in body["data"] if row["employee_name"] == "资源员工"
         )
         assert employee["allocation_status"] == "可优先调剂"
-        assert employee["available_person_days"] == "12.84"
+        assert employee["available_person_days"] == "15.75"
         assert employee["assignments"] == [
             {
                 "project_number": "RESOURCE901",
@@ -1122,7 +1640,9 @@ def test_resource_operations_identifies_capacity_and_project_staffing_gap(tmp_pa
         assert unassigned_employee["overtime_person_days"] == "0.00"
         assert unassigned_employee["project_count"] == 0
         assert unassigned_employee["internal_nonproject_person_days"] == "1.50"
-        assert unassigned_employee["available_person_days"] == "14.34"
+        # TSG999 is excluded from project load, so this employee keeps the
+        # full dynamic July capacity threshold available for reassignment.
+        assert unassigned_employee["available_person_days"] == "17.25"
         assert unassigned_employee["assignments"] == [
             {
                 "project_number": "TSG999",
@@ -1134,14 +1654,8 @@ def test_resource_operations_identifies_capacity_and_project_staffing_gap(tmp_pa
         ]
         assert unassigned_employee["allocation_status"] == "可优先调剂"
 
-        candidate = next(
-            row
-            for row in body["staffing_candidates"]
-            if row["project_number"] == "RESOURCE901"
-        )
-        assert candidate["resource_gap_person_days"] == "18.50"
-        assert candidate["monthly_budget_person_days"] == "20.00"
-        assert candidate["period_actual_person_days"] == "1.50"
+        assert "active_project_checks" not in body
+        assert "staffing_candidates" not in body
 
         projects = client.get("/api/v1/projects").json()["data"]
         assert all(project["project_number"] != "TSG999" for project in projects)

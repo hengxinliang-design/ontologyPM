@@ -1,0 +1,39 @@
+# 本体构建包（发布稿）：工时记录按月份查看，默认最近一个月。本体 7.3.0（统计期间新增 dateProperty 与 defaultView，非破坏性）。
+# 依据：用户 2026-10-29「工时记录的对象查询页面，也需要增加按照月份可筛选展示，默认展示最近一个月的」。
+kind: OntologyBuild
+stage: release
+supersededBy: 2026-10-29-milestone-span-period.yaml
+topic: 统计期间支持按日期归属的记录和默认月份；工时记录按月份查看，默认最近一个月
+ontologyVersion: 7.3.0
+date: 2026-10-29
+scope:
+  - CQ1 某个月有哪些工时记录？
+  - CQ2 打开工时记录列表时先看到哪个月？
+
+rules:
+  - id: R1
+    statement: 统计期间（7.2.0）新增两种写法：dateProperty —— 对象本身带日期（如工时记录的工作日期），属于日期所在的月份，与 activeProperty 二选一；defaultView —— 未指定月份时页面默认显示「最近有数据的月份」（latest）还是「全部月份」（all，默认）。编译器校验 activeProperty 与 dateProperty 必须且只能写一个，dateProperty 必须是本类型的日期属性。
+    basis: 7.2.0 的 activeProperty 适用于汇总对象（员工），逐条记录按自身日期归属更直接；默认月份是页面行为，但属于对象类型怎么看的约定，写在元数据里而不是页面里写死。
+    acceptance: activeProperty 与 dateProperty 同时写或都不写时编译报错；dateProperty 指向非日期属性时编译报错；员工的 defaultView 仍为 all，行为与 7.2.0 相同。
+    verifiedBy: [test_time_entries_are_viewed_by_month, test_invalid_period_metadata_is_rejected]
+    ontology: [TimeEntry, Employee]
+  - id: R2
+    statement: 工时记录声明统计期间：dateProperty = workDate，defaultView = latest。对象列表接口带 month 时只返回该月工作日期的记录；本体浏览器的工时记录页显示「月份」选择，打开时默认选中最近有工时的月份，仍可选「全部月份」。
+    basis: 用户 2026-10-29 的要求；工时记录上千条，按月看更便于查询。
+    acceptance: 测试数据中工时记录列表带 month=2026-09 时只返回工作日期在 9 月的记录，数量与按工作日期统计一致；meta.period 中 defaultMonth 为最近有工时的月份、defaultView 为 latest；不带 month 时返回全部记录。
+    verifiedBy: [test_time_entries_are_viewed_by_month]
+    ontology: [TimeEntry.workDate]
+
+exceptions:
+  - rule: R1
+    case: 用接口直接查询工时记录且不带 month。
+    handling: 返回全部记录（接口行为不变）；「默认最近一个月」只是页面打开时的初始选择。
+    basis: 接口保持显式参数，避免同一个请求在不同日期返回不同范围而让调用方误解。
+  - rule: R2
+    case: 从员工、项目等对象的「工时记录」关系进入。
+    handling: 关系列表不受工时记录页默认月份影响；从员工出发且在员工页选了月份时，按员工页的月份筛选（7.2.0）。
+    basis: 默认月份只作用于工时记录自己的列表页。
+  - rule: R2
+    case: 搜索、签约年度等其他筛选与月份同时使用。
+    handling: 先按月份筛选，再按搜索词筛选；切换对象类型时月份恢复为该类型的默认值。
+    basis: 与员工页一致。

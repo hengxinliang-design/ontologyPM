@@ -1,0 +1,69 @@
+kind: ObjectType
+version: v1
+definition:
+  apiName: Employee
+  displayName: 员工
+  pluralDisplayName: 员工
+  description: 语义层识别的员工实体，由工时记录中的员工编号聚合而成。
+  primaryKey: employeeId
+  titleProperty: employeeName
+  datasource: employees
+  backingDatasets: [time_entries, worktime_baseline_config, investment_settings, records]
+  readPermissions: [projects, employeeWorktime, resource, department]
+  icon: user
+  displayOrder: 6
+  period: {unit: month, displayName: 月份, description: 按工时的工作日期所在月份查看；未选月份时，按月计算的属性取最近有工时的月份, activeProperty: monthEntryCount, options: {objectType: TimeEntry, property: workDate}}
+  defaultOrder: employeeName
+  properties:
+    - {apiName: employeeId, displayName: 员工编号, type: string, sourceKind: system, source: time_entries.employee_id, searchable: true}
+    - {apiName: employeeName, displayName: 姓名, type: string, sourceKind: system, source: time_entries.employee_name, searchable: true}
+    - {apiName: entryCount, displayName: 工时条数, type: integer, sourceKind: derived, source: count(time_entries), unit: count}
+    - {apiName: reportedHours, displayName: 累计填报工时, type: decimal, sourceKind: derived, source: Σ(hours + overtime_hours)，只计有效工时（已提交、已确认；已驳回和草稿不计入）, marking: PERSONNEL, unit: hour}
+    - {apiName: approvedHours, displayName: 累计确认工时, type: decimal, sourceKind: derived, source: Σ approved_hours(approved), marking: PERSONNEL, unit: hour}
+    - {apiName: projectCount, displayName: 参与项目数, type: integer, sourceKind: derived, source: count(distinct project_number)（含 TSG999 等内部代码）, unit: count}
+    - {apiName: projectEffortShares, displayName: 项目投入占比, type: json, sourceKind: derived, source: 按项目代码的有效工时（正常 + 加班，只计已提交和已确认）及占该员工全部有效工时的百分比，从多到少；内部代码标为内部，名称取 CRM 主题, marking: PERSONNEL}
+    - {apiName: statMonth, displayName: 统计月份, type: string, sourceKind: derived, source: 所选月份（YYYY-MM）；未选时为最近有工时的月份, periodic: true}
+    - {apiName: monthEntryCount, displayName: 当月工时条数, type: integer, sourceKind: derived, source: count(当月 time_entries), unit: count, periodic: true}
+    - {apiName: monthReportedHours, displayName: 当月填报工时, type: decimal, sourceKind: derived, source: 当月 Σ(hours + overtime_hours)，只计有效工时, marking: PERSONNEL, unit: hour, periodic: true}
+    - {apiName: monthApprovedHours, displayName: 当月确认工时, type: decimal, sourceKind: derived, source: 当月 Σ approved_hours(approved), marking: PERSONNEL, unit: hour, periodic: true}
+    - {apiName: monthProjectCount, displayName: 当月参与项目数, type: integer, sourceKind: derived, source: 当月有有效工时的项目代码数（含 TSG999 等内部代码）, unit: count, periodic: true}
+    - {apiName: monthProjectEffortShares, displayName: 当月项目投入占比, type: json, sourceKind: derived, source: 当月按项目代码的有效工时及占当月全部有效工时的百分比，口径同项目投入占比, marking: PERSONNEL, periodic: true}
+    - {apiName: firstWorkDate, displayName: 首次填报, type: date, sourceKind: derived, source: min(work_date)}
+    - {apiName: lastWorkDate, displayName: 最近填报, type: date, sourceKind: derived, source: max(work_date)}
+    - {apiName: healthStatus, displayName: 资源健康状态, type: enum, valueType: ResourceHealthStatus, sourceKind: derived, source: 按所选月份（未选时为最近有工时的月份）判定：连续过载 → 疲劳（加班占比高）→ 碎片化（同期项目多）→ 闲置（利用率不高于关注线且非首月）→ 健康, derivedFrom: resourceHealth, periodic: true}
+    - {apiName: healthReasons, displayName: 健康判定依据, type: json, sourceKind: derived, source: 各项健康信号的数据, derivedFrom: resourceHealth, periodic: true}
+    - {apiName: monthUtilizationPercent, displayName: 当月利用率, type: percent, sourceKind: derived, source: 当月项目有效工时 ÷ 当月中国工作日 × 标准每日小时数（TSG999 等内部代码、已驳回和草稿工时不计入）, marking: PERSONNEL, derivedFrom: resourceHealth, unit: percent, periodic: true}
+    - {apiName: overtimeSharePercent, displayName: 加班占比, type: percent, sourceKind: derived, source: 当月加班工时 ÷ 当月全部工时（含内部代码）, marking: PERSONNEL, derivedFrom: resourceHealth, unit: percent, periodic: true}
+    - {apiName: consecutiveOverloadMonths, displayName: 连续过载月数, type: integer, sourceKind: derived, source: 截至当月连续高于过载线的月数, derivedFrom: resourceHealth, unit: month, periodic: true}
+    - {apiName: concurrentProjectCount, displayName: 同期项目数, type: integer, sourceKind: derived, source: 当月填报过工时的项目数（不含内部代码）, derivedFrom: resourceHealth, unit: count, periodic: true}
+---
+kind: ObjectType
+version: v1
+definition:
+  apiName: TimeEntry
+  displayName: 工时记录
+  pluralDisplayName: 工时记录
+  description: 员工每天在项目上的工时填报，按 external_id 幂等导入，只读。
+  primaryKey: externalId
+  titleProperty: workContent
+  datasource: timeEntries
+  backingDatasets: [time_entries, records, opportunity_outcomes, investment_settings]
+  readPermissions: [projects, employeeWorktime, resource, department]
+  icon: clock
+  displayOrder: 7
+  period: {unit: month, displayName: 月份, description: 按工作日期所在月份筛选；打开时默认显示最近有工时的月份, dateProperty: workDate, defaultView: latest, options: {objectType: TimeEntry, property: workDate}}
+  defaultOrder: -workDate
+  properties:
+    - {apiName: externalId, displayName: 工时 ID, type: string, sourceKind: system, source: time_entries.external_id}
+    - {apiName: projectNumber, displayName: 项目编号, type: string, sourceKind: system, source: time_entries.project_number, searchable: true}
+    - {apiName: employeeId, displayName: 员工编号, type: string, sourceKind: system, source: time_entries.employee_id}
+    - {apiName: employeeName, displayName: 员工, type: string, sourceKind: system, source: time_entries.employee_name, searchable: true}
+    - {apiName: workDate, displayName: 工作日期, type: date, sourceKind: system, source: time_entries.work_date}
+    - {apiName: hours, displayName: 填报工时, type: decimal, sourceKind: system, source: time_entries.hours, marking: PERSONNEL, unit: hour}
+    - {apiName: overtimeHours, displayName: 加班工时, type: decimal, sourceKind: system, source: time_entries.overtime_hours, marking: PERSONNEL, unit: hour}
+    - {apiName: approvedHours, displayName: 确认工时, type: decimal, sourceKind: system, source: time_entries.approved_hours, marking: PERSONNEL, unit: hour}
+    - {apiName: approvalStatus, displayName: 审批状态, type: enum, valueType: ApprovalStatus, sourceKind: system, source: time_entries.approval_status}
+    - {apiName: countsAsEffort, displayName: 计入有效工时, type: boolean, sourceKind: derived, source: 审批状态为已提交或已确认时为是；已驳回和草稿为否，不计入项目实际人天、预算使用率、员工利用率和投入成本}
+    - {apiName: costPhase, displayName: 成本类别, type: enum, valueType: CostPhase, sourceKind: derived, source: 按项目代码的商机结论与签约日划分, derivedFrom: costObjectInvestment}
+    - {apiName: workContent, displayName: 工作内容, type: string, sourceKind: system, source: time_entries.work_content, searchable: true}
+    - {apiName: sourceUpdatedAt, displayName: 源更新时间, type: datetime, sourceKind: system, source: time_entries.source_updated_at}

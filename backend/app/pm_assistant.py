@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Iterable
-from typing import Any
+from typing import Any, Callable
 
 import httpx
 
@@ -24,10 +24,13 @@ class PmAssistantService:
         settings: Settings,
         project_repository: ProjectRepository,
         record_repository: SnapshotRepository,
+        project_fact: Callable[[str], dict[str, Any] | None],
     ) -> None:
         self.settings = settings
         self.projects = project_repository
         self.records = record_repository
+        # Project facts are derived in the ontology; the repository only searches base data.
+        self.project_fact = project_fact
 
     async def answer(
         self, message: str, history: list[dict[str, str]] | None = None
@@ -51,7 +54,7 @@ class PmAssistantService:
     async def analyze_project(self, project_number: str) -> dict[str, Any]:
         if not self.settings.openai_api_key:
             raise PmAssistantError("PM Assistant 尚未配置模型服务，请联系管理员完成服务端配置。")
-        project = self.projects.get_project(project_number)
+        project = self.project_fact(project_number)
         if project is None:
             raise PmAssistantError("未找到该项目，无法生成项目研判。")
         context = _project_analysis_context(project)
@@ -110,25 +113,29 @@ class PmAssistantService:
         return {"answer": answer, "sources": sources, "model": self.settings.pm_assistant_model}
 
     def _retrieve(self, question: str) -> tuple[dict[str, Any], list[str]]:
-        portfolio = self.projects.list_projects()
-        all_projects = portfolio["data"]
-        project_matches = _rank_rows(all_projects, question, _project_search_text, limit=6)
-
-        snapshot = self.records.export_records()
-        all_records = snapshot["records"] if snapshot else []
-        record_matches = _rank_rows(all_records, question, _record_search_text, limit=8)
+        # Keep both retrieval and prompt construction bounded as imported data
+        # grows.  Project facts are built only for CRM candidates, rather than
+        # loading the entire portfolio and snapshot for every chat message.
+        candidate_codes, candidate_records = self.projects.assistant_candidate_codes(question)
+        candidate_projects = [project for code in candidate_codes if (project := self.project_fact(code))]
+        project_matches = _rank_rows(
+            candidate_projects, question, _project_search_text, limit=6
+        )
+        record_matches = _rank_rows(
+            candidate_records, question, _record_search_text, limit=8
+        )
 
         # A broad question still needs a useful, bounded operating overview.
         if not project_matches:
             project_matches = [
                 project
-                for project in all_projects
+                for project in candidate_projects
                 if project.get("risk_level") in {"critical", "warning"}
             ][:5]
         if not record_matches:
             record_matches = [
                 record
-                for record in all_records
+                for record in candidate_records
                 if record.get("data_type") == "contract_order"
             ][:5]
 
@@ -141,7 +148,10 @@ class PmAssistantService:
             sources.append("当前系统资料中未检索到直接匹配记录")
 
         return {
-            "portfolio_summary": portfolio["summary"],
+            "retrieval_scope": {
+                "candidate_projects": len(candidate_projects),
+                "candidate_crm_records": len(candidate_records),
+            },
             "projects": [_compact_project(row) for row in project_matches],
             "crm_records": [_compact_record(row) for row in record_matches],
             "retrieval_note": "仅展示与问题最相关的当前系统记录；人工维护字段与 CRM 导入字段以各自来源为准。",
@@ -197,14 +207,14 @@ def _search_tokens(question: str) -> list[str]:
 def _project_search_text(row: dict[str, Any]) -> str:
     return " ".join(
         str(row.get(key) or "")
-        for key in ("project_number", "subject", "customer", "project_manager", "owner", "contract_status")
+        for key in ("project_number", "subject", "customer", "project_manager", "owner")
     )
 
 
 def _record_search_text(row: dict[str, Any]) -> str:
     return " ".join(
         str(row.get(key) or "")
-        for key in ("project_number", "subject", "customer", "owner", "status", "category")
+        for key in ("project_number", "subject", "customer", "owner", "status", "sales_stage", "category")
     )
 
 
@@ -217,7 +227,6 @@ def _compact_project(row: dict[str, Any]) -> dict[str, Any]:
             "customer",
             "category",
             "lifecycle_status",
-            "contract_status",
             "contract_value",
             "crm_received_amount",
             "outstanding_receivable_amount",
@@ -245,8 +254,10 @@ def _compact_record(row: dict[str, Any]) -> dict[str, Any]:
             "received_amount",
             "invoiced_amount",
             "probability",
+            "sales_stage",
             "status",
             "owner",
+            "source_updated_at",
         )
     }
 
@@ -280,7 +291,6 @@ def _project_analysis_context(project: dict[str, Any]) -> dict[str, Any]:
             "invoiced_amount_crm": project.get("invoiced_amount"),
             "received_amount_crm": project.get("crm_received_amount"),
             "outstanding_receivable_amount": project.get("outstanding_receivable_amount"),
-            "contract_status": project.get("contract_status"),
         },
         "worktime": {
             "planned_person_days": project.get("planned_person_days"),

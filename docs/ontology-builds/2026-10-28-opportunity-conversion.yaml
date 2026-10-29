@@ -1,0 +1,52 @@
+# 本体构建包（发布稿）：销售机会的转化状态。本体 5.2.0（新增属性 Opportunity.convertedToContract、Opportunity.salesStage，改显示名与说明，非破坏性）。
+# 依据：用户 2026-10-28 在本体浏览器中发现 TPL149 出现在「销售机会」里，询问对象归属是否有误；选择方案 A「保留已转化的商机，标明已转化」。
+kind: OntologyBuild
+stage: release
+supersededBy: 2026-10-28-customer-receipts.yaml
+topic: 销售机会保留已转化为合同的记录，并标明转化状态；字段名与 CRM 商机模板一致
+ontologyVersion: 5.2.0
+date: 2026-10-28
+scope:
+  - CQ1 哪些销售机会已经转化为合同，哪些还在跟进？
+  - CQ2 一个商机的状态、赢率、销售阶段和预计签单日期是什么？
+  - CQ3 某个项目由哪个商机转化而来？
+
+rules:
+  - id: R1
+    statement: 销售机会对象包含 CRM 当前快照中的全部商机记录，已转化为合同的也保留；新增派生属性「已转化为合同」（convertedToContract）：同一项目编号在 CRM 中已有合同或订单时为是。对象说明改为与数据一致。
+    basis: 用户 2026-10-28 选择方案 A。「已转化」是商机的一种状态，不是另一种对象（技能原则 3：类型与实例分开）；判定沿用基础程序的转化规则（normalizer._mark_converted_opportunities：只要同编号已有合同，商机即视为已转化，原始记录保留供审计）。原说明「尚未被合同合并的销售机会」与数据源不一致（数据源从未过滤）。
+    acceptance: 在示例数据中，TPL149 的销售机会「已转化为合同」为是、状态为成功；WDR101 的为否、状态为跟踪；按「已转化为合同 = 否」查询销售机会只得到 WDR101；对象说明不再写「尚未被合同合并」。
+    verifiedBy: [test_opportunities_keep_converted_records_and_mark_them]
+    ontology: [Opportunity, Opportunity.convertedToContract, Opportunity.status]
+  - id: R2
+    statement: 销售机会的字段与 CRM 商机模板一致：「签订日期」改称「预计签单日期」（apiName 仍为 signedAt），新增系统属性「销售阶段」（salesStage）；属性顺序调整为项目编号、状态、赢率、已转化为合同在前，对象列表因此显示这四列。
+    basis: 商机导入时把「预计签单日期」存入 signed_at（crm_import.FIELD_ALIASES），显示成「签订日期」会被误读为已签约；销售阶段已导入但本体没有登记（业务规则 2 节「商机字段保留预计签单日期、可能性、销售阶段」）。对象列表固定显示前四个属性，原来的客户、分类在商机模板中不存在，列表永远为空。
+    acceptance: Opportunity 的 signedAt 显示名为「预计签单日期」，salesStage 来源为 records.sales_stage；除主键和标题外的前四个属性依次为 projectNumber、status、probability、convertedToContract。
+    verifiedBy: [test_opportunities_keep_converted_records_and_mark_them, test_metadata_compiles_with_derived_edits_and_stable_checksum]
+    ontology: [Opportunity.signedAt, Opportunity.salesStage, Opportunity.projectNumber, Opportunity.probability]
+
+exceptions:
+  - rule: R1
+    case: 商机状态为「成功」但还没有导入同编号合同。
+    handling: 「已转化为合同」为否；项目主数据库仍按状态「成功」归为「项目」（业务规则 1.2 不变）。两者含义不同：一个说 CRM 中有没有合同记录，一个说是否已经签约。
+    basis: 转化判定只看有没有合同记录，与基础程序一致；不顺带改变「成功即项目」的口径（原则 9）。
+  - rule: R1
+    case: 客户和项目的「商机数」。
+    handling: 继续统计全部商机（含已转化的），说明不变；需要只看在跟进的商机时，用「已转化为合同 = 否」的对象集查询。
+    basis: 商机数是历史计数，改成只计未转化会让客户的赢单记录消失。
+  - rule: R1
+    case: 合同后来被删除或撤回（同编号不再有合同）。
+    handling: 下一次导入后「已转化为合同」自动回到否，商机重新显示为未转化。
+    basis: 派生属性按当前快照实时计算，不保存历史。
+  - rule: R1
+    case: 项目编号缺失、只能从主题识别的商机。
+    handling: 与项目编号属性一致，先取 project_number，缺省从主题识别；识别不出编号的商机「已转化为合同」为否。
+    basis: 与 Opportunity.projectNumber 的来源说明一致（rules._record_project_number）。
+  - rule: R2
+    case: 合同/订单对象的 signedAt。
+    handling: 不改，合同的「签订日期」就是签约时间；只改销售机会的显示名。
+    basis: 同一物理列在两类记录中的含义不同，按对象类型分别命名（原则 5：同名异义要拆开）。
+  - rule: R2
+    case: 本体浏览器之外的页面（CRM 数据查询、投入成本分析）。
+    handling: 不改。它们直接读 CRM 记录，不经过本体对象定义（CRM 数据查询按合同、商机分别展示，并可按销售阶段筛选）。
+    basis: 本次范围是本体对象的定义与列表。

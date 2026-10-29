@@ -1,0 +1,31 @@
+flowchart LR
+  CO["成本对象<br/>CostObject<br/>主键：项目代码"]
+  PJ["项目<br/>Project<br/>主键：项目编号"]
+  CT["合同/订单<br/>Contract"]
+  OP["销售机会<br/>Opportunity"]
+  CU["客户<br/>Customer"]
+  EM["员工<br/>Employee"]
+  TE["工时记录<br/>TimeEntry"]
+  MS["里程碑<br/>Milestone"]
+  PN["回款节点<br/>PaymentNode"]
+  IV["管理干预<br/>Intervention"]
+  PT["回款约定<br/>PaymentTerm"]
+  OPL["运营口径参数<br/>OperatingPolicy<br/>阈值与参数，被各类计算引用"]
+  CO ---|1:1| PJ
+  CO ---|1:N| TE
+  CO -.-|M:N 经由工时| EM
+  PJ ---|1:N| CT
+  PJ ---|1:N| OP
+  PJ ---|N:1| CU
+  CU ---|1:N| CT
+  CU ---|1:N| OP
+  PJ ---|1:N| TE
+  EM ---|1:N| TE
+  PJ -.-|M:N 经由工时| EM
+  PJ ---|1:N| MS
+  PJ ---|1:N| PN
+  MS ---|1:1| PN
+  PJ ---|1:N| IV
+  PJ ---|1:N| PT
+  PT ---|1:1| MS
+  PT ---|1:1| PN

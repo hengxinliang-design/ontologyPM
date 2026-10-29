@@ -1,0 +1,89 @@
+# 本体构建包（发布稿）：在本体中维护数据，维护状态可查询。本体 4.2.0（新增元数据结构、属性、函数与参数，非破坏性）。
+# 依据：用户 2026-10-27「项目基础数据进入系统后，我们会进行人工对进行编辑维护……这个补充的过程我们应该在本体中操作维护，
+# 哪些需要维护、哪些已经维护都可以通过本体查询体现出来」，以及同日三项决定：维护接口改为调用本体动作的薄包装、
+# 维护要求在元数据中声明、先做维护与维护状态。
+kind: OntologyBuild
+stage: release
+supersededBy: 2026-10-27-maintenance-requirements.yaml
+topic: 维护在本体中进行：元数据声明维护要求，本体推导维护状态并提供待维护清单，所有维护写入经由本体动作
+ontologyVersion: 4.2.0
+date: 2026-10-27
+scope:
+  - CQ1 一个项目导入后还缺哪些人工补充的内容？哪些已经维护好了？
+  - CQ2 全部项目中，每条维护要求有多少已维护、多少待维护？
+  - CQ3 待维护的内容该用哪个动作去维护？
+  - CQ4 人工维护的写入是否都经过本体动作的校验、权限和审计？
+
+rules:
+  - id: R1
+    statement: 导入后需要人工补充的内容在元数据中声明为对象类型的维护要求（maintenanceRequirements）：要求某个人工维护属性有值（可排除占位取值），或要求至少有若干关联对象；可以附加适用条件，并指明由哪个动作维护。
+    basis: 用户 2026-10-27 决定「在元数据中声明（推荐）」；技能原则 7「数值做成参数，算法留在代码」的同一思路——维护要求是数据，不写死在代码里。
+    acceptance: 项目声明三条要求，与迁移前的口径一致：选择项目类型（项目类型不能是「未分类」）、填写初始预算人天（仅系统实施和 TSnT365）、制定里程碑计划（至少一个里程碑）；分别由「设置项目」「新建里程碑」维护。
+    verifiedBy: [test_maintenance_requirements_are_declared_in_metadata]
+    ontology: [Project, configureProject, createMilestone, Project.milestones]
+  - id: R2
+    statement: 编译器校验维护要求：属性必须存在且为人工维护；关系必须从本对象出发并以连接键声明；维护动作必须存在且确实修改该属性或创建关联对象；适用条件引用的属性必须存在；声明了要求的对象必须登记推导规则 maintenanceStatus。
+    basis: 原则 1「LLM 生成，本体裁决」：维护要求写错时启动即失败，而不是悄悄给出错误的待维护清单。
+    acceptance: 把要求指向派生属性、把里程碑要求的动作改成「设置项目」、引用不存在的属性、去掉 maintenanceStatus，都在编译时报出对应错误。
+    verifiedBy: [test_invalid_maintenance_requirements_are_rejected]
+    ontology: [Project]
+  - id: R3
+    statement: 推导规则 maintenanceStatus 按声明计算每个对象的维护清单（每条适用要求是否已维护、由哪个动作维护）、待维护项数和「人工维护完整」；项目事实中的人工维护提醒使用同一结果；函数 maintenanceWorklist 列出待维护对象并统计每条要求的已维护与待维护数量。
+    basis: 用户要求「哪些需要维护、哪些已经维护都可以通过本体查询体现出来」。
+    acceptance: WDR101 导入后未维护完整，对象集按「人工维护完整 = 否」能查到它，待维护清单中显示「制定里程碑计划」及其统计；通过「设置项目」「新建里程碑」维护后，清单全部为已维护、待维护项数为 0；项目管理页函数可按维护状态筛选，并返回待维护项目数。
+    verifiedBy: [test_maintenance_status_is_derived_and_queryable]
+    ontology: [Project.maintenanceChecklist, Project.maintenanceGapCount, Project.maintenanceComplete, maintenanceWorklist, portfolioHealth]
+  - id: R4
+    statement: 项目维护的写入全部经由本体动作：项目详情抽屉、部门经营的年度计划直接调用动作；原维护接口（项目设置、里程碑、回款约定、回款节点、管理干预、年度计划）保留一个版本，改为调用同一动作的薄包装，按原格式返回写入的记录；路径中的项目与对象不匹配时返回 404。
+    basis: 用户 2026-10-27 决定「改为调用本体动作的薄包装（推荐）」；经验库 L10（两条写入路径各写一套校验）——现在只剩一套。
+    acceptance: 通过原接口新建里程碑、修改项目设置、新建回款约定后，审计日志只有本体动作这一种渠道；把 WDR101 的里程碑放到 TPL149 的路径下编辑或删除返回 404；不存在的项目返回 404；受控合同类型清空预算人天时，由动作的提交条件拒绝（422）。
+    verifiedBy: [test_maintenance_endpoints_run_ontology_actions, test_actions_validate_write_back_and_audit]
+    ontology: [configureProject, createMilestone, editMilestone, createPaymentTerm, setAnnualOperatingPlan]
+  - id: R5
+    statement: 新建对象的动作做日期校验时只看本次提交的值，不读取目标对象（父对象）的同名字段。
+    basis: 迁移中发现的缺陷：新建里程碑的目标是项目，校验把里程碑的完成日与项目的计划开始日比较，错误地拒绝早于项目开始的里程碑。
+    acceptance: 项目计划开始为 2026-10-01 时，可以新建完成日为 2026-09-15 的里程碑；里程碑自身开始晚于完成时仍被拒绝。
+    verifiedBy: [test_new_milestone_dates_are_checked_against_themselves, test_milestone_schedule_dates_are_validated]
+    ontology: [createMilestone, dateOrder]
+
+exceptions:
+  - rule: R1
+    case: 项目经理、计划周期等字段页面上提示「请填写」，但不在维护要求中。
+    handling: 本次只迁移原有的三条要求，口径不变；需要增加时在元数据中追加一行要求即可，不用改代码。
+    basis: 原则 9：增加要求会改变「人工维护完整」和风险提醒的结果，要由用户决定。
+  - rule: R1
+    case: 里程碑、回款约定等其他对象的维护要求。
+    handling: 机制对所有对象类型通用，本次只为项目声明；回款约定的「待关联里程碑」等可后续追加。
+    basis: 先覆盖项目主数据补充这一主要场景。
+  - rule: R2
+    case: 通过解析器（resolver）计算的多对多关系。
+    handling: 不能作为维护要求的计数依据，编译时报错；需要时改用带连接键的关系。
+    basis: 维护状态要能在加载时直接计数，不经过额外的查询。
+  - rule: R3
+    case: 不适用的要求（例如开口合同不需要预算人天）。
+    handling: 不出现在维护清单中，也不计入「适用」数量。
+    basis: 适用条件是要求的一部分。
+  - rule: R3
+    case: 维护状态依赖其他对象（项目的里程碑数）。
+    handling: 项目的数据集已包含里程碑表，里程碑变化时项目缓存随之失效；对象索引预热时如实报告被连带重建的对象类型。
+    basis: 迁移中发现预热报告漏掉了被连带重建的「里程碑」，已修正。
+  - rule: R4
+    case: 系统设置页的运营参数与投入成本分析的参数。
+    handling: 暂时仍走基础程序接口（设置页一次提交整份参数，含动作未覆盖的参考值），两条路径共用同一取值范围校验；随资源与投入页面迁移时一并改为动作。
+    basis: 用户说明的范围是项目相关字段的补充维护。
+  - rule: R4
+    case: 原接口多传了动作没有的字段（例如新建里程碑时传状态或完成日期）。
+    handling: 忽略这些字段，不报错；新建里程碑仍接受旧字段名 planned_date 作为计划完成日。
+    basis: 兼容旧调用方，同时不让动作之外的字段绕过校验写入。
+  - rule: R4
+    case: 原接口返回的错误信息。
+    handling: 状态码不变（404、422），错误文字改为本体动作的中文提示，例如「计划完成日期不能早于开始日期」。
+    basis: 校验只剩本体动作一套，提示以它为准。
+  - rule: R4
+    case: 在系统中还不存在的项目编号（CRM 未导入）。
+    handling: 维护接口返回 404，不再为未导入的项目创建设置记录。
+    basis: 项目主数据以导入为准，先导入再维护。
+  - rule: R5
+    case: 编辑已有对象。
+    handling: 仍然用提交值与对象当前值组合校验（例如只改完成日时与原开始日比较）。
+    basis: 编辑时目标就是对象本身。

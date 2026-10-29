@@ -1,0 +1,43 @@
+# 本体构建包（发布稿）：取消「新建回款节点」动作。本体 6.0.0（删除动作，破坏性变更）。
+# 依据：用户 2026-10-28「（新建回款节点）这个 action 实际情况用不到，我们基本按照合同内容去做新建回款约定的动作」。
+kind: OntologyBuild
+stage: release
+supersededBy: 2026-10-28-retire-milestone-payment-events.yaml
+topic: 取消独立新建回款节点：回款节点由回款约定关联里程碑产生
+ontologyVersion: 6.0.0
+date: 2026-10-28
+scope:
+  - CQ1 新的回款计划从哪里来？
+  - CQ2 已经存在的回款节点还能怎样维护？
+
+rules:
+  - id: R1
+    statement: 删除本体动作「新建回款节点」（createPaymentNode）和对应的兼容接口 POST /api/v1/projects/{项目编号}/payment-nodes。新的回款计划只通过「新建回款约定」登记合同回款条款，再在新建或编辑里程碑时关联约定，生成回款节点。
+    basis: 用户 2026-10-28 的决定：回款按合同条款登记。删除动作会让调用方失效，按原则 8 升主版本。
+    acceptance: 本体中没有 createPaymentNode，动作共 17 个；执行该动作返回 404；POST /api/v1/projects/WDR101/payment-nodes 返回 404；项目对象的动作列表中不再出现「新建回款节点」；新建回款约定并在新建里程碑时关联，仍会生成回款节点。
+    verifiedBy: [test_payment_nodes_come_from_payment_terms_only, test_linking_a_payment_term_fills_amount_and_date]
+    ontology: [Project, PaymentTerm, createPaymentTerm, createMilestone]
+  - id: R2
+    statement: 已有的回款节点照常维护：编辑回款节点、确认回款到账、删除回款节点三个动作和对应接口不变。
+    basis: 现有数据中有不来自回款约定的回款节点（例如示例数据 TPL149 的「首期款」「验收尾款」），只删除新建入口，不影响存量（技能原则 9：不顺带改变其他口径）。
+    acceptance: 对示例数据中 TPL149 已有的回款节点，编辑金额、确认到账、已到账后不能删除，与修改前一致。
+    verifiedBy: [test_payment_nodes_come_from_payment_terms_only]
+    ontology: [editPaymentNode, confirmPaymentReceived, deletePaymentNode, PaymentNode]
+
+exceptions:
+  - rule: R1
+    case: 新建或编辑里程碑时选择「商务回款节点 = 是」但不关联回款约定，单独填写回款日期和金额。
+    handling: 本次保留（这是 4.3.0 起保留的历史回款事件方式），仍会生成不来自约定的回款节点；是否一并取消留给用户决定。
+    basis: 用户本次只指出「新建回款节点」动作；里程碑上的历史回款方式涉及已有数据，不顺带删除（原则 9）。
+  - rule: R1
+    case: 演示数据初始化（ProjectRepository 的示例种子）。
+    handling: 仍用基础程序的 create_payment_node 生成示例回款节点，它不是本体动作，也不对外提供接口。
+    basis: 基础程序负责导入和初始化数据；本次删除的是人工维护的入口。
+  - rule: R1
+    case: 合同中没有约定、临时追加的回款（例如补充协议的一笔款）。
+    handling: 先新建一个回款约定登记这笔款，再关联里程碑；不再直接建回款节点。
+    basis: 回款按合同条款登记，追加款也有对应的协议条款。
+  - rule: R2
+    case: 回款节点数与回款约定数不相等。
+    handling: 存量的独立回款节点和历史回款事件仍计入回款节点数，不计入回款约定数，两者不要求相等（同 5.5.0 构建包例外）。
+    basis: 存量数据不迁移。

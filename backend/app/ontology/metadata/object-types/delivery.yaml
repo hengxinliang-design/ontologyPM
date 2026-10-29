@@ -1,0 +1,185 @@
+kind: ObjectType
+version: v1
+definition:
+  apiName: Milestone
+  displayName: 里程碑
+  pluralDisplayName: 里程碑
+  description: 人工维护的项目里程碑计划；完成需由管理人员确认，确认后锁定。
+  primaryKey: milestoneId
+  titleProperty: name
+  datasource: milestones
+  backingDatasets: [milestones]
+  readPermissions: [projects]
+  icon: flag
+  displayOrder: 8
+  defaultOrder: plannedEnd
+  listProperties: [projectNumber, status, sequenceNo, plannedStart, plannedEnd]
+  period: {unit: month, displayName: 计划月份, description: 计划开始至计划完成与所选月份（或月份区间）有重叠的里程碑, startProperty: plannedStart, endProperty: plannedEnd, range: true}
+  properties:
+    - {apiName: milestoneId, displayName: 里程碑 ID, type: string, sourceKind: manual, source: milestones.milestone_id}
+    - {apiName: projectNumber, displayName: 项目编号, type: string, sourceKind: manual, source: milestones.project_number, searchable: true}
+    - {apiName: sequenceNo, displayName: 序号, type: integer, sourceKind: manual, source: milestones.sequence_no, unit: none}
+    - {apiName: name, displayName: 名称, type: string, sourceKind: manual, source: milestones.name, searchable: true}
+    - {apiName: plannedStart, displayName: 计划开始, type: date, sourceKind: manual, source: milestones.planned_start}
+    - {apiName: plannedEnd, displayName: 计划完成, type: date, sourceKind: manual, source: milestones.planned_end}
+    - {apiName: completedDate, displayName: 实际完成, type: date, sourceKind: manual, source: milestones.completed_date}
+    - {apiName: status, displayName: 状态, type: enum, valueType: MilestoneStatus, sourceKind: manual, source: milestones.status}
+    - {apiName: owner, displayName: 负责人, type: string, sourceKind: manual, source: milestones.owner, searchable: true}
+    - {apiName: deliverable, displayName: 输出物, type: string, sourceKind: manual, source: milestones.deliverable}
+    - {apiName: isPaymentNode, displayName: 商务回款节点, type: boolean, sourceKind: manual, source: milestones.is_payment_node：关联回款约定后为是；7.0.0 起不能再单独设置（存量的历史回款事件仍为是）}
+    - {apiName: paymentNodeId, displayName: 关联回款节点, type: string, sourceKind: manual, source: milestones.payment_node_id}
+    - {apiName: confirmedBy, displayName: 确认人, type: string, sourceKind: manual, source: milestones.confirmed_by}
+    - {apiName: confirmedAt, displayName: 确认时间, type: datetime, sourceKind: manual, source: milestones.confirmed_at}
+    - {apiName: notes, displayName: 备注, type: string, sourceKind: manual, source: milestones.notes}
+    - {apiName: updatedAt, displayName: 更新时间, type: datetime, sourceKind: manual, source: milestones.updated_at}
+---
+kind: ObjectType
+version: v1
+definition:
+  apiName: PaymentNode
+  displayName: 回款节点
+  pluralDisplayName: 回款节点
+  description: 人工维护的回款计划；到账需由管理人员确认，确认后锁定。
+  primaryKey: paymentNodeId
+  titleProperty: name
+  datasource: paymentNodes
+  backingDatasets: [payment_nodes]
+  readPermissions: [projects]
+  icon: wallet
+  displayOrder: 9
+  defaultOrder: plannedDate
+  properties:
+    - {apiName: paymentNodeId, displayName: 回款节点 ID, type: string, sourceKind: manual, source: payment_nodes.payment_node_id}
+    - {apiName: projectNumber, displayName: 项目编号, type: string, sourceKind: manual, source: payment_nodes.project_number, searchable: true}
+    - {apiName: name, displayName: 名称, type: string, sourceKind: manual, source: payment_nodes.name, searchable: true}
+    - {apiName: plannedDate, displayName: 计划回款日, type: date, sourceKind: manual, source: payment_nodes.planned_date}
+    - {apiName: plannedAmount, displayName: 计划金额, type: money, sourceKind: manual, source: payment_nodes.planned_amount, marking: FINANCE, unit: yuan}
+    - {apiName: actualDate, displayName: 到账日期, type: date, sourceKind: manual, source: payment_nodes.actual_date}
+    - {apiName: actualAmount, displayName: 到账金额, type: money, sourceKind: manual, source: payment_nodes.actual_amount, marking: FINANCE, unit: yuan}
+    - {apiName: status, displayName: 状态, type: enum, valueType: PaymentStatus, sourceKind: manual, source: payment_nodes.status}
+    - {apiName: linkedMilestoneId, displayName: 关联里程碑, type: string, sourceKind: derived, source: milestones.payment_node_id 反查}
+    - {apiName: notes, displayName: 备注, type: string, sourceKind: manual, source: payment_nodes.notes}
+    - {apiName: updatedAt, displayName: 更新时间, type: datetime, sourceKind: manual, source: payment_nodes.updated_at}
+---
+kind: ObjectType
+version: v1
+definition:
+  apiName: Intervention
+  displayName: 管理干预
+  pluralDisplayName: 管理干预
+  description: 管理者针对项目风险发起的干预事项，需跟踪至关闭。
+  primaryKey: interventionId
+  titleProperty: title
+  datasource: interventions
+  backingDatasets: [interventions]
+  readPermissions: [projects]
+  icon: alert
+  displayOrder: 10
+  defaultOrder: -updatedAt
+  properties:
+    - {apiName: interventionId, displayName: 干预 ID, type: string, sourceKind: manual, source: interventions.intervention_id}
+    - {apiName: projectNumber, displayName: 项目编号, type: string, sourceKind: manual, source: interventions.project_number, searchable: true}
+    - {apiName: title, displayName: 事项, type: string, sourceKind: manual, source: interventions.title, searchable: true}
+    - {apiName: interventionType, displayName: 类型, type: string, sourceKind: manual, source: interventions.intervention_type}
+    - {apiName: status, displayName: 状态, type: enum, valueType: InterventionStatus, sourceKind: manual, source: interventions.status}
+    - {apiName: owner, displayName: 负责人, type: string, sourceKind: manual, source: interventions.owner, searchable: true}
+    - {apiName: dueDate, displayName: 截止日期, type: date, sourceKind: manual, source: interventions.due_date}
+    - {apiName: notes, displayName: 备注, type: string, sourceKind: manual, source: interventions.notes}
+    - {apiName: updatedAt, displayName: 更新时间, type: datetime, sourceKind: manual, source: interventions.updated_at}
+---
+kind: ObjectType
+version: v1
+definition:
+  apiName: PaymentTerm
+  displayName: 回款约定
+  pluralDisplayName: 回款约定
+  description: 合同中约定的回款条款（名称、比例、金额）。关联里程碑后，以里程碑结束日期生成或更新对应的回款节点；节点完成数是人工确认结果，不代表 CRM 回款自动匹配到某个约定。
+  primaryKey: paymentTermId
+  titleProperty: name
+  datasource: paymentTerms
+  derivations: [maintenanceStatus, paymentTermFacts]
+  # 回款约定需要关联里程碑：关联后才会以里程碑结束日生成回款节点。
+  maintenanceRequirements:
+    - {apiName: linkMilestone, displayName: 关联里程碑, property: linkedMilestoneId, action: editMilestone}
+  backingDatasets: [payment_terms, payment_nodes, milestones]
+  readPermissions: [projects]
+  icon: wallet
+  displayOrder: 9
+  defaultOrder: plannedDate
+  properties:
+    - {apiName: paymentTermId, displayName: 回款约定 ID, type: string, sourceKind: manual, source: payment_terms.payment_term_id}
+    - {apiName: projectNumber, displayName: 项目编号, type: string, sourceKind: manual, source: payment_terms.project_number, searchable: true}
+    - {apiName: name, displayName: 名称, type: string, sourceKind: manual, source: payment_terms.name, searchable: true}
+    - {apiName: paymentRatio, displayName: 回款比例, type: percent, sourceKind: manual, source: payment_terms.payment_ratio（0–100）, unit: percent}
+    - {apiName: plannedAmount, displayName: 约定金额, type: money, sourceKind: manual, source: payment_terms.planned_amount, marking: FINANCE, unit: yuan}
+    - {apiName: linkedMilestoneId, displayName: 关联里程碑, type: string, sourceKind: manual, source: payment_terms.linked_milestone_id（每个里程碑最多关联一个约定）}
+    - {apiName: paymentNodeId, displayName: 回款节点, type: string, sourceKind: derived, source: 关联里程碑后自动生成的回款节点, derivedFrom: paymentTermFacts}
+    - {apiName: plannedDate, displayName: 计划回款日, type: date, sourceKind: derived, source: 回款节点计划日期，缺省取关联里程碑的计划结束日期, derivedFrom: paymentTermFacts}
+    - {apiName: nodeStatus, displayName: 回款状态, type: enum, valueType: PaymentTermStatus, sourceKind: derived, source: 回款节点状态；尚未关联里程碑为待排期, derivedFrom: paymentTermFacts}
+    - {apiName: maintenanceComplete, displayName: 人工维护完整, type: boolean, sourceKind: derived, source: 回款约定的维护要求全部满足（已关联里程碑）, derivedFrom: maintenanceStatus}
+    - {apiName: maintenanceGapCount, displayName: 待维护项数, type: integer, sourceKind: derived, source: 未满足的维护要求数, derivedFrom: maintenanceStatus, unit: count}
+    - {apiName: maintenanceChecklist, displayName: 维护清单, type: json, sourceKind: derived, source: 每条适用的维护要求及是否已维护、由哪个动作维护, derivedFrom: maintenanceStatus}
+    - {apiName: notes, displayName: 备注, type: string, sourceKind: manual, source: payment_terms.notes}
+    - {apiName: updatedAt, displayName: 更新时间, type: datetime, sourceKind: manual, source: payment_terms.updated_at}
+---
+kind: ObjectType
+version: v1
+definition:
+  apiName: OperatingPolicy
+  displayName: 运营口径参数
+  pluralDisplayName: 运营口径参数
+  description: 独立对象：全部计算都引用它，因此不与具体对象关联。系统中所有可配置的计算口径：标准工时、利用率四档阈值、预算关注线与高风险线、商机停滞天数、丢单状态和内部代码。规则以数据形式保存，修改后风险、健康度、资源与投入分析同时生效。
+  primaryKey: configId
+  titleProperty: configId
+  datasource: operatingPolicy
+  backingDatasets: [worktime_baseline_config, investment_settings]
+  readPermissions: [projects, health, resource, employeeWorktime, investment, settings]
+  icon: gauge
+  displayOrder: 11
+  defaultOrder: configId
+  properties:
+    - {apiName: configId, displayName: 配置编号, type: string, sourceKind: manual, source: worktime_baseline_config.config_id}
+    - {apiName: standardHoursPerDay, displayName: 标准每日小时数, type: decimal, sourceKind: manual, source: 员工统计与周期基线工时使用；项目人天换算使用项目自己的每人天小时数, unit: hour}
+    - {apiName: standardWorkDaysPerYear, displayName: 标准年工作日, type: decimal, sourceKind: manual, source: 仅作参考；当期基线按中国工作日历动态计算, unit: day}
+    - {apiName: attentionUtilizationPercent, displayName: 利用率关注线, type: percent, sourceKind: manual, source: 默认 60%；≤ 关注线为严重不足 / 可优先调剂, unit: percent}
+    - {apiName: minimumUtilizationPercent, displayName: 利用率最低线, type: percent, sourceKind: manual, source: 默认 75%；可调剂人天按补足到最低线计算, unit: percent}
+    - {apiName: excellentUtilizationPercent, displayName: 利用率优秀线, type: percent, sourceKind: manual, source: 默认 90%；> 优秀线为工时充足 / 负荷较高, unit: percent}
+    - {apiName: overloadUtilizationPercent, displayName: 利用率过载线, type: percent, sourceKind: manual, source: 默认 100%；> 过载线为负荷过高；须满足 关注 < 最低 < 优秀 < 过载, unit: percent}
+    - {apiName: budgetAttentionPercent, displayName: 预算关注线, type: percent, sourceKind: manual, source: 默认 80%；项目风险“关注”与运营监控“需关注”共用, unit: percent}
+    - {apiName: budgetHighRiskPercent, displayName: 预算高风险线, type: percent, sourceKind: manual, source: 默认 90%；运营监控“高风险”；超过 100% 为已超预算, unit: percent}
+    - {apiName: stallDays, displayName: 商机停滞天数, type: integer, sourceKind: manual, source: investment_settings.stall_days, unit: day}
+    - {apiName: lostStatuses, displayName: 丢单状态, type: json, sourceKind: manual, source: investment_settings.lost_statuses_json（默认含失败、失效）}
+    - {apiName: internalCodes, displayName: 内部代码, type: json, sourceKind: manual, source: investment_settings.internal_codes_json（默认 TSG999）}
+    - {apiName: overtimeShareAttentionPercent, displayName: 加班占比关注线, type: percent, sourceKind: manual, source: 默认 20%；高于即疲劳风险, unit: percent}
+    - {apiName: overloadConsecutiveMonths, displayName: 连续过载月数, type: integer, sourceKind: manual, source: 默认 2；连续高于过载线达到该月数即过载风险, unit: month}
+    - {apiName: maxConcurrentProjects, displayName: 同期项目数上限, type: integer, sourceKind: manual, source: 默认 4；超过即碎片化, unit: count}
+    - {apiName: planLagTolerancePoints, displayName: 年度计划落后容差, type: decimal, sourceKind: manual, source: 默认 5 个百分点, unit: percentagePoint}
+    - {apiName: notes, displayName: 备注, type: string, sourceKind: manual, source: worktime_baseline_config.notes}
+    - {apiName: updatedAt, displayName: 更新时间, type: datetime, sourceKind: manual, source: worktime_baseline_config.updated_at}
+---
+kind: ObjectType
+version: v1
+definition:
+  apiName: AnnualOperatingPlan
+  displayName: 年度经营计划
+  pluralDisplayName: 年度经营计划
+  description: 独立对象：部门年度目标，由部门经营复盘函数汇总全部项目后对照。部门某一年的经营目标：新签合同额、回款、项目投入人天、人员编制与利用率（确认收入与毛利率目标随经营口径暂停）。
+  primaryKey: planId
+  titleProperty: planId
+  datasource: annualOperatingPlans
+  backingDatasets: [annual_operating_plans]
+  readPermissions: [department, settings]
+  icon: target
+  displayOrder: 12
+  defaultOrder: planId
+  properties:
+    - {apiName: planId, displayName: 计划编号, type: string, sourceKind: manual, source: 年度-部门}
+    - {apiName: year, displayName: 年度, type: integer, sourceKind: manual, source: annual_operating_plans.year, unit: none}
+    - {apiName: department, displayName: 部门, type: string, sourceKind: manual, source: annual_operating_plans.department；员工有部门字段之前只有一个部门}
+    - {apiName: newContractTarget, displayName: 新签合同额目标, type: money, sourceKind: manual, source: annual_operating_plans.new_contract_target, marking: FINANCE, unit: yuan}
+    - {apiName: collectionTarget, displayName: 回款目标, type: money, sourceKind: manual, source: annual_operating_plans.collection_target, marking: FINANCE, unit: yuan}
+    - {apiName: capacityPersonDaysTarget, displayName: 项目投入人天目标, type: decimal, sourceKind: manual, source: annual_operating_plans.capacity_person_days_target, unit: personDay}
+    - {apiName: headcountTarget, displayName: 人员编制, type: decimal, sourceKind: manual, source: annual_operating_plans.headcount_target, unit: person}
+    - {apiName: utilizationTargetPercent, displayName: 利用率目标, type: percent, sourceKind: manual, source: annual_operating_plans.utilization_target_percent, unit: percent}
+    - {apiName: notes, displayName: 备注, type: string, sourceKind: manual, source: annual_operating_plans.notes}
+    - {apiName: updatedAt, displayName: 更新时间, type: datetime, sourceKind: manual, source: annual_operating_plans.updated_at}

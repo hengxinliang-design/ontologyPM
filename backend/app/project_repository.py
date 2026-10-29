@@ -8,111 +8,35 @@ from decimal import Decimal
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from .china_holiday_calendar import ChinaHolidayCalendarService
 from .db import Database
+from .pagination import CursorError, decode_cursor, encode_cursor
 from .repository import SnapshotRepository
 
 
 CAPPED_TYPES = {"construction", "maintenance"}
 INTERNAL_NONPROJECT_CODE = "TSG999"
+# Effort counts submitted and approved time; rejected entries were ruled out of the project, drafts were never submitted.
+EFFORT_APPROVAL_STATUSES = frozenset({"submitted", "approved"})
+# Excel exports carry no reliable update time, so a re-import may only move a submitted entry to a final status.
+FINAL_APPROVAL_STATUSES = frozenset({"approved", "rejected"})
+LIFECYCLE_STATUS_ORDER = ("planned", "active", "on_hold", "completed", "closed")
 
 
 class ProjectRepository:
     def __init__(
-        self, database: Database, timezone: str, require_crm_project_match: bool = True
+        self,
+        database: Database,
+        timezone: str,
+        require_crm_project_match: bool = True,
+        holiday_calendar: ChinaHolidayCalendarService | None = None,
     ):
         self.database = database
         self.timezone = timezone
         self.require_crm_project_match = require_crm_project_match
+        self.holiday_calendar = holiday_calendar
         self.records = SnapshotRepository(database)
 
-    def list_projects(
-        self,
-        *,
-        contract_type: str | None = None,
-        lifecycle_status: str | None = None,
-        risk_level: str | None = None,
-        contract_status: str | None = None,
-        query: str | None = None,
-    ) -> dict[str, Any]:
-        projects = self._build_all_projects()
-        if contract_type:
-            projects = [p for p in projects if p["contract_type"] == contract_type]
-        if lifecycle_status:
-            projects = [p for p in projects if p["lifecycle_status"] == lifecycle_status]
-        if risk_level:
-            projects = [p for p in projects if p["risk_level"] == risk_level]
-        if contract_status:
-            projects = [
-                p
-                for p in projects
-                if (p["contract_status"] or "未签约") == contract_status
-            ]
-        if query:
-            crm_terms_by_project = self._crm_search_terms_by_project()
-            projects = [
-                project
-                for project in projects
-                if self._matches_project_query(
-                    project, query, crm_terms_by_project
-                )
-            ]
-        projects.sort(key=lambda p: (_risk_rank(p["risk_level"]), p["project_number"]))
-        return {
-            "data": projects,
-            "summary": {
-                "total_projects": len(projects),
-                "contract_value": _decimal_sum(p["contract_value"] for p in projects),
-                "received_amount": _decimal_sum(p["received_amount"] for p in projects),
-                "critical_projects": sum(p["risk_level"] == "critical" for p in projects),
-                "warning_projects": sum(p["risk_level"] == "warning" for p in projects),
-            },
-        }
-
-    def get_project(self, project_number: str) -> dict[str, Any] | None:
-        for project in self._build_all_projects(include_details=True):
-            if project["project_number"] == project_number:
-                return project
-        return None
-
-    def project_health(
-        self,
-        *,
-        month: str | None = None,
-        start_month: str | None = None,
-        end_month: str | None = None,
-        project_number: str | None = None,
-        contract_status: str | None = None,
-        query: str | None = None,
-    ) -> dict[str, Any]:
-        start, end = _health_period(month, start_month, end_month, self._now())
-        rows = []
-        crm_terms_by_project = self._crm_search_terms_by_project() if query else {}
-        for project in self._build_all_projects(include_details=True):
-            if project_number and project["project_number"] != project_number:
-                continue
-            if contract_status and (project["contract_status"] or "未签约") != contract_status:
-                continue
-            if query and not self._matches_project_query(
-                project, query, crm_terms_by_project
-            ):
-                continue
-            rows.append(_project_health_row(project, start, end))
-        rows.sort(key=lambda row: (_health_rank(row["health_status"]), row["project_number"]))
-        return {
-            "data": rows,
-            "summary": {
-                "total_projects": len(rows),
-                "critical_projects": sum(row["health_status"] == "已超预算" for row in rows),
-                "warning_projects": sum(row["health_status"] == "需关注" for row in rows),
-                "healthy_projects": sum(row["health_status"] == "健康" for row in rows),
-                "no_baseline_projects": sum(row["health_status"] == "无基线" for row in rows),
-            },
-            "meta": {
-                "start_month": start,
-                "end_month": end,
-                "mode": "month" if start == end else "range",
-            },
-        }
 
     def get_worktime_baseline(self) -> dict[str, Any]:
         self._ensure_worktime_baseline()
@@ -168,8 +92,22 @@ class ProjectRepository:
                     current["attention_utilization_percent"],
                 )
             ),
+            "overload_utilization_percent": _decimal_text(
+                payload.get(
+                    "overload_utilization_percent",
+                    current["overload_utilization_percent"],
+                )
+            ),
+            "budget_attention_percent": _decimal_text(
+                payload.get("budget_attention_percent", current["budget_attention_percent"])
+            ),
+            "budget_high_risk_percent": _decimal_text(
+                payload.get("budget_high_risk_percent", current["budget_high_risk_percent"])
+            ),
             "notes": payload.get("notes", current["notes"]),
         }
+        for name in POLICY_RANGES:
+            values[name] = _decimal_text(payload.get(name, current[name]))
         _validate_worktime_baseline(values)
         with self.database.connect() as connection:
             connection.execute(
@@ -179,8 +117,10 @@ class ProjectRepository:
                     annual_baseline_hours, effective_baseline_hours,
                     monthly_baseline_hours, quarterly_baseline_hours,
                     minimum_utilization_percent, excellent_utilization_percent,
-                    attention_utilization_percent, notes, updated_at
-                ) VALUES ('default', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    attention_utilization_percent, overload_utilization_percent,
+                    budget_attention_percent, budget_high_risk_percent,
+                    notes, updated_at
+                ) VALUES ('default', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(config_id) DO UPDATE SET
                     standard_work_days_per_year=excluded.standard_work_days_per_year,
                     standard_hours_per_day=excluded.standard_hours_per_day,
@@ -191,6 +131,9 @@ class ProjectRepository:
                     minimum_utilization_percent=excluded.minimum_utilization_percent,
                     excellent_utilization_percent=excluded.excellent_utilization_percent,
                     attention_utilization_percent=excluded.attention_utilization_percent,
+                    overload_utilization_percent=excluded.overload_utilization_percent,
+                    budget_attention_percent=excluded.budget_attention_percent,
+                    budget_high_risk_percent=excluded.budget_high_risk_percent,
                     notes=excluded.notes,
                     updated_at=excluded.updated_at
                 """,
@@ -204,12 +147,58 @@ class ProjectRepository:
                     values["minimum_utilization_percent"],
                     values["excellent_utilization_percent"],
                     values["attention_utilization_percent"],
+                    values["overload_utilization_percent"],
+                    values["budget_attention_percent"],
+                    values["budget_high_risk_percent"],
                     values["notes"],
                     self._now(),
                 ),
             )
+            connection.execute(
+                "UPDATE worktime_baseline_config SET "
+                + ", ".join(f"{name}=?" for name in POLICY_RANGES)
+                + " WHERE config_id = 'default'",
+                tuple(values[name] for name in POLICY_RANGES),
+            )
             connection.commit()
         return self.get_worktime_baseline()
+
+    def workday_summary(self, start_date: str, end_date: str) -> dict[str, Any]:
+        """China working-day calendar for a date range (statutory holidays and make-up days)."""
+        if start_date > end_date:
+            raise ValueError("start_date must be on or before end_date")
+        return self._workday_summary(start_date, end_date)
+
+    def _workday_summary(self, start_date: str, end_date: str) -> dict[str, Any]:
+        """Return the monthly/period capacity calendar used by PMO metrics."""
+        if self.holiday_calendar is not None:
+            return self.holiday_calendar.workday_summary(start_date, end_date)
+        # Repository-only callers (including lightweight data migrations) still
+        # receive a deterministic weekday calendar when no subscription service
+        # has been wired in.
+        current = date.fromisoformat(start_date)
+        end = date.fromisoformat(end_date)
+        working_days = 0
+        while current <= end:
+            if current.weekday() < 5:
+                working_days += 1
+            current = date.fromordinal(current.toordinal() + 1)
+        return {
+            "start_date": start_date,
+            "end_date": end_date,
+            "working_days": working_days,
+            "holiday_excluded_days": 0,
+            "makeup_workdays": 0,
+            "available": False,
+            "stale": False,
+            "source": "weekday fallback",
+        }
+
+    def _capacity_for_period(
+        self, start_date: str, end_date: str, standard_hours_per_day: Decimal
+    ) -> tuple[Decimal, dict[str, Any]]:
+        calendar = self._workday_summary(start_date, end_date)
+        return Decimal(calendar["working_days"]) * standard_hours_per_day, calendar
 
     def employee_worktime_assessment(
         self,
@@ -238,13 +227,10 @@ class ProjectRepository:
             ]
         if employee_name:
             rows = [row for row in rows if row["employee_name"] == employee_name]
-        baseline_hours = Decimal(
-            baseline[
-                "monthly_baseline_hours"
-                if period == "month" else "annual_baseline_hours"
-            ]
-        )
         standard_hours_per_day = Decimal(baseline["standard_hours_per_day"])
+        baseline_hours, calendar = self._capacity_for_period(
+            start_date, end_date, standard_hours_per_day
+        )
         monitored_rows = _monitoring_time_entries(rows)
         grouped = _employee_worktime_rows(
             monitored_rows,
@@ -269,6 +255,11 @@ class ProjectRepository:
                 "start_date": start_date,
                 "end_date": end_date,
                 "baseline_hours": _format_decimal(baseline_hours),
+                "working_days": calendar["working_days"],
+                "holiday_excluded_days": calendar["holiday_excluded_days"],
+                "makeup_workdays": calendar["makeup_workdays"],
+                "calendar_available": calendar["available"],
+                "calendar_stale": calendar["stale"],
                 "latest_work_month": (
                     latest_work_date_row["latest_work_date"][:7]
                     if latest_work_date_row and latest_work_date_row["latest_work_date"]
@@ -287,8 +278,13 @@ class ProjectRepository:
         start_month: str | None = None,
         end_month: str | None = None,
         employee_name: str | None = None,
+        cursor: str | None = None,
+        page_size: int = 50,
+        projects: list[dict[str, Any]],
     ) -> dict[str, Any]:
         """Provide a source-backed PMO capacity and project staffing view.
+
+        ``projects`` are the project facts derived in the ontology (phase 2 moves this view there too).
 
         The recommendation deliberately uses only imported worktime, the shared
         worktime baseline, and project plan data.  Skills, departments and staff
@@ -344,10 +340,13 @@ class ProjectRepository:
             ]
 
         standard_hours_per_day = Decimal(baseline["standard_hours_per_day"])
-        baseline_hours = Decimal(baseline["monthly_baseline_hours"]) * period_months
+        baseline_hours, calendar = self._capacity_for_period(
+            start_date, end_date, standard_hours_per_day
+        )
         minimum_target = Decimal(baseline["minimum_utilization_percent"])
         attention_target = Decimal(baseline["attention_utilization_percent"])
         excellent_target = Decimal(baseline["excellent_utilization_percent"])
+        overload_target = Decimal(baseline["overload_utilization_percent"])
         monitored_rows = _monitoring_time_entries(rows)
         assessment_rows = _employee_worktime_rows(
             monitored_rows,
@@ -358,91 +357,31 @@ class ProjectRepository:
         )
 
         employee_projects: dict[str, dict[str, dict[str, Decimal]]] = {}
-        project_actual_hours: dict[str, Decimal] = {}
         for row in monitored_rows:
-            employee = row["employee_name"]
+            employee = _employee_key(row)
             project = employee_projects.setdefault(employee, {}).setdefault(
                 row["project_number"],
                 {"reported_hours": Decimal("0"), "overtime_hours": Decimal("0")},
             )
             project["reported_hours"] += _total_entry_hours(row)
             project["overtime_hours"] += _overtime_entry_hours(row)
-            project_actual_hours[row["project_number"]] = (
-                project_actual_hours.get(row["project_number"], Decimal("0"))
-                + _total_entry_hours(row)
-            )
 
         internal_time_by_employee: dict[str, dict[str, Decimal | int]] = {}
-        for row in rows:
+        for row in _effort_entries(rows):
             if row["project_number"] != INTERNAL_NONPROJECT_CODE:
                 continue
             item = internal_time_by_employee.setdefault(
-                row["employee_name"],
+                _employee_key(row),
                 {"reported_hours": Decimal("0"), "overtime_hours": Decimal("0"), "entry_count": 0},
             )
             item["reported_hours"] += _total_entry_hours(row)
             item["overtime_hours"] += _overtime_entry_hours(row)
             item["entry_count"] += 1
 
-        all_projects = self._build_all_projects(include_details=True)
+        all_projects = projects
         project_names = {
             project["project_number"]: project["subject"] for project in all_projects
         }
-        staffing_candidates: list[dict[str, Any]] = []
-        for project in all_projects:
-            if project["lifecycle_status"] not in {"planned", "active"}:
-                continue
-            start = project.get("planned_start")
-            end = project.get("planned_end")
-            if not start or not end:
-                continue
-            window_start = max(start, start_date)
-            window_end = min(end, end_date)
-            if window_start > window_end:
-                continue
-            planned_days = project.get("planned_person_days")
-            if planned_days is None:
-                continue
-            plan_months = _plan_months(start, end)
-            if plan_months <= 0:
-                continue
-            monthly_budget = Decimal(planned_days) / Decimal(plan_months)
-            expected_days = monthly_budget * _plan_months(window_start, window_end)
-            actual_days = (
-                project_actual_hours.get(project["project_number"], Decimal("0"))
-                / standard_hours_per_day
-                if standard_hours_per_day else Decimal("0")
-            )
-            gap_days = max(expected_days - actual_days, Decimal("0"))
-            if expected_days <= 0 or actual_days >= expected_days * Decimal("0.70"):
-                continue
-            priority = (
-                "高优先"
-                if project["risk_level"] == "critical" or project["overdue_milestones"]
-                else "需关注"
-            )
-            staffing_candidates.append(
-                {
-                    "project_number": project["project_number"],
-                    "project_name": project["subject"],
-                    "resource_gap_person_days": _format_decimal(gap_days),
-                    "monthly_budget_person_days": _format_decimal(monthly_budget),
-                    "period_actual_person_days": _format_decimal(actual_days),
-                    "priority": priority,
-                    "reason": (
-                        f"统计期投入 {_format_decimal(actual_days)} 人天，低于计划 "
-                        f"{_format_decimal(expected_days)} 人天"
-                    ),
-                }
-            )
-        staffing_candidates.sort(
-            key=lambda item: (
-                item["priority"] != "高优先",
-                -Decimal(item["resource_gap_person_days"]),
-                item["project_number"],
-            )
-        )
-
         employees: list[dict[str, Any]] = []
         total_available_days = Decimal("0")
         available_count = high_load_count = overloaded_count = 0
@@ -450,7 +389,7 @@ class ProjectRepository:
             utilization = Decimal(assessment["utilization_percent"])
             reported_hours = Decimal(assessment["reported_hours"])
             internal_time = internal_time_by_employee.get(
-                assessment["employee_name"],
+                _employee_key(assessment),
                 {"reported_hours": Decimal("0"), "overtime_hours": Decimal("0"), "entry_count": 0},
             )
             internal_reported_hours = Decimal(internal_time["reported_hours"])
@@ -467,7 +406,7 @@ class ProjectRepository:
                     baseline_hours * minimum_target / Decimal("100") - reported_hours,
                     Decimal("0"),
                 )
-            elif utilization > Decimal("100"):
+            elif utilization > overload_target:
                 allocation_status = "负荷过高"
                 available_hours = Decimal("0")
                 high_load_count += 1
@@ -482,13 +421,15 @@ class ProjectRepository:
 
             # TSG999 是内部非项目工时：不影响项目负荷，但已占用的内部工时可
             # 直接改投项目。取“内部可调剂工时”和常规产能缺口的较大值，避免重复计算。
-            available_hours = max(available_hours, internal_reported_hours)
+            # 负荷较高或过高的人员不再对外调剂，即使有内部工时。
+            if allocation_status not in {"负荷较高", "负荷过高"}:
+                available_hours = max(available_hours, internal_reported_hours)
             if available_hours > 0:
                 available_count += 1
 
             assignments = []
             for project_number, values in employee_projects.get(
-                assessment["employee_name"], {}
+                _employee_key(assessment), {}
             ).items():
                 assignments.append(
                     {
@@ -551,15 +492,30 @@ class ProjectRepository:
                 item["employee_name"],
             )
         )
+        page, next_cursor = _cursor_page(
+            employees,
+            cursor=cursor,
+            page_size=page_size,
+            kind="resource-operations",
+            key=lambda item: (
+                {"负荷过高": 0, "负荷较高": 1, "可优先调剂": 2, "可适度支持": 3, "安排基本均衡": 4}[item["allocation_status"]],
+                item["employee_name"],
+                item["employee_id"],
+            ),
+            scope=_cursor_scope(
+                month=month,
+                start_month=start_month,
+                end_month=end_month,
+                employee_name=normalized_employee_name,
+            ),
+        )
         return {
-            "data": employees,
-            "staffing_candidates": staffing_candidates,
+            "data": page,
             "summary": {
                 "total_employees": len(employees),
                 "available_count": available_count,
                 "high_load_count": high_load_count,
                 "overloaded_count": overloaded_count,
-                "projects_needing_support": len(staffing_candidates),
                 "available_person_days": _format_decimal(total_available_days),
             },
             "baseline": baseline,
@@ -572,18 +528,33 @@ class ProjectRepository:
                 "start_date": start_date,
                 "end_date": end_date,
                 "baseline_hours": _format_decimal(baseline_hours),
+                "working_days": calendar["working_days"],
+                "holiday_excluded_days": calendar["holiday_excluded_days"],
+                "makeup_workdays": calendar["makeup_workdays"],
+                "calendar_available": calendar["available"],
+                "calendar_stale": calendar["stale"],
                 "latest_work_month": latest_month,
                 "excluded_internal_nonproject_entries": sum(
                     row["project_number"] == INTERNAL_NONPROJECT_CODE for row in rows
                 ),
                 "internal_nonproject_project_code": INTERNAL_NONPROJECT_CODE,
                 "recommendation_limitations": "TSG999 为内部非项目工时，不计入资源监控；其余建议仅基于导入工时、工时基线与项目计划，未包含员工技能、角色、请假或外部排期。",
+                "page_size": page_size,
+                "next_cursor": next_cursor,
             },
         }
 
     def upsert_settings(self, project_number: str, payload: dict[str, Any]) -> dict[str, Any]:
         now = self._now()
         current = self._settings().get(project_number, {})
+        planned_start = _optional_iso_date(
+            payload.get("planned_start", current.get("planned_start")), "planned_start"
+        )
+        planned_end = _optional_iso_date(
+            payload.get("planned_end", current.get("planned_end")), "planned_end"
+        )
+        if planned_start and planned_end and planned_start > planned_end:
+            raise ValueError("planned_start must be earlier than or equal to planned_end")
         values = {
             "contract_type": payload.get("contract_type", current.get("contract_type", "unknown")),
             "lifecycle_status": payload.get(
@@ -596,8 +567,8 @@ class ProjectRepository:
                 payload.get("hours_per_person_day", current.get("hours_per_person_day", "8.00"))
             )
             or "8.00",
-            "planned_start": payload.get("planned_start", current.get("planned_start")),
-            "planned_end": payload.get("planned_end", current.get("planned_end")),
+            "planned_start": planned_start,
+            "planned_end": planned_end,
             "project_manager": payload.get(
                 "project_manager", current.get("project_manager")
             ),
@@ -638,11 +609,13 @@ class ProjectRepository:
                 ),
             )
             connection.commit()
-        return self.get_project(project_number) or {"project_number": project_number}
+        # Callers that need the project view read it from the ontology.
+        return {"project_number": project_number}
 
     def import_time_entries(self, entries: list[dict[str, Any]]) -> dict[str, int]:
         now = self._now()
         imported = 0
+        updated = 0
         unchanged = 0
         with self.database.connect() as connection:
             for entry in entries:
@@ -657,6 +630,55 @@ class ProjectRepository:
                     or Decimal(approved_hours) > 24
                 ):
                     raise ValueError("total daily hours must be between 0 and 24")
+                # Excel exports do not provide a source-row ID.  Check their
+                # semantic identity before insert so historical generated IDs
+                # that differ only by display format or workflow status cannot
+                # inflate the same employee's project effort.  API imports are
+                # excluded because their caller-supplied external IDs can
+                # distinguish legitimately identical source rows.
+                if str(entry["external_id"]).startswith("TIMESHEET-XLSX-"):
+                    existing = connection.execute(
+                        """
+                        SELECT external_id, approval_status FROM time_entries
+                        WHERE external_id LIKE 'TIMESHEET-XLSX-%'
+                          AND employee_id=? AND project_number=? AND work_date=?
+                          AND hours=? AND overtime_hours=? AND work_content=?
+                        LIMIT 1
+                        """,
+                        (
+                            entry["employee_id"], entry["project_number"],
+                            entry["work_date"], hours, overtime_hours,
+                            entry["work_content"],
+                        ),
+                    ).fetchone()
+                    if existing:
+                        # The workflow status may only move forward (submitted → approved / rejected):
+                        # without a reliable export time an older file must not undo an approval.
+                        if (
+                            existing["approval_status"] not in FINAL_APPROVAL_STATUSES
+                            and entry["approval_status"] in FINAL_APPROVAL_STATUSES
+                        ):
+                            connection.execute(
+                                """
+                                UPDATE time_entries
+                                SET approval_status=?, approved_hours=?, imported_at=?
+                                WHERE external_id=?
+                                """,
+                                (entry["approval_status"], approved_hours, now, existing["external_id"]),
+                            )
+                            updated += 1
+                        else:
+                            unchanged += 1
+                        continue
+                existing_version = connection.execute(
+                    "SELECT source_updated_at FROM time_entries WHERE external_id = ?",
+                    (entry["external_id"],),
+                ).fetchone()
+                if existing_version and not _is_newer_source_version(
+                    entry["source_updated_at"], existing_version["source_updated_at"]
+                ):
+                    unchanged += 1
+                    continue
                 cursor = connection.execute(
                     """
                     INSERT INTO time_entries(
@@ -664,7 +686,18 @@ class ProjectRepository:
                         work_date, hours, overtime_hours, approved_hours, approval_status,
                         work_content, source_updated_at, imported_at
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ON CONFLICT(external_id) DO NOTHING
+                    ON CONFLICT(external_id) DO UPDATE SET
+                        project_number=excluded.project_number,
+                        employee_id=excluded.employee_id,
+                        employee_name=excluded.employee_name,
+                        work_date=excluded.work_date,
+                        hours=excluded.hours,
+                        overtime_hours=excluded.overtime_hours,
+                        approved_hours=excluded.approved_hours,
+                        approval_status=excluded.approval_status,
+                        work_content=excluded.work_content,
+                        source_updated_at=excluded.source_updated_at,
+                        imported_at=excluded.imported_at
                     """,
                     (
                         entry["external_id"],
@@ -681,12 +714,14 @@ class ProjectRepository:
                         now,
                     ),
                 )
-                if cursor.rowcount:
+                if existing_version:
+                    updated += 1
+                elif cursor.rowcount:
                     imported += 1
                 else:
                     unchanged += 1
             connection.commit()
-        return {"imported": imported, "unchanged": unchanged}
+        return {"imported": imported, "updated": updated, "unchanged": unchanged}
 
     def _ensure_worktime_baseline(self) -> None:
         with self.database.connect() as connection:
@@ -702,10 +737,11 @@ class ProjectRepository:
                     annual_baseline_hours, effective_baseline_hours,
                     monthly_baseline_hours, quarterly_baseline_hours,
                     minimum_utilization_percent, excellent_utilization_percent,
-                    attention_utilization_percent, notes, updated_at
+                    attention_utilization_percent, overload_utilization_percent,
+                    notes, updated_at
                 ) VALUES (
                     'default', '230.00', '8.00', '1840.00', '1564.00',
-                    '153.00', '460.00', '75.00', '90.00', '60.00',
+                    '153.00', '460.00', '75.00', '90.00', '60.00', '100.00',
                     '默认工时基线参数，可在页面人工维护。', ?
                 )
                 """,
@@ -715,17 +751,29 @@ class ProjectRepository:
 
     def create_milestone(self, project_number: str, payload: dict[str, Any]) -> dict[str, Any]:
         milestone_id = "ms_" + uuid.uuid4().hex[:16]
-        planned_end = payload.get("planned_end") or payload.get("planned_date")
-        if not planned_end:
+        planned_end = _optional_iso_date(
+            payload.get("planned_end") or payload.get("planned_date"), "planned_end"
+        )
+        if planned_end is None:
             raise ValueError("planned_end is required")
-        planned_start = payload.get("planned_start") or planned_end
-        is_payment_node = bool(payload.get("is_payment_node", False))
+        planned_start = _optional_iso_date(
+            payload.get("planned_start") or planned_end, "planned_start"
+        )
+        if planned_start is not None and planned_start > planned_end:
+            raise ValueError("planned_start must be on or before planned_end")
+        payment_term_id = payload.get("payment_term_id") or None
+        is_payment_node = bool(payment_term_id) or bool(payload.get("is_payment_node", False))
         payment_date = payload.get("payment_date")
         payment_amount = payload.get("payment_amount")
-        if is_payment_node and (not payment_date or payment_amount in (None, "")):
+        if is_payment_node and not payment_term_id and (not payment_date or payment_amount in (None, "")):
             raise ValueError("payment_date and payment_amount are required for payment milestones")
         payment_node_id = "pay_" + uuid.uuid4().hex[:16] if is_payment_node else None
         with self.database.connect() as connection:
+            payment_term = self._payment_term_for_link(
+                connection, project_number, payment_term_id
+            )
+            if payment_term:
+                payment_node_id = payment_term.get("payment_node_id") or payment_node_id
             sequence_no = payload.get("sequence_no")
             if sequence_no is None:
                 row = connection.execute(
@@ -759,7 +807,16 @@ class ProjectRepository:
                     self._now(),
                 ),
             )
-            if is_payment_node:
+            if payment_term:
+                self._upsert_payment_event_for_term(
+                    connection=connection,
+                    project_number=project_number,
+                    milestone_id=milestone_id,
+                    payment_node_id=payment_node_id,
+                    payment_term=payment_term,
+                    planned_date=planned_end,
+                )
+            elif is_payment_node:
                 connection.execute(
                     """
                     INSERT INTO payment_nodes(
@@ -793,27 +850,68 @@ class ProjectRepository:
         if payload.get("status") == "completed":
             raise ValueError("use the confirm endpoint to complete a milestone")
         values = {**current, **payload}
-        planned_end = values.get("planned_end") or values.get("planned_date")
-        is_payment_node = bool(values.get("is_payment_node"))
+        planned_end = _optional_iso_date(
+            values.get("planned_end") or values.get("planned_date"), "planned_end"
+        )
+        if planned_end is None:
+            raise ValueError("planned_end is required")
+        planned_start = _optional_iso_date(
+            values.get("planned_start") or planned_end, "planned_start"
+        )
+        if planned_start is not None and planned_start > planned_end:
+            raise ValueError("planned_start must be on or before planned_end")
+        term_supplied = "payment_term_id" in payload
+        payment_term_id = payload.get("payment_term_id") if term_supplied else None
         payment_node_id = current.get("payment_node_id")
-        removed_payment_node_id = None
         payment_date = payload.get("payment_date")
         payment_amount = payload.get("payment_amount")
-        if is_payment_node and not payment_node_id:
-            if not payment_date or payment_amount in (None, ""):
-                raise ValueError("payment_date and payment_amount are required for payment milestones")
-            payment_node_id = "pay_" + uuid.uuid4().hex[:16]
-        elif not is_payment_node and payment_node_id:
-            removed_payment_node_id = payment_node_id
-            payment_node_id = None
         with self.database.connect() as connection:
-            if removed_payment_node_id:
-                payment = connection.execute(
-                    "SELECT status FROM payment_nodes WHERE payment_node_id = ?",
-                    (removed_payment_node_id,),
-                ).fetchone()
-                if payment and payment["status"] == "paid":
-                    raise ValueError("a confirmed payment node cannot be removed")
+            previous_term = connection.execute(
+                "SELECT * FROM payment_terms WHERE linked_milestone_id = ?",
+                (milestone_id,),
+            ).fetchone()
+            payment_term = self._payment_term_for_link(
+                connection, project_number, payment_term_id, milestone_id
+            ) if payment_term_id else None
+            settled = False
+            if not term_supplied and previous_term:
+                # A linked term keeps driving the payment node, so its date follows the edited planned end;
+                # a payment already received is left as it was.
+                node = connection.execute(
+                    "SELECT status FROM payment_nodes WHERE payment_node_id = ?", (payment_node_id,)
+                ).fetchone() if payment_node_id else None
+                settled = bool(node and node["status"] == "paid")
+                if not settled:
+                    payment_term = self._payment_term_for_link(
+                        connection, project_number, previous_term["payment_term_id"], milestone_id
+                    )
+            if term_supplied and payment_node_id and (
+                not previous_term or previous_term["payment_term_id"] != payment_term_id
+            ):
+                self._remove_milestone_payment_event(
+                    connection, milestone_id, payment_node_id
+                )
+                payment_node_id = None
+            if payment_term:
+                payment_node_id = payment_term.get("payment_node_id") or payment_node_id or (
+                    "pay_" + uuid.uuid4().hex[:16]
+                )
+                is_payment_node = True
+            elif term_supplied:
+                is_payment_node = False
+            elif settled:
+                is_payment_node = True
+            else:
+                is_payment_node = bool(values.get("is_payment_node"))
+                if is_payment_node and not payment_node_id:
+                    if not payment_date or payment_amount in (None, ""):
+                        raise ValueError("payment_date and payment_amount are required for payment milestones")
+                    payment_node_id = "pay_" + uuid.uuid4().hex[:16]
+                elif not is_payment_node and payment_node_id:
+                    self._remove_milestone_payment_event(
+                        connection, milestone_id, payment_node_id
+                    )
+                    payment_node_id = None
             connection.execute(
                 """
                 UPDATE milestones SET sequence_no=?, name=?, planned_date=?,
@@ -823,14 +921,23 @@ class ProjectRepository:
                 """,
                 (
                     values.get("sequence_no"), values["name"], planned_end,
-                    values.get("planned_start") or planned_end, planned_end,
+                    planned_start, planned_end,
                     values.get("status", "planned"), values.get("owner"),
                     values.get("deliverable"), 1 if is_payment_node else 0,
                     payment_node_id, values.get("notes"), self._now(),
                     milestone_id, project_number,
                 ),
             )
-            if is_payment_node:
+            if payment_term:
+                self._upsert_payment_event_for_term(
+                    connection=connection,
+                    project_number=project_number,
+                    milestone_id=milestone_id,
+                    payment_node_id=payment_node_id,
+                    payment_term=payment_term,
+                    planned_date=planned_end,
+                )
+            elif is_payment_node and not settled:
                 existing_payment = connection.execute(
                     "SELECT * FROM payment_nodes WHERE payment_node_id = ?",
                     (payment_node_id,),
@@ -857,11 +964,6 @@ class ProjectRepository:
                         (payment_node_id, project_number, values["name"], payment_date,
                          _decimal_text(payment_amount), values.get("notes"), self._now()),
                     )
-            elif removed_payment_node_id:
-                connection.execute(
-                    "DELETE FROM payment_nodes WHERE payment_node_id = ?",
-                    (removed_payment_node_id,),
-                )
             connection.commit()
         return self._milestone_with_payment(milestone_id)
 
@@ -906,11 +1008,205 @@ class ProjectRepository:
             )
             if payment_node_id:
                 connection.execute(
+                    "UPDATE payment_terms SET linked_milestone_id=NULL, payment_node_id=NULL, updated_at=? "
+                    "WHERE linked_milestone_id=?",
+                    (self._now(), milestone_id),
+                )
+                connection.execute(
                     "DELETE FROM payment_nodes WHERE payment_node_id = ?",
                     (payment_node_id,),
                 )
             connection.commit()
-        return self.get_project(project_number) or {"project_number": project_number}
+        # Callers that need the project view read it from the ontology.
+        return {"project_number": project_number}
+
+    def create_payment_term(
+        self, project_number: str, payload: dict[str, Any]
+    ) -> dict[str, Any]:
+        values = self._validated_payment_term(payload)
+        payment_term_id = "term_" + uuid.uuid4().hex[:16]
+        now = self._now()
+        with self.database.connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO payment_terms(
+                    payment_term_id, project_number, name, payment_ratio,
+                    planned_amount, notes, linked_milestone_id, payment_node_id,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)
+                """,
+                (
+                    payment_term_id, project_number, values["name"],
+                    values["payment_ratio"], values["planned_amount"],
+                    values["notes"], now, now,
+                ),
+            )
+            connection.commit()
+        return self._row_by_id("payment_terms", "payment_term_id", payment_term_id)
+
+    def update_payment_term(
+        self, project_number: str, payment_term_id: str, payload: dict[str, Any]
+    ) -> dict[str, Any]:
+        current = self._row_by_project_id(
+            "payment_terms", "payment_term_id", payment_term_id, project_number
+        )
+        if current is None:
+            raise KeyError("payment term not found")
+        values = self._validated_payment_term({**current, **payload})
+        with self.database.connect() as connection:
+            connection.execute(
+                """
+                UPDATE payment_terms SET name=?, payment_ratio=?, planned_amount=?,
+                    notes=?, updated_at=? WHERE payment_term_id=? AND project_number=?
+                """,
+                (
+                    values["name"], values["payment_ratio"], values["planned_amount"],
+                    values["notes"], self._now(), payment_term_id, project_number,
+                ),
+            )
+            if current.get("payment_node_id"):
+                payment = connection.execute(
+                    "SELECT status FROM payment_nodes WHERE payment_node_id=?",
+                    (current["payment_node_id"],),
+                ).fetchone()
+                if payment and payment["status"] != "paid":
+                    connection.execute(
+                        """
+                        UPDATE payment_nodes SET name=?, planned_amount=?, notes=?, updated_at=?
+                        WHERE payment_node_id=?
+                        """,
+                        (
+                            values["name"], values["planned_amount"], values["notes"],
+                            self._now(), current["payment_node_id"],
+                        ),
+                    )
+            connection.commit()
+        return self._row_by_id("payment_terms", "payment_term_id", payment_term_id)
+
+    def delete_payment_term(self, project_number: str, payment_term_id: str) -> None:
+        with self.database.connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM payment_terms WHERE payment_term_id=? AND project_number=?",
+                (payment_term_id, project_number),
+            ).fetchone()
+            if row is None:
+                raise KeyError("payment term not found")
+            if row["linked_milestone_id"]:
+                raise ValueError("linked payment terms must be unlinked through the milestone")
+            connection.execute(
+                "DELETE FROM payment_terms WHERE payment_term_id=?", (payment_term_id,)
+            )
+            connection.commit()
+
+    def _validated_payment_term(self, payload: dict[str, Any]) -> dict[str, Any]:
+        name = str(payload.get("name") or "").strip()
+        if not name:
+            raise ValueError("payment term name is required")
+        amount = payload.get("planned_amount")
+        if amount in (None, ""):
+            raise ValueError("planned_amount is required")
+        amount_text = _decimal_text(amount)
+        if Decimal(amount_text) < 0:
+            raise ValueError("planned_amount must be non-negative")
+        ratio = payload.get("payment_ratio")
+        ratio_text = None
+        if ratio not in (None, ""):
+            ratio_text = _decimal_text(ratio)
+            if Decimal(ratio_text) < 0 or Decimal(ratio_text) > 100:
+                raise ValueError("payment_ratio must be between 0 and 100")
+        return {
+            "name": name,
+            "payment_ratio": ratio_text,
+            "planned_amount": amount_text,
+            "notes": payload.get("notes"),
+        }
+
+    def _payment_term_for_link(
+        self,
+        connection: Any,
+        project_number: str,
+        payment_term_id: str | None,
+        milestone_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        if not payment_term_id:
+            return None
+        row = connection.execute(
+            "SELECT * FROM payment_terms WHERE payment_term_id=? AND project_number=?",
+            (payment_term_id, project_number),
+        ).fetchone()
+        if row is None:
+            raise ValueError("payment term not found")
+        if row["linked_milestone_id"] and row["linked_milestone_id"] != milestone_id:
+            raise ValueError("payment term is already linked to another milestone")
+        return dict(row)
+
+    def _upsert_payment_event_for_term(
+        self,
+        *,
+        connection: Any,
+        project_number: str,
+        milestone_id: str,
+        payment_node_id: str,
+        payment_term: dict[str, Any],
+        planned_date: str,
+    ) -> None:
+        existing = connection.execute(
+            "SELECT status FROM payment_nodes WHERE payment_node_id=?",
+            (payment_node_id,),
+        ).fetchone()
+        if existing and existing["status"] == "paid":
+            raise ValueError("a confirmed payment node cannot be changed")
+        if existing:
+            connection.execute(
+                """
+                UPDATE payment_nodes SET name=?, planned_date=?, planned_amount=?, notes=?,
+                    payment_term_id=?, updated_at=? WHERE payment_node_id=?
+                """,
+                (
+                    payment_term["name"], planned_date, payment_term["planned_amount"],
+                    payment_term.get("notes"), payment_term["payment_term_id"],
+                    self._now(), payment_node_id,
+                ),
+            )
+        else:
+            connection.execute(
+                """
+                INSERT INTO payment_nodes(
+                    payment_node_id, project_number, name, planned_date, planned_amount,
+                    actual_amount, status, notes, updated_at, payment_term_id
+                ) VALUES (?, ?, ?, ?, ?, '0.00', 'planned', ?, ?, ?)
+                """,
+                (
+                    payment_node_id, project_number, payment_term["name"], planned_date,
+                    payment_term["planned_amount"], payment_term.get("notes"), self._now(),
+                    payment_term["payment_term_id"],
+                ),
+            )
+        connection.execute(
+            """
+            UPDATE payment_terms SET linked_milestone_id=?, payment_node_id=?, updated_at=?
+            WHERE payment_term_id=?
+            """,
+            (milestone_id, payment_node_id, self._now(), payment_term["payment_term_id"]),
+        )
+
+    def _remove_milestone_payment_event(
+        self, connection: Any, milestone_id: str, payment_node_id: str
+    ) -> None:
+        payment = connection.execute(
+            "SELECT status FROM payment_nodes WHERE payment_node_id=?",
+            (payment_node_id,),
+        ).fetchone()
+        if payment and payment["status"] == "paid":
+            raise ValueError("a confirmed payment node cannot be removed")
+        connection.execute(
+            "UPDATE payment_terms SET linked_milestone_id=NULL, payment_node_id=NULL, updated_at=? "
+            "WHERE linked_milestone_id=?",
+            (self._now(), milestone_id),
+        )
+        connection.execute(
+            "DELETE FROM payment_nodes WHERE payment_node_id=?", (payment_node_id,)
+        )
 
     def confirm_payment_node(
         self, project_number: str, payment_node_id: str, confirmed_by: str,
@@ -1042,6 +1338,33 @@ class ProjectRepository:
             connection.commit()
         return self._row_by_id("interventions", "intervention_id", intervention_id)
 
+    def update_intervention_status(
+        self, project_number: str, intervention_id: str, status: str, notes: str | None = None
+    ) -> dict[str, Any]:
+        current = self._row_by_project_id(
+            "interventions", "intervention_id", intervention_id, project_number
+        )
+        if current is None:
+            raise KeyError("intervention not found")
+        if current["status"] == "closed" and status != "closed":
+            raise ValueError("a closed intervention cannot be reopened")
+        with self.database.connect() as connection:
+            connection.execute(
+                """
+                UPDATE interventions SET status=?, notes=?, updated_at=?
+                WHERE intervention_id=? AND project_number=?
+                """,
+                (
+                    status,
+                    notes if notes is not None else current["notes"],
+                    self._now(),
+                    intervention_id,
+                    project_number,
+                ),
+            )
+            connection.commit()
+        return self._row_by_id("interventions", "intervention_id", intervention_id)
+
     def ensure_demo_data(self) -> None:
         with self.database.connect() as connection:
             count = connection.execute("SELECT COUNT(*) AS n FROM project_settings").fetchone()["n"]
@@ -1134,7 +1457,7 @@ class ProjectRepository:
         cleanup_key = "legacy_orphaned_project_maintenance_cleanup_v1"
         snapshot = self.records.export_records()
         if not snapshot:
-            return {"project_settings": 0, "milestones": 0, "payment_nodes": 0, "interventions": 0}
+            return {"project_settings": 0, "milestones": 0, "payment_nodes": 0, "payment_terms": 0, "interventions": 0}
 
         crm_project_numbers = {
             record.get("project_number") or _project_number_from_subject(record.get("subject") or "")
@@ -1143,18 +1466,18 @@ class ProjectRepository:
         crm_project_numbers.discard(None)
         crm_project_numbers.discard("")
         if not crm_project_numbers:
-            return {"project_settings": 0, "milestones": 0, "payment_nodes": 0, "interventions": 0}
+            return {"project_settings": 0, "milestones": 0, "payment_nodes": 0, "payment_terms": 0, "interventions": 0}
 
         with self.database.connect() as connection:
             already_cleaned = connection.execute(
                 "SELECT 1 FROM service_state WHERE key = ?", (cleanup_key,)
             ).fetchone()
             if already_cleaned:
-                return {"project_settings": 0, "milestones": 0, "payment_nodes": 0, "interventions": 0}
+                return {"project_settings": 0, "milestones": 0, "payment_nodes": 0, "payment_terms": 0, "interventions": 0}
 
             placeholders = ", ".join("?" for _ in crm_project_numbers)
             deleted: dict[str, int] = {}
-            for table in ("project_settings", "milestones", "payment_nodes", "interventions"):
+            for table in ("project_settings", "milestones", "payment_nodes", "payment_terms", "interventions"):
                 cursor = connection.execute(
                     f"DELETE FROM {table} WHERE project_number NOT IN ({placeholders})",
                     tuple(sorted(crm_project_numbers)),
@@ -1167,8 +1490,15 @@ class ProjectRepository:
             connection.commit()
         return deleted
 
-    def _build_all_projects(self, include_details: bool = False) -> list[dict[str, Any]]:
-        snapshot = self.records.export_records()
+
+    # ------------------------------------------------------------------ base data for the ontology
+    def project_sources(self, project_numbers: set[str] | None = None) -> list[dict[str, Any]]:
+        """Raw per-project bundles: CRM rows, maintained settings and child records.
+
+        This is all the base program hands over.  Every project fact computed from these bundles
+        (risk, health, budget, collections, todos) is derived in the ontology (ontology/derivations).
+        """
+        snapshot = self.records.export_records(project_numbers)
         crm_records = snapshot["records"] if snapshot else []
         grouped: dict[str, list[dict[str, Any]]] = {}
         for record in crm_records:
@@ -1178,11 +1508,22 @@ class ProjectRepository:
             if project:
                 grouped.setdefault(project, []).append(record)
 
-        settings = self._settings()
-        time_entries = self._rows_grouped("time_entries", "project_number", "work_date DESC")
-        milestones = self._rows_grouped("milestones", "project_number", "planned_date")
-        payments = self._rows_grouped("payment_nodes", "project_number", "planned_date")
-        interventions = self._rows_grouped("interventions", "project_number", "updated_at DESC")
+        settings = self._settings(project_numbers)
+        time_entries = self._rows_grouped(
+            "time_entries", "project_number", "work_date DESC", project_numbers
+        )
+        milestones = self._rows_grouped(
+            "milestones", "project_number", "planned_date", project_numbers
+        )
+        payments = self._rows_grouped(
+            "payment_nodes", "project_number", "planned_date", project_numbers
+        )
+        payment_terms = self._rows_grouped(
+            "payment_terms", "project_number", "created_at", project_numbers
+        )
+        interventions = self._rows_grouped(
+            "interventions", "project_number", "updated_at DESC", project_numbers
+        )
         if self.require_crm_project_match:
             # The active CRM import is the project-master source of truth.
             # Unmatched worktime stays as raw source data until its CRM record
@@ -1196,18 +1537,52 @@ class ProjectRepository:
             )
         project_numbers.discard(INTERNAL_NONPROJECT_CODE)
         return [
-            self._build_project(
-                project_number,
-                grouped.get(project_number, []),
-                settings.get(project_number, {}),
-                time_entries.get(project_number, []),
-                milestones.get(project_number, []),
-                payments.get(project_number, []),
-                interventions.get(project_number, []),
-                include_details,
-            )
+            {
+                "project_number": project_number,
+                "crm_records": grouped.get(project_number, []),
+                "settings": settings.get(project_number, {}),
+                "time_entries": time_entries.get(project_number, []),
+                "milestones": milestones.get(project_number, []),
+                "payment_nodes": payments.get(project_number, []),
+                "payment_terms": payment_terms.get(project_number, []),
+                "interventions": interventions.get(project_number, []),
+            }
             for project_number in project_numbers
         ]
+
+    def today(self) -> date:
+        return datetime.now(ZoneInfo(self.timezone)).date()
+
+    def assistant_candidate_codes(
+        self, query: str, *, project_limit: int = 16, record_limit: int = 24
+    ) -> tuple[list[str], list[dict[str, Any]]]:
+        """Bounded CRM search for PM Assistant: matching project codes and CRM rows.
+
+        Project facts for the codes come from the ontology; this only searches base data.
+        """
+        records_by_id: dict[str, dict[str, Any]] = {}
+        for term in _assistant_search_terms(query):
+            for record in self.records.assistant_record_candidates(term, limit=record_limit):
+                records_by_id.setdefault(record["record_id"], record)
+                if len(records_by_id) >= record_limit:
+                    break
+            if len(records_by_id) >= record_limit:
+                break
+        records = list(records_by_id.values())
+        project_numbers = {
+            str(record["project_number"])
+            for record in records
+            if record.get("project_number")
+        }
+        if not project_numbers:
+            records = self.records.assistant_record_candidates("", limit=record_limit)
+            project_numbers = {
+                str(record["project_number"])
+                for record in records
+                if record.get("project_number")
+            }
+        project_numbers.discard(INTERNAL_NONPROJECT_CODE)
+        return sorted(project_numbers)[:project_limit], records
 
     def _crm_search_terms_by_project(self) -> dict[str, list[str]]:
         """Return all CRM names usable for the project-master fuzzy search.
@@ -1238,311 +1613,43 @@ class ProjectRepository:
             )
         return terms_by_project
 
-    @staticmethod
-    def _matches_project_query(
-        project: dict[str, Any], query: str, crm_terms_by_project: dict[str, list[str]]
-    ) -> bool:
-        needle = query.casefold()
-        return needle in " ".join(
-            [
-                project["project_number"],
-                project["subject"],
-                project.get("customer") or "",
-                project.get("project_manager") or "",
-                *crm_terms_by_project.get(project["project_number"], []),
-            ]
-        ).casefold()
 
-    def _build_project(
-        self,
-        project_number: str,
-        crm_records: list[dict[str, Any]],
-        settings: dict[str, Any],
-        time_entries: list[dict[str, Any]],
-        milestones: list[dict[str, Any]],
-        payments: list[dict[str, Any]],
-        interventions: list[dict[str, Any]],
-        include_details: bool,
-    ) -> dict[str, Any]:
-        contracts = [r for r in crm_records if r["data_type"] == "contract_order"]
-        opportunities = [r for r in crm_records if r["data_type"] == "sales_opportunity"]
-        primary = (contracts or opportunities or [{}])[0]
-        hours_per_day = Decimal(settings.get("hours_per_person_day") or "8")
-        reported_hours = sum(
-            (_total_entry_hours(row) for row in time_entries),
-            Decimal("0"),
-        )
-        customer_confirmed_hours = sum(
-            (Decimal(row["approved_hours"]) for row in time_entries if row["approval_status"] == "approved"),
-            Decimal("0"),
-        )
-        reported_days = reported_hours / hours_per_day if hours_per_day else Decimal("0")
-        customer_confirmed_days = (
-            customer_confirmed_hours / hours_per_day if hours_per_day else Decimal("0")
-        )
-        confirmation_gap_hours = max(
-            reported_hours - customer_confirmed_hours, Decimal("0")
-        )
-        confirmation_gap_days = (
-            confirmation_gap_hours / hours_per_day if hours_per_day else Decimal("0")
-        )
-        planned_days = (
-            Decimal(settings["planned_person_days"])
-            if settings.get("planned_person_days")
-            else None
-        )
-        budget_hours = (
-            planned_days * hours_per_day if planned_days is not None else None
-        )
-        utilization = (
-            reported_days / planned_days * 100 if planned_days and planned_days > 0 else None
-        )
-        contract_value = _sum_money(contracts, "total_amount")
-        contract_received_amount = _sum_money(contracts, "received_amount")
-        invoiced_amount = _sum_money(contracts, "invoiced_amount")
-        contract_status = _contract_status(contracts)
-        outstanding_receivable_amount = (
-            contract_value - contract_received_amount
-            if contract_status == "进行中"
-            else None
-        )
-        today_date = date.today()
-        today = today_date.isoformat()
-        overdue_milestones = sum(
-            row["planned_date"] < today and row["status"] != "completed"
-            for row in milestones
-        )
-        overdue_payments = sum(
-            row["planned_date"] < today and row["status"] != "paid" for row in payments
-        )
-        contract_type = settings.get("contract_type", "unknown")
-        lifecycle = settings.get("lifecycle_status", "planned")
-        risk_reasons: list[str] = []
-        critical = False
-        if utilization is not None and utilization > 100:
-            critical = True
-            risk_reasons.append("实际人天已超过预算")
-        elif utilization is not None and utilization >= 80 and lifecycle not in {"completed", "closed"}:
-            risk_reasons.append("人天预算使用率已达到 80%")
-        if overdue_milestones:
-            critical = True
-            risk_reasons.append(f"{overdue_milestones} 个里程碑逾期")
-        if overdue_payments:
-            critical = True
-            risk_reasons.append(f"{overdue_payments} 个回款节点逾期")
-        if contract_type == "unknown":
-            risk_reasons.append("合同类型尚未设置")
-        if contract_type in CAPPED_TYPES and planned_days is None:
-            risk_reasons.append("预算人天尚未设置")
-        if not milestones and lifecycle in {"planned", "active"}:
-            risk_reasons.append("尚未设置里程碑")
-        maintenance_reasons: list[str] = []
-        if contract_type == "unknown":
-            maintenance_reasons.append("选择合同类别")
-        if contract_type in CAPPED_TYPES and planned_days is None:
-            maintenance_reasons.append("填写初始预算人天")
-        if not milestones:
-            maintenance_reasons.append("制定里程碑计划")
-
-        payment_by_id = {row["payment_node_id"]: row for row in payments}
-        enriched_milestones: list[dict[str, Any]] = []
-        todo_events: list[dict[str, Any]] = []
-        for row in milestones:
-            item = dict(row)
-            item["planned_start"] = item.get("planned_start") or item["planned_date"]
-            item["planned_end"] = item.get("planned_end") or item["planned_date"]
-            linked_payment = payment_by_id.get(item.get("payment_node_id"))
-            item["payment_date"] = linked_payment["planned_date"] if linked_payment else None
-            item["payment_amount"] = linked_payment["planned_amount"] if linked_payment else None
-            item["payment_status"] = linked_payment["status"] if linked_payment else None
-            item["deadline"] = _deadline(item["planned_end"], item["status"] == "completed", today_date)
-            enriched_milestones.append(item)
-            todo_events.append(
-                _todo_event(
-                    "milestone", item["milestone_id"], item["name"],
-                    item["planned_end"], item["status"] == "completed", today_date,
-                    deliverable=item.get("deliverable"),
-                )
-            )
-
-        for row in payments:
-            todo_events.append(
-                _todo_event(
-                    "payment", row["payment_node_id"], row["name"],
-                    row["planned_date"], row["status"] == "paid", today_date,
-                    amount=row["planned_amount"],
-                )
-            )
-        todo_events.sort(
-            key=lambda event: (event["completed"], event["due_date"], event["event_type"])
-        )
-        current_milestone = _current_milestone(enriched_milestones, today_date)
-        payment_summary = _payment_summary(payments, today_date)
-        received_amount = Decimal(payment_summary["actual_amount"])
-        successful_opportunities = [
-            record for record in opportunities if record.get("status") == "成功"
-        ]
-        # “阶段”是销售过程的描述，不作为项目转换依据；CRM 明确状态为
-        # “成功”即表示商机已签约并进入项目管理范围。
-        master_category = (
-            "项目"
-            if contracts or successful_opportunities
-            else "商机" if opportunities else "项目"
-        )
-        monthly_time_entries = _monthly_time_entries(time_entries, hours_per_day)
-        pmo_resource_summary, pmo_resource_rows = _pmo_resource_rows(
-            time_entries, hours_per_day
-        )
-        if confirmation_gap_hours > 0:
-            risk_reasons.append(
-                f"已填报工时与客户确认工时相差 {_format_decimal(confirmation_gap_days)} 人天"
-            )
-        anomaly_alerts: list[dict[str, Any]] = []
-        if utilization is not None and utilization > 100:
-            anomaly_alerts.append(
-                {
-                    "code": "BUDGET_OVERRUN",
-                    "severity": "critical",
-                    "title": "工时已超出初始预算",
-                    "detail": f"已填报 {_format_decimal(reported_days)} 人天，预算 {_format_decimal(planned_days)} 人天",
-                }
-            )
-        elif utilization is not None and utilization >= 80:
-            anomaly_alerts.append(
-                {
-                    "code": "BUDGET_NEAR_LIMIT",
-                    "severity": "warning",
-                    "title": "工时预算接近上限",
-                    "detail": f"当前已使用 {round(float(utilization), 1)}%",
-                }
-            )
-        if confirmation_gap_hours > 0:
-            anomaly_alerts.append(
-                {
-                    "code": "TIME_CONFIRMATION_GAP",
-                    "severity": "warning",
-                    "title": "存在客户未确认工时",
-                    "detail": (
-                        f"已填报 {_format_decimal(reported_days)} 人天，客户确认 "
-                        f"{_format_decimal(customer_confirmed_days)} 人天，缺口 "
-                        f"{_format_decimal(confirmation_gap_days)} 人天"
-                    ),
-                }
-            )
-        for event in todo_events:
-            if event["completed"] or event["urgency"] not in {
-                "overdue", "due_today", "due_soon"
-            }:
-                continue
-            anomaly_alerts.append(
-                {
-                    "code": "MILESTONE_DUE" if event["event_type"] == "milestone" else "PAYMENT_DUE",
-                    "severity": "critical" if event["urgency"] == "overdue" else "warning",
-                    "title": f"{event['name']} · {event['label']}",
-                    "detail": (
-                        "里程碑尚未确认完成"
-                        if event["event_type"] == "milestone"
-                        else f"回款尚未确认到账，计划金额 {_format_decimal(Decimal(event['amount'] or '0'))} 元"
-                    ),
-                }
-            )
-        if maintenance_reasons:
-            anomaly_alerts.append(
-                {
-                    "code": "MANUAL_MAINTENANCE_REQUIRED",
-                    "severity": "warning",
-                    "title": "同步后人工维护尚未完成",
-                    "detail": "、".join(maintenance_reasons),
-                }
-            )
-        risk_level = "critical" if critical else "warning" if risk_reasons else "healthy"
-
-        project = {
-            "project_number": project_number,
-            "subject": primary.get("subject") or project_number,
-            "customer": primary.get("customer") or (
-                "未匹配 CRM 主数据" if not primary else None
-            ),
-            "owner": primary.get("owner"),
-            "project_manager": settings.get("project_manager") or primary.get("owner"),
-            "master_category": master_category,
-            "contract_type": contract_type,
-            "lifecycle_status": lifecycle,
-            "status": lifecycle,
-            "planned_start": settings.get("planned_start"),
-            "planned_end": settings.get("planned_end"),
-            "contract_count": len(contracts),
-            "opportunity_count": len(opportunities),
-            "contract_value": _format_decimal(contract_value),
-            "contract_status": contract_status,
-            "crm_received_amount": _format_decimal(contract_received_amount),
-            "outstanding_receivable_amount": (
-                _format_decimal(outstanding_receivable_amount)
-                if outstanding_receivable_amount is not None
-                else None
-            ),
-            "received_amount": _format_decimal(received_amount),
-            "invoiced_amount": _format_decimal(invoiced_amount),
-            "planned_person_days": _format_decimal(planned_days) if planned_days is not None else None,
-            "budget_hours": _format_decimal(budget_hours) if budget_hours is not None else None,
-            "reported_hours": _format_decimal(reported_hours),
-            "reported_person_days": _format_decimal(reported_days),
-            "customer_confirmed_hours": _format_decimal(customer_confirmed_hours),
-            "customer_confirmed_person_days": _format_decimal(customer_confirmed_days),
-            "confirmation_gap_hours": _format_decimal(confirmation_gap_hours),
-            "confirmation_gap_person_days": _format_decimal(confirmation_gap_days),
-            "actual_hours": _format_decimal(reported_hours),
-            "actual_person_days": _format_decimal(reported_days),
-            "budget_utilization": round(float(utilization), 1) if utilization is not None else None,
-            "billable_person_days": _format_decimal(customer_confirmed_days) if contract_type == "open_ended" else None,
-            "milestone_total": len(milestones),
-            "milestone_completed": sum(row["status"] == "completed" for row in milestones),
-            "overdue_milestones": overdue_milestones,
-            "current_milestone": current_milestone,
-            "payment_node_total": len(payments),
-            "overdue_payment_nodes": overdue_payments,
-            "payment_summary": payment_summary,
-            "open_interventions": sum(row["status"] != "closed" for row in interventions),
-            "maintenance_complete": not maintenance_reasons,
-            "maintenance_reasons": maintenance_reasons,
-            "pending_todos": sum(not event["completed"] for event in todo_events),
-            "overdue_todos": sum(
-                event["urgency"] == "overdue" for event in todo_events
-            ),
-            "next_todo": next(
-                (event for event in todo_events if not event["completed"]), None
-            ),
-            "anomaly_count": len(anomaly_alerts),
-            "anomaly_alerts": anomaly_alerts,
-            "risk_level": risk_level,
-            "risk_reasons": risk_reasons,
-        }
-        if include_details:
-            project.update(
-                {
-                    "crm_records": crm_records,
-                    "milestones": enriched_milestones,
-                    "payment_nodes": payments,
-                    "interventions": interventions,
-                    "settings": settings,
-                    "todo_events": todo_events,
-                    "monthly_time_entries": monthly_time_entries,
-                    "pmo_resource_summary": pmo_resource_summary,
-                    "pmo_resource_rows": pmo_resource_rows,
-                }
-            )
-        return project
-
-    def _settings(self) -> dict[str, dict[str, Any]]:
+    def _settings(
+        self, project_numbers: set[str] | None = None
+    ) -> dict[str, dict[str, Any]]:
         with self.database.connect() as connection:
-            rows = connection.execute("SELECT * FROM project_settings").fetchall()
+            if project_numbers is None:
+                rows = connection.execute("SELECT * FROM project_settings").fetchall()
+            elif not project_numbers:
+                rows = []
+            else:
+                placeholders = ", ".join("?" for _ in project_numbers)
+                rows = connection.execute(
+                    f"SELECT * FROM project_settings WHERE project_number IN ({placeholders})",
+                    tuple(sorted(project_numbers)),
+                ).fetchall()
         return {row["project_number"]: dict(row) for row in rows}
 
     def _rows_grouped(
-        self, table: str, key: str, order_by: str
+        self,
+        table: str,
+        key: str,
+        order_by: str,
+        project_numbers: set[str] | None = None,
     ) -> dict[str, list[dict[str, Any]]]:
         with self.database.connect() as connection:
-            rows = connection.execute(f"SELECT * FROM {table} ORDER BY {order_by}").fetchall()
+            if project_numbers is None:
+                rows = connection.execute(
+                    f"SELECT * FROM {table} ORDER BY {order_by}"
+                ).fetchall()
+            elif not project_numbers:
+                rows = []
+            else:
+                placeholders = ", ".join("?" for _ in project_numbers)
+                rows = connection.execute(
+                    f"SELECT * FROM {table} WHERE project_number IN ({placeholders}) ORDER BY {order_by}",
+                    tuple(sorted(project_numbers)),
+                ).fetchall()
         grouped: dict[str, list[dict[str, Any]]] = {}
         for row in rows:
             item = dict(row)
@@ -1578,43 +1685,86 @@ class ProjectRepository:
         milestone["payment_date"] = payment["planned_date"] if payment else None
         milestone["payment_amount"] = payment["planned_amount"] if payment else None
         milestone["payment_status"] = payment["status"] if payment else None
+        milestone["payment_term_id"] = payment.get("payment_term_id") if payment else None
         return milestone
 
     def _now(self) -> str:
         return datetime.now(ZoneInfo(self.timezone)).isoformat(timespec="seconds")
 
 
-def _sum_money(records: list[dict[str, Any]], field: str) -> Decimal:
-    return sum(
-        (Decimal(record[field]["amount"]) for record in records if record.get(field)),
-        Decimal("0"),
+def _cursor_page(
+    rows: list[dict[str, Any]],
+    *,
+    cursor: str | None,
+    page_size: int,
+    kind: str,
+    key: Any,
+    scope: str,
+) -> tuple[list[dict[str, Any]], str | None]:
+    """Apply keyset pagination to an already sorted analytical result set."""
+    try:
+        cursor_data = decode_cursor(cursor, kind)
+    except CursorError:
+        raise
+    start = 0
+    if cursor_data:
+        if cursor_data.get("scope") != scope:
+            raise CursorError("cursor does not match the current filters")
+        last_key = tuple(cursor_data.get("key", []))
+        for index, row in enumerate(rows):
+            if tuple(key(row)) > last_key:
+                start = index
+                break
+        else:
+            return [], None
+    page = rows[start : start + page_size]
+    next_cursor = (
+        encode_cursor(kind, key=list(key(page[-1])), scope=scope)
+        if start + page_size < len(rows) and page
+        else None
     )
+    return page, next_cursor
 
 
-def _contract_status(contracts: list[dict[str, Any]]) -> str | None:
-    """Derive the project-level contract state from imported CRM amounts only."""
-    if not contracts:
-        return None
-    for contract in contracts:
-        amounts = (
-            contract.get("total_amount"),
-            contract.get("received_amount"),
-            contract.get("invoiced_amount"),
-        )
-        if not all(amounts):
-            return "进行中"
-        values = {amount["amount"] for amount in amounts}
-        if len(values) != 1:
-            return "进行中"
-    return "已结束"
+def _assistant_search_terms(question: str) -> list[str]:
+    """Extract small searchable terms from a natural-language PM question."""
+    terms = re.findall(r"[A-Za-z0-9_-]{2,}", question)
+    for phrase in re.findall(r"[\u4e00-\u9fff]{2,}", question):
+        terms.append(phrase)
+        terms.extend(phrase[index : index + 2] for index in range(len(phrase) - 1))
+    return list(dict.fromkeys(term for term in terms if len(term) >= 2))[:8]
 
 
-def _decimal_sum(values: Any) -> str:
-    return _format_decimal(sum((Decimal(value) for value in values), Decimal("0")))
+def _cursor_scope(**values: Any) -> str:
+    return json.dumps(values, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def _contracts_are_source_closed(contracts: list[dict[str, Any]]) -> bool:
+    """Return whether every imported contract row is explicitly terminal.
+
+    The CRM source's status is retained verbatim for audit.  Project views no
+    longer expose a separate contract-status field, but a completed source
+    contract with later worktime must still be flagged as extra investment.
+    """
+    terminal_statuses = {"结束", "已结束", "完成", "已完成", "关闭", "已关闭", "终止", "已终止"}
+    return bool(contracts) and all(
+        str(contract.get("status") or "").strip() in terminal_statuses
+        for contract in contracts
+    )
 
 
 def _decimal_text(value: Any) -> str:
     return _format_decimal(Decimal(str(value)))
+
+
+def _optional_iso_date(value: Any, field: str) -> str | None:
+    """Normalize manually maintained schedule dates before health calculations."""
+    if value in (None, ""):
+        return None
+    try:
+        return date.fromisoformat(str(value)).isoformat()
+    except ValueError as exc:
+        raise ValueError(f"{field} must be an ISO date (YYYY-MM-DD)") from exc
 
 
 def _overtime_entry_hours(row: dict[str, Any]) -> Decimal:
@@ -1625,9 +1775,41 @@ def _total_entry_hours(row: dict[str, Any]) -> Decimal:
     return Decimal(row["hours"]) + _overtime_entry_hours(row)
 
 
+def _signed_year(record: dict[str, Any]) -> int | None:
+    """Signing year of a CRM contract (its 签约时间); opportunities and undated contracts have none."""
+    signed = record.get("signed_at")
+    if record.get("data_type") != "contract_order" or not signed:
+        return None
+    return int(str(signed)[:4])
+
+
+def _counts_as_effort(row: dict[str, Any]) -> bool:
+    return row.get("approval_status") in EFFORT_APPROVAL_STATUSES
+
+
+def _effort_entries(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [row for row in rows if _counts_as_effort(row)]
+
+
 def _project_number_from_subject(subject: str) -> str | None:
     match = re.match(r"^([A-Za-z]{2,}[A-Za-z0-9-]*)[-—–_]", subject.strip())
     return match.group(1).upper() if match else None
+
+
+# Operating-policy parameters for resource health and the department review (the economics ones are paused
+# with person-day economics but kept, so the settings page and ontology action still agree):
+# name → (minimum, maximum, label, whole number). Shared by the settings page and the ontology action.
+POLICY_RANGES: dict[str, tuple[Decimal, Decimal, str, bool]] = {
+    "default_tax_rate_percent": (Decimal("0"), Decimal("99.99"), "默认税率", False),
+    "default_target_margin_percent": (Decimal("0"), Decimal("99.99"), "默认目标毛利率", False),
+    "cost_ahead_warning_points": (Decimal("0.01"), Decimal("500"), "成本超前预警线", False),
+    "overtime_share_attention_percent": (Decimal("0.01"), Decimal("99.99"), "加班占比关注线", False),
+    "overload_consecutive_months": (Decimal("1"), Decimal("12"), "连续过载月数", True),
+    "max_concurrent_projects": (Decimal("1"), Decimal("50"), "同期项目数上限", True),
+    "backlog_coverage_percent": (Decimal("0.01"), Decimal("500"), "在手合同覆盖线", False),
+    "plan_lag_tolerance_points": (Decimal("0"), Decimal("100"), "年度计划落后容差", False),
+    "control_cost_exceeded_projects": (Decimal("1"), Decimal("100"), "控制成本的超标项目数", True),
+}
 
 
 def _validate_worktime_baseline(values: dict[str, Any]) -> None:
@@ -1642,24 +1824,41 @@ def _validate_worktime_baseline(values: dict[str, Any]) -> None:
     for field in positive_fields:
         if Decimal(values[field]) <= 0:
             raise ValueError(f"{field} must be greater than 0")
+    # Same ranges as the ontology action's policyValuesValid criterion, so both write paths agree.
+    if Decimal(values["standard_hours_per_day"]) > 24:
+        raise ValueError("standard_hours_per_day must be no more than 24")
+    if not Decimal("1") <= Decimal(values["standard_work_days_per_year"]) <= Decimal("366"):
+        raise ValueError("standard_work_days_per_year must be between 1 and 366")
 
     threshold_fields = (
         "attention_utilization_percent",
         "minimum_utilization_percent",
         "excellent_utilization_percent",
+        "overload_utilization_percent",
     )
     thresholds = {field: Decimal(values[field]) for field in threshold_fields}
     for field, value in thresholds.items():
-        if value <= 0 or value > 100:
-            raise ValueError(f"{field} must be greater than 0 and no more than 100")
+        if value <= 0 or value > 300:
+            raise ValueError(f"{field} must be greater than 0 and no more than 300")
     if not (
         thresholds["attention_utilization_percent"]
         < thresholds["minimum_utilization_percent"]
         < thresholds["excellent_utilization_percent"]
+        < thresholds["overload_utilization_percent"]
     ):
         raise ValueError(
-            "utilization thresholds must satisfy attention < minimum < excellent"
+            "utilization thresholds must satisfy attention < minimum < excellent < overload"
         )
+    for name, (low, high, label, integer) in POLICY_RANGES.items():
+        value = Decimal(values[name])
+        if integer and value != value.to_integral_value():
+            raise ValueError(f"{name} must be a whole number")
+        if not low <= value <= high:
+            raise ValueError(f"{name} ({label}) must be between {low} and {high}")
+    budget_attention = Decimal(values["budget_attention_percent"])
+    budget_high_risk = Decimal(values["budget_high_risk_percent"])
+    if not Decimal("0") < budget_attention < budget_high_risk < Decimal("100"):
+        raise ValueError("budget thresholds must satisfy 0 < attention < high risk < 100")
 
 
 def _optional_decimal_text(value: Any) -> str | None:
@@ -1668,395 +1867,6 @@ def _optional_decimal_text(value: Any) -> str | None:
 
 def _format_decimal(value: Decimal) -> str:
     return f"{value.quantize(Decimal('0.01')):.2f}"
-
-
-def _risk_rank(value: str) -> int:
-    return {"critical": 0, "warning": 1, "healthy": 2}.get(value, 3)
-
-
-def _deadline(due_date: str, completed: bool, today: date) -> dict[str, Any]:
-    days = (date.fromisoformat(due_date) - today).days
-    if completed:
-        urgency = "completed"
-        label = "已确认完成"
-    elif days < 0:
-        urgency = "overdue"
-        label = f"已延期 {abs(days)} 天"
-    elif days == 0:
-        urgency = "due_today"
-        label = "今天到期"
-    elif days <= 7:
-        urgency = "due_soon"
-        label = f"还有 {days} 天"
-    else:
-        urgency = "upcoming"
-        label = f"还有 {days} 天"
-    return {"days_remaining": days, "urgency": urgency, "label": label}
-
-
-def _todo_event(
-    event_type: str,
-    event_id: str,
-    name: str,
-    due_date: str,
-    completed: bool,
-    today: date,
-    *,
-    amount: str | None = None,
-    deliverable: str | None = None,
-) -> dict[str, Any]:
-    deadline = _deadline(due_date, completed, today)
-    return {
-        "event_type": event_type,
-        "event_id": event_id,
-        "name": name,
-        "due_date": due_date,
-        "amount": amount,
-        "deliverable": deliverable,
-        "completed": completed,
-        **deadline,
-    }
-
-
-def _current_milestone(
-    milestones: list[dict[str, Any]], today: date
-) -> dict[str, Any] | None:
-    if not milestones:
-        return None
-    open_items = [item for item in milestones if item["status"] != "completed"]
-    if open_items:
-        item = min(open_items, key=lambda row: row["planned_end"])
-        return {
-            "milestone_id": item["milestone_id"],
-            "name": item["name"],
-            "status": item["status"],
-            "planned_start": item.get("planned_start"),
-            "planned_end": item.get("planned_end"),
-            "deadline": _deadline(item["planned_end"], False, today),
-        }
-    item = max(milestones, key=lambda row: row["planned_end"])
-    return {
-        "milestone_id": item["milestone_id"],
-        "name": item["name"],
-        "status": "completed",
-        "planned_start": item.get("planned_start"),
-        "planned_end": item.get("planned_end"),
-        "deadline": _deadline(item["planned_end"], True, today),
-    }
-
-
-def _payment_summary(
-    payments: list[dict[str, Any]], today: date
-) -> dict[str, Any]:
-    paid = [row for row in payments if row["status"] == "paid"]
-    open_items = [row for row in payments if row["status"] != "paid"]
-    next_payment = min(open_items, key=lambda row: row["planned_date"]) if open_items else None
-    planned_amount = sum(
-        (Decimal(row["planned_amount"]) for row in payments),
-        Decimal("0"),
-    )
-    actual_amount = sum(
-        (Decimal(row["actual_amount"] or "0") for row in payments),
-        Decimal("0"),
-    )
-    return {
-        "total_nodes": len(payments),
-        "paid_nodes": len(paid),
-        "planned_amount": _format_decimal(planned_amount),
-        "actual_amount": _format_decimal(actual_amount),
-        "next_node": (
-            {
-                "payment_node_id": next_payment["payment_node_id"],
-                "name": next_payment["name"],
-                "planned_date": next_payment["planned_date"],
-                "planned_amount": next_payment["planned_amount"],
-                "status": next_payment["status"],
-                "deadline": _deadline(next_payment["planned_date"], False, today),
-            }
-            if next_payment else None
-        ),
-    }
-
-
-def _monthly_time_entries(
-    time_entries: list[dict[str, Any]], hours_per_day: Decimal
-) -> list[dict[str, Any]]:
-    grouped: dict[str, dict[str, Any]] = {}
-    for row in time_entries:
-        month = row["work_date"][:7]
-        item = grouped.setdefault(
-            month,
-            {
-                "month": month,
-                "reported_hours": Decimal("0"),
-                "overtime_hours": Decimal("0"),
-                "approved_hours": Decimal("0"),
-                "entry_count": 0,
-                "entries": [],
-            },
-        )
-        overtime = _overtime_entry_hours(row)
-        hours = Decimal(row["hours"]) + overtime
-        approved = (
-            Decimal(row["approved_hours"])
-            if row["approval_status"] == "approved"
-            else Decimal("0")
-        )
-        item["reported_hours"] += hours
-        item["overtime_hours"] += overtime
-        item["approved_hours"] += approved
-        item["entry_count"] += 1
-        item["entries"].append(row)
-
-    months: list[dict[str, Any]] = []
-    for item in grouped.values():
-        gap = max(item["reported_hours"] - item["approved_hours"], Decimal("0"))
-        reported_days = item["reported_hours"] / hours_per_day if hours_per_day else Decimal("0")
-        approved_days = item["approved_hours"] / hours_per_day if hours_per_day else Decimal("0")
-        gap_days = gap / hours_per_day if hours_per_day else Decimal("0")
-        months.append(
-            {
-                "month": item["month"],
-                "entry_count": item["entry_count"],
-                "reported_hours": _format_decimal(item["reported_hours"]),
-                "overtime_hours": _format_decimal(item["overtime_hours"]),
-                "approved_hours": _format_decimal(item["approved_hours"]),
-                "confirmation_gap_hours": _format_decimal(gap),
-                "reported_person_days": _format_decimal(reported_days),
-                "overtime_person_days": _format_decimal(
-                    item["overtime_hours"] / hours_per_day
-                    if hours_per_day else Decimal("0")
-                ),
-                "approved_person_days": _format_decimal(approved_days),
-                "confirmation_gap_person_days": _format_decimal(gap_days),
-                "entries": sorted(
-                    item["entries"],
-                    key=lambda row: (row["work_date"], row["external_id"]),
-                    reverse=True,
-                ),
-            }
-        )
-    return sorted(months, key=lambda item: item["month"], reverse=True)
-
-
-def _pmo_resource_rows(
-    time_entries: list[dict[str, Any]], hours_per_day: Decimal
-) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    """Build an auditable people-and-effort view for the project detail page.
-
-    Currency cost is intentionally not inferred: the system has no employee rate
-    source.  The usable, source-backed cost unit is person-days, with overtime
-    disclosed separately rather than folded into an assumed money amount.
-    """
-    grouped: dict[tuple[str, str], dict[str, Any]] = {}
-    total_normal_hours = Decimal("0")
-    total_overtime_hours = Decimal("0")
-    total_approved_hours = Decimal("0")
-
-    for row in time_entries:
-        employee_name = (row.get("employee_name") or "未命名员工").strip()
-        employee_id = (row.get("employee_id") or "").strip()
-        item = grouped.setdefault(
-            (employee_id, employee_name),
-            {
-                "employee_name": employee_name,
-                "employee_id": employee_id or None,
-                "entry_count": 0,
-                "normal_hours": Decimal("0"),
-                "overtime_hours": Decimal("0"),
-                "approved_hours": Decimal("0"),
-                "work_dates": set(),
-                "months": set(),
-            },
-        )
-        normal_hours = Decimal(row["hours"])
-        overtime_hours = _overtime_entry_hours(row)
-        approved_hours = (
-            Decimal(row["approved_hours"])
-            if row["approval_status"] == "approved"
-            else Decimal("0")
-        )
-        item["entry_count"] += 1
-        item["normal_hours"] += normal_hours
-        item["overtime_hours"] += overtime_hours
-        item["approved_hours"] += approved_hours
-        item["work_dates"].add(row["work_date"])
-        item["months"].add(row["work_date"][:7])
-        total_normal_hours += normal_hours
-        total_overtime_hours += overtime_hours
-        total_approved_hours += approved_hours
-
-    total_reported_hours = total_normal_hours + total_overtime_hours
-    rows: list[dict[str, Any]] = []
-    for item in grouped.values():
-        reported_hours = item["normal_hours"] + item["overtime_hours"]
-        confirmation_gap_hours = max(reported_hours - item["approved_hours"], Decimal("0"))
-        reported_days = reported_hours / hours_per_day if hours_per_day else Decimal("0")
-        month_count = len(item["months"])
-        rows.append(
-            {
-                "employee_name": item["employee_name"],
-                "employee_id": item["employee_id"],
-                "entry_count": item["entry_count"],
-                "active_day_count": len(item["work_dates"]),
-                "active_month_count": month_count,
-                "normal_person_days": _format_decimal(
-                    item["normal_hours"] / hours_per_day if hours_per_day else Decimal("0")
-                ),
-                "overtime_person_days": _format_decimal(
-                    item["overtime_hours"] / hours_per_day if hours_per_day else Decimal("0")
-                ),
-                "reported_person_days": _format_decimal(reported_days),
-                "approved_person_days": _format_decimal(
-                    item["approved_hours"] / hours_per_day if hours_per_day else Decimal("0")
-                ),
-                "confirmation_gap_person_days": _format_decimal(
-                    confirmation_gap_hours / hours_per_day if hours_per_day else Decimal("0")
-                ),
-                "project_effort_share_percent": round(
-                    float(reported_hours / total_reported_hours * 100), 1
-                ) if total_reported_hours else 0.0,
-                "overtime_ratio_percent": round(
-                    float(item["overtime_hours"] / reported_hours * 100), 1
-                ) if reported_hours else 0.0,
-                "monthly_average_person_days": _format_decimal(
-                    reported_days / Decimal(month_count) if month_count else Decimal("0")
-                ),
-            }
-        )
-    rows.sort(
-        key=lambda row: (-Decimal(row["reported_person_days"]), row["employee_name"])
-    )
-
-    confirmed_gap_hours = max(total_reported_hours - total_approved_hours, Decimal("0"))
-    summary = {
-        "cost_basis": "人天",
-        "monetary_cost_available": False,
-        "participant_count": len(rows),
-        "normal_person_days": _format_decimal(
-            total_normal_hours / hours_per_day if hours_per_day else Decimal("0")
-        ),
-        "overtime_person_days": _format_decimal(
-            total_overtime_hours / hours_per_day if hours_per_day else Decimal("0")
-        ),
-        "reported_person_days": _format_decimal(
-            total_reported_hours / hours_per_day if hours_per_day else Decimal("0")
-        ),
-        "approved_person_days": _format_decimal(
-            total_approved_hours / hours_per_day if hours_per_day else Decimal("0")
-        ),
-        "confirmation_gap_person_days": _format_decimal(
-            confirmed_gap_hours / hours_per_day if hours_per_day else Decimal("0")
-        ),
-    }
-    return summary, rows
-
-
-def _health_period(
-    month: str | None, start_month: str | None, end_month: str | None, now: str
-) -> tuple[str, str]:
-    if month:
-        _validate_month(month)
-        return month, month
-    if start_month or end_month:
-        start = start_month or end_month
-        end = end_month or start_month
-        assert start is not None and end is not None
-        _validate_month(start)
-        _validate_month(end)
-        if start > end:
-            raise ValueError("start_month must be earlier than or equal to end_month")
-        return start, end
-    current = now[:7]
-    _validate_month(current)
-    return current, current
-
-
-def _project_health_row(
-    project: dict[str, Any], start_month: str, end_month: str
-) -> dict[str, Any]:
-    monthly = {item["month"]: item for item in project.get("monthly_time_entries", [])}
-    period_months = _month_range(start_month, end_month)
-    period_hours = sum(
-        (Decimal(monthly[m]["reported_hours"]) for m in period_months if m in monthly),
-        Decimal("0"),
-    )
-    period_days = sum(
-        (Decimal(monthly[m]["reported_person_days"]) for m in period_months if m in monthly),
-        Decimal("0"),
-    )
-    cumulative_days = sum(
-        (
-            Decimal(item["reported_person_days"])
-            for item in monthly.values()
-            if item["month"] <= end_month
-        ),
-        Decimal("0"),
-    )
-    previous_month = _previous_month(start_month)
-    previous_days = (
-        Decimal(monthly[previous_month]["reported_person_days"])
-        if previous_month in monthly else Decimal("0")
-    )
-    participants = {
-        entry["employee_name"]
-        for m in period_months
-        for entry in monthly.get(m, {}).get("entries", [])
-    }
-    planned_days = (
-        Decimal(project["planned_person_days"])
-        if project.get("planned_person_days") is not None else None
-    )
-    remaining_days = (
-        planned_days - cumulative_days if planned_days is not None else None
-    )
-    burn_rate = (
-        cumulative_days / planned_days * Decimal("100")
-        if planned_days and planned_days > 0 else None
-    )
-    plan_months = _plan_months(project.get("planned_start"), project.get("planned_end"))
-    monthly_budget = (
-        planned_days / Decimal(plan_months)
-        if planned_days is not None and plan_months else None
-    )
-    warning = _overrun_warning(burn_rate, planned_days, remaining_days)
-    trend = _monthly_trend(period_days, previous_days)
-    health = _health_status(warning, project)
-    return {
-        "project_number": project["project_number"],
-        "project_name": project["subject"],
-        "pm_owner": project.get("project_manager"),
-        "project_status": project["status"],
-        "contract_status": project.get("contract_status"),
-        "outstanding_receivable_amount": project.get("outstanding_receivable_amount"),
-        "planned_start": project.get("planned_start"),
-        "planned_end": project.get("planned_end"),
-        "budget_person_days": (
-            _format_decimal(planned_days) if planned_days is not None else None
-        ),
-        "plan_months": plan_months,
-        "monthly_budget_person_days": (
-            _format_decimal(monthly_budget) if monthly_budget is not None else None
-        ),
-        "cumulative_actual_person_days": _format_decimal(cumulative_days),
-        "period_actual_hours": _format_decimal(period_hours),
-        "period_actual_person_days": _format_decimal(period_days),
-        "previous_month_person_days": _format_decimal(previous_days),
-        "participant_count": len(participants),
-        "burn_rate_percent": (
-            f"{burn_rate.quantize(Decimal('0.1'))}" if burn_rate is not None else None
-        ),
-        "overrun_warning": warning,
-        "monthly_trend": trend,
-        "health_status": health,
-        "completion_forecast": _completion_forecast(remaining_days, period_days),
-        "remaining_budget_person_days": (
-            _format_decimal(remaining_days) if remaining_days is not None else None
-        ),
-        "current_milestone": project.get("current_milestone"),
-        "payment_summary": project.get("payment_summary"),
-        "risk_reasons": project.get("risk_reasons", []),
-    }
 
 
 def _validate_month(value: str) -> None:
@@ -2079,10 +1889,31 @@ def _month_range(start: str, end: str) -> list[str]:
 
 
 def _previous_month(value: str) -> str:
+    return _shift_month(value, -1)
+
+
+def _is_newer_source_version(incoming: str | None, existing: str | None) -> bool:
+    """Whether an imported time entry is a later version of the stored one."""
+    if not incoming:
+        return False
+    if not existing:
+        return True
+    try:
+        return datetime.fromisoformat(incoming) > datetime.fromisoformat(existing)
+    except ValueError:
+        return incoming > existing
+
+
+def _employee_key(row: dict[str, Any]) -> str:
+    """Employees are identified by ID; the name is only a fallback for rows without one."""
+    return str(row.get("employee_id") or "").strip() or str(row.get("employee_name") or "").strip()
+
+
+def _shift_month(value: str, offset: int) -> str:
     current = datetime.strptime(value, "%Y-%m")
-    year = current.year - (1 if current.month == 1 else 0)
-    month = 12 if current.month == 1 else current.month - 1
-    return current.replace(year=year, month=month).strftime("%Y-%m")
+    month_index = current.year * 12 + current.month - 1 + offset
+    year, month_zero_based = divmod(month_index, 12)
+    return f"{year:04d}-{month_zero_based + 1:02d}"
 
 
 def _plan_months(planned_start: str | None, planned_end: str | None) -> int | None:
@@ -2093,60 +1924,8 @@ def _plan_months(planned_start: str | None, planned_end: str | None) -> int | No
     return max((end.year - start.year) * 12 + end.month - start.month + 1, 1)
 
 
-def _overrun_warning(
-    burn_rate: Decimal | None, planned_days: Decimal | None, remaining_days: Decimal | None
-) -> str:
-    if planned_days is None:
-        return "待维护预算"
-    if remaining_days is not None and remaining_days < 0:
-        return "已超预算"
-    if burn_rate is not None and burn_rate >= Decimal("90"):
-        return "高风险"
-    if burn_rate is not None and burn_rate >= Decimal("75"):
-        return "需关注"
-    return "正常"
-
-
-def _monthly_trend(period_days: Decimal, previous_days: Decimal) -> str:
-    if period_days == 0 and previous_days == 0:
-        return "暂无记录"
-    if previous_days == 0:
-        return "新增投入"
-    change = (period_days - previous_days) / previous_days * Decimal("100")
-    if change >= Decimal("10"):
-        return "上升"
-    if change <= Decimal("-10"):
-        return "下降"
-    return "持平"
-
-
-def _health_status(warning: str, project: dict[str, Any]) -> str:
-    if warning == "已超预算":
-        return "已超预算"
-    if warning == "待维护预算":
-        return "无基线"
-    if warning in {"高风险", "需关注"} or project.get("risk_level") in {"critical", "warning"}:
-        return "需关注"
-    return "健康"
-
-
-def _completion_forecast(
-    remaining_days: Decimal | None, period_days: Decimal
-) -> str:
-    if remaining_days is None:
-        return "无预算基线"
-    if remaining_days < 0:
-        return "已超预算"
-    if period_days == 0:
-        return "暂无投入"
-    if remaining_days <= period_days:
-        return "预计 1 个统计周期内耗尽"
-    cycles = (remaining_days / period_days).quantize(Decimal("0.1"))
-    return f"约 {cycles} 个统计周期"
-
-
-def _health_rank(value: str) -> int:
-    return {"已超预算": 0, "需关注": 1, "无基线": 2, "健康": 3}.get(value, 4)
+def _format_percent(value: Decimal) -> str:
+    return f"{value.normalize():f}%"
 
 
 def _employee_period(
@@ -2180,7 +1959,7 @@ def _employee_worktime_rows(
     grouped: dict[str, dict[str, Any]] = {}
     for row in rows:
         item = grouped.setdefault(
-            row["employee_name"],
+            _employee_key(row),
             {
                 "employee_id": row["employee_id"],
                 "employee_name": row["employee_name"],
@@ -2201,7 +1980,7 @@ def _employee_worktime_rows(
 
     for employee in known_employees or []:
         grouped.setdefault(
-            employee["employee_name"],
+            _employee_key(employee),
             {
                 "employee_id": employee["employee_id"],
                 "employee_name": employee["employee_name"],
@@ -2251,13 +2030,15 @@ def _employee_worktime_rows(
 
 
 def _monitoring_time_entries(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Exclude the internal department bucket from project and resource metrics.
+    """Keep the effort that project and resource metrics count.
 
     TSG999 remains persisted as an auditable raw time-entry source, but is not a
     customer project and must not make a person appear allocated to a project.
+    Rejected and draft entries stay stored but are not effort.
     """
     return [
-        row for row in rows if row.get("project_number") != INTERNAL_NONPROJECT_CODE
+        row for row in _effort_entries(rows)
+        if row.get("project_number") != INTERNAL_NONPROJECT_CODE
     ]
 
 

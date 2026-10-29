@@ -55,7 +55,7 @@ CRM 同步输出仍保留合同记录级数据；项目视图按 `project_number
 - `external_id` 必须全局唯一。
 - `project_number` 必须符合项目编号规则；无法匹配时进入异常清单。
 - 小时使用十进制字符串，范围为 0 至 24。
-- `approved_hours` 仅在审批通过时计入实际成本。
+- `approved_hours` 仅在审批通过时计入客户确认工时；实际成本按已提交和已审批的 `hours` 计算，`rejected`、`draft` 不计入（本体 5.1.0）。
 - `hours` 表示员工已实际填报、已经发生的成本工时。
 - `approved_hours` 表示客户已确认、可结算或已认可的工时。
 - `hours - approved_hours` 为客户确认缺口；系统按项目聚合并产生醒目提醒。

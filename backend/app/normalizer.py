@@ -11,6 +11,8 @@ from zoneinfo import ZoneInfo
 
 
 PROJECT_PATTERN = re.compile(r"^\s*([A-Z]{2,6}\d{2,4}[A-Z]?)\s*[-–—－]")
+# The CRM export wraps some customer codes in a bracket pair, e.g. 〖TPL〗.
+CUSTOMER_BRACKETS = re.compile(r"^\s*(?:〖(.*)〗|【(.*)】|\[(.*)\]|〔(.*)〕)\s*$")
 
 
 class SnapshotValidationError(ValueError):
@@ -69,7 +71,7 @@ def normalize_snapshot(
         raise SnapshotValidationError(f"snapshot validation failed: {validation}")
 
     return {
-        "schema_version": "2.2",
+        "schema_version": "2.3",
         "updated_at": updated_at,
         "imported_at": datetime.now(ZoneInfo(timezone)).isoformat(timespec="seconds"),
         "source_stats": source_stats,
@@ -120,7 +122,17 @@ def _normalize_record(
     ) or _extract_project_number(subject)
     signed_at = _nullable_text(item.get("签约时间") if chinese else item.get("signed_at"))
     probability = _probability(item.get("可能性") if chinese else item.get("probability"))
+    sales_stage = _nullable_text(
+        (item.get("阶段") or item.get("商机阶段"))
+        if chinese
+        else (item.get("sales_stage") or item.get("stage"))
+    )
     status = _nullable_text(item.get("状态") if chinese else item.get("status"))
+    source_updated_at = _nullable_text(
+        (item.get("源更新时间") or item.get("更新时间"))
+        if chinese
+        else item.get("source_updated_at")
+    )
     total_amount = _money(item.get("总金额") if chinese else item.get("total_amount"))
     received_amount = _money(
         item.get("回款金额") if chinese else item.get("received_amount")
@@ -128,9 +140,6 @@ def _normalize_record(
     invoiced_amount = _money(
         item.get("开票金额") if chinese else item.get("invoiced_amount")
     )
-    if data_type == "contract_order":
-        status = _contract_completion_status(total_amount, received_amount, invoiced_amount)
-
     provided_record_id = item.get("record_id")
     crm_internal_id = item.get("crm_internal_id")
     if provided_record_id:
@@ -150,9 +159,7 @@ def _normalize_record(
         "data_type": data_type,
         "project_number": project_number,
         "subject": subject,
-        "customer": _nullable_text(
-            item.get("对应客户") if chinese else item.get("customer")
-        ),
+        "customer": customer_name(item.get("对应客户") if chinese else item.get("customer")),
         "category": _nullable_text(item.get("分类") if chinese else item.get("category")),
         "signed_at": signed_at,
         "total_amount": total_amount,
@@ -160,7 +167,9 @@ def _normalize_record(
         "invoiced_amount": invoiced_amount,
         "owner": owner,
         "probability": probability,
+        "sales_stage": sales_stage,
         "status": status,
+        "source_updated_at": source_updated_at,
         "merged_from_opportunity": bool(item.get("merged_from_opportunity", False)),
         "updated_at": updated_at,
     }
@@ -260,22 +269,6 @@ def _money(value: Any) -> dict[str, str] | None:
     return {"amount": f"{amount:.2f}", "currency": "CNY", "display": display}
 
 
-def _contract_completion_status(
-    total_amount: dict[str, str] | None,
-    received_amount: dict[str, str] | None,
-    invoiced_amount: dict[str, str] | None,
-) -> str:
-    """Contract completion is derived only from the three imported amounts."""
-    if not total_amount or not received_amount or not invoiced_amount:
-        return "未完成"
-    amounts = {
-        total_amount["amount"],
-        received_amount["amount"],
-        invoiced_amount["amount"],
-    }
-    return "已完成" if len(amounts) == 1 else "未完成"
-
-
 def _text(value: Any) -> str:
     return str(value or "").strip()
 
@@ -283,3 +276,18 @@ def _text(value: Any) -> str:
 def _nullable_text(value: Any) -> str | None:
     text = _text(value)
     return text or None
+
+
+def customer_name(value: Any) -> str | None:
+    """Customer name as displayed: one bracket pair around the whole name is dropped (〖TPL〗 → TPL).
+
+    Brackets inside a name, such as 某公司（上海）, are part of the name and are kept.
+    """
+    text = _text(value)
+    match = CUSTOMER_BRACKETS.match(text)
+    if match:
+        inner = next(group for group in match.groups() if group is not None).strip()
+        if inner and not re.search(r"[〖〗【】\[\]〔〕]", inner):
+            text = inner
+    return text or None
+

@@ -179,7 +179,7 @@ class SyncService:
             existing_by_id[record["record_id"]] = record
 
         combined_payload = {
-            "schema_version": payload.get("schema_version", "2.2"),
+                "schema_version": payload.get("schema_version", "2.3"),
             "updated_at": updated_at,
             "records": list(existing_by_id.values()),
         }
@@ -305,7 +305,9 @@ def _preserve_missing_upload_fields(
         "invoiced_amount": "invoiced_amount",
         "owner": "owner",
         "probability": "probability",
+        "sales_stage": "sales_stage",
         "status": "status",
+        "source_updated_at": "source_updated_at",
     }
     merged = dict(record)
     for source_field, record_field in field_map.items():

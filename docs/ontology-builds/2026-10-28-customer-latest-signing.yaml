@@ -1,0 +1,32 @@
+# 本体构建包（发布稿）：客户「最近签订」只取合同。本体 5.4.1（只改派生口径与说明，属性不变，升修订号）。
+# 依据：用户 2026-10-28 同意修正：「最近签订」原取客户全部 CRM 记录的 signed_at，包含商机的预计签单日期。
+kind: OntologyBuild
+stage: release
+supersededBy: 2026-10-28-term-linked-milestone-form.yaml
+topic: 客户的「最近签订」只取合同/订单的签订日期
+ontologyVersion: 5.4.1
+date: 2026-10-28
+scope:
+  - CQ1 某个客户最近一次签订合同是哪天？
+
+rules:
+  - id: R1
+    statement: 客户的「最近签订」（latestSignedAt）= 该客户全部合同/订单签订日期的最大值；销售机会的预计签单日期不参与。客户没有合同时为空。
+    basis: 用户 2026-10-28 的决定。商机导入时把「预计签单日期」存入同一列 signed_at（5.2.0 已将商机的 signedAt 改称预计签单日期），原实现按全部记录取最大值，客户有商机时会显示一个尚未签约的日期。
+    acceptance: 给客户 TPL 增加一条预计签单日期为 2027-01-01 的商机后，TPL 的最近签订仍为 2026-06-16（合同 TPL149 的签订日期），商机数为 1；没有商机的客户（SEY 2026-03-10、ZMJ 2025-12-01）结果不变。
+    verifiedBy: [test_customer_latest_signing_ignores_opportunity_dates]
+    ontology: [Customer.latestSignedAt, Contract.signedAt, Opportunity.signedAt]
+
+exceptions:
+  - rule: R1
+    case: 客户只有商机、没有合同。
+    handling: 最近签订为空；商机的预计签单日期在销售机会对象上查看。
+    basis: 没有签订合同就没有签订日期。
+  - rule: R1
+    case: 合同没有填写签约时间。
+    handling: 不参与取最大值；其他合同仍正常计算，全部合同都没有签约时间时为空。
+    basis: 与签约年度的处理一致（5.4.0 构建包例外）。
+  - rule: R1
+    case: 演示数据和示例数据。
+    handling: 现有数据中带客户名称的记录都是合同，结果与修正前相同；修正只在客户有商机时体现，由测试构造商机验证。
+    basis: 演示库中两条商机都没有客户名称。

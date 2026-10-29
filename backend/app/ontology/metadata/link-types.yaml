@@ -1,0 +1,125 @@
+kind: LinkType
+version: v1
+definition:
+  {apiName: contracts, reverseApiName: project, displayName: 合同/订单, reverseDisplayName: 所属项目,
+   source: Project, target: Contract, cardinality: one_to_many, description: 项目按项目编号归集的 CRM 合同,
+   join: {sourceKey: projectNumber, targetKey: projectNumber}}
+---
+kind: LinkType
+version: v1
+definition:
+  {apiName: opportunities, reverseApiName: project, displayName: 销售机会, reverseDisplayName: 所属项目,
+   source: Project, target: Opportunity, cardinality: one_to_many, description: 项目按项目编号归集的销售机会,
+   join: {sourceKey: projectNumber, targetKey: projectNumber}}
+---
+kind: LinkType
+version: v1
+definition:
+  {apiName: customer, reverseApiName: projects, displayName: 客户, reverseDisplayName: 项目,
+   source: Project, target: Customer, cardinality: many_to_one, description: 项目主合同的客户,
+   join: {sourceKey: customerName, targetKey: customerName}}
+---
+kind: LinkType
+version: v1
+definition:
+  {apiName: contracts, reverseApiName: customer, displayName: 合同/订单, reverseDisplayName: 客户,
+   source: Customer, target: Contract, cardinality: one_to_many, description: 客户签订的合同,
+   join: {sourceKey: customerName, targetKey: customerName}}
+---
+kind: LinkType
+version: v1
+definition:
+  {apiName: opportunities, reverseApiName: customer, displayName: 销售机会, reverseDisplayName: 客户,
+   source: Customer, target: Opportunity, cardinality: one_to_many, description: 客户的销售机会,
+   join: {sourceKey: customerName, targetKey: customerName}}
+---
+kind: LinkType
+version: v1
+definition:
+  {apiName: timeEntries, reverseApiName: project, displayName: 工时记录, reverseDisplayName: 所属项目,
+   source: Project, target: TimeEntry, cardinality: one_to_many, description: 项目上的工时填报。允许悬空：CRM 未建档的项目代码和 TSG999 等内部代码的工时没有对应项目，它们在成本对象中归为未建档投入或内部投入,
+   join: {sourceKey: projectNumber, targetKey: projectNumber}}
+---
+kind: LinkType
+version: v1
+definition:
+  {apiName: timeEntries, reverseApiName: employee, displayName: 工时记录, reverseDisplayName: 填报人,
+   source: Employee, target: TimeEntry, cardinality: one_to_many, description: 员工的工时填报；按月份查看员工时只列出该月的工时,
+   join: {sourceKey: employeeId, targetKey: employeeId}, periodProperty: workDate}
+---
+kind: LinkType
+version: v1
+definition:
+  {apiName: team, reverseApiName: workedProjects, displayName: 项目团队, reverseDisplayName: 参与项目,
+   source: Project, target: Employee, cardinality: many_to_many, description: 在项目上填报过工时的员工,
+   via: TimeEntry, resolver: {forward: projectTeam, reverse: employeeProjects}, periodProperty: workDate}
+---
+kind: LinkType
+version: v1
+definition:
+  {apiName: milestones, reverseApiName: project, displayName: 里程碑, reverseDisplayName: 所属项目,
+   source: Project, target: Milestone, cardinality: one_to_many, description: 项目里程碑计划,
+   join: {sourceKey: projectNumber, targetKey: projectNumber}}
+---
+kind: LinkType
+version: v1
+definition:
+  {apiName: paymentNodes, reverseApiName: project, displayName: 回款节点, reverseDisplayName: 所属项目,
+   source: Project, target: PaymentNode, cardinality: one_to_many, description: 项目回款计划,
+   join: {sourceKey: projectNumber, targetKey: projectNumber}}
+---
+kind: LinkType
+version: v1
+definition:
+  {apiName: paymentNode, reverseApiName: milestone, displayName: 回款节点, reverseDisplayName: 关联里程碑,
+   source: Milestone, target: PaymentNode, cardinality: one_to_one, description: 商务回款里程碑对应的回款节点,
+   join: {sourceKey: paymentNodeId, targetKey: paymentNodeId}}
+---
+kind: LinkType
+version: v1
+definition:
+  {apiName: interventions, reverseApiName: project, displayName: 管理干预, reverseDisplayName: 所属项目,
+   source: Project, target: Intervention, cardinality: one_to_many, description: 针对项目的管理干预,
+   join: {sourceKey: projectNumber, targetKey: projectNumber}}
+---
+kind: LinkType
+version: v1
+definition:
+  {apiName: project, reverseApiName: costObject, displayName: 项目, reverseDisplayName: 成本对象,
+   source: CostObject, target: Project, cardinality: one_to_one, description: 已在 CRM 建档的项目代码对应的项目。允许悬空：未建档代码和内部代码没有对应项目，这正是成本对象要单列的投入,
+   join: {sourceKey: code, targetKey: projectNumber}}
+---
+kind: LinkType
+version: v1
+definition:
+  {apiName: timeEntries, reverseApiName: costObject, displayName: 工时记录, reverseDisplayName: 成本对象,
+   source: CostObject, target: TimeEntry, cardinality: one_to_many, description: 归集到该项目代码的全部工时,
+   join: {sourceKey: code, targetKey: projectNumber}}
+---
+kind: LinkType
+version: v1
+definition:
+  {apiName: team, reverseApiName: costObjects, displayName: 投入人员, reverseDisplayName: 投入的成本对象,
+   source: CostObject, target: Employee, cardinality: many_to_many, description: 在该项目代码上填报过工时的员工,
+   via: TimeEntry, resolver: {forward: costObjectTeam, reverse: employeeCostObjects}, periodProperty: workDate}
+---
+kind: LinkType
+version: v1
+definition:
+  {apiName: paymentTerms, reverseApiName: project, displayName: 回款约定, reverseDisplayName: 所属项目,
+   source: Project, target: PaymentTerm, cardinality: one_to_many, description: 项目的合同回款约定,
+   join: {sourceKey: projectNumber, targetKey: projectNumber}}
+---
+kind: LinkType
+version: v1
+definition:
+  {apiName: milestone, reverseApiName: paymentTerm, displayName: 关联里程碑, reverseDisplayName: 回款约定,
+   source: PaymentTerm, target: Milestone, cardinality: one_to_one, description: 回款约定以里程碑结束日期形成回款事件,
+   join: {sourceKey: linkedMilestoneId, targetKey: milestoneId}}
+---
+kind: LinkType
+version: v1
+definition:
+  {apiName: paymentNode, reverseApiName: paymentTerm, displayName: 回款节点, reverseDisplayName: 回款约定,
+   source: PaymentTerm, target: PaymentNode, cardinality: one_to_one, description: 回款约定生成的回款节点,
+   join: {sourceKey: paymentNodeId, targetKey: paymentNodeId}}

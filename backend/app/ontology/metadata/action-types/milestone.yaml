@@ -1,0 +1,88 @@
+kind: ActionType
+version: v1
+definition:
+  apiName: editMilestone
+  displayName: 编辑里程碑
+  description: 修改尚未完成的里程碑计划。
+  objectType: Milestone
+  targetParameter: milestone
+  parameters:
+    - {apiName: milestone, displayName: 里程碑, type: object_ref, objectType: Milestone, required: true}
+    - {apiName: name, displayName: 名称, type: string}
+    - {apiName: plannedEnd, displayName: 计划完成, type: date}
+    - apiName: status
+      displayName: 状态
+      type: enum
+      valueType: MilestoneStatus
+      allowedValues: [planned, in_progress, blocked]
+      description: 完成状态只能通过“确认里程碑完成”设置
+    - {apiName: plannedStart, displayName: 计划开始, type: date}
+    - {apiName: owner, displayName: 负责人, type: string}
+    - {apiName: deliverable, displayName: 输出物, type: string}
+    - {apiName: paymentTermId, displayName: 关联回款约定, type: object_ref, objectType: PaymentTerm, description: 关联后以约定金额生成回款节点，回款日期取计划完成日；传空值解除关联（历史回款事件随之删除）, optionDetails: [plannedAmount, paymentRatio]}
+    - {apiName: sequenceNo, displayName: 序号, type: integer}
+    - {apiName: notes, displayName: 备注, type: string}
+  permissions: [projects]
+  edits:
+    - Milestone.sequenceNo
+    - Milestone.name
+    - Milestone.plannedStart
+    - Milestone.plannedEnd
+    - Milestone.status
+    - Milestone.owner
+    - Milestone.deliverable
+    - Milestone.isPaymentNode
+    - Milestone.notes
+    - PaymentNode.*
+    - PaymentTerm.linkedMilestoneId
+  writeback: [milestones, payment_nodes, payment_terms]
+  handler: editMilestone
+  submissionCriteria:
+    - description: 已完成的里程碑锁定，不可编辑
+      rule: statusIsNot
+      args: {status: completed, reason: 里程碑已确认完成，已锁定}
+    - description: 计划完成日不早于计划开始日
+      rule: dateOrder
+      args: {start: plannedStart, end: plannedEnd, label: 计划完成日期}
+---
+kind: ActionType
+version: v1
+definition:
+  apiName: deleteMilestone
+  displayName: 删除里程碑
+  description: 删除尚未完成的里程碑及其关联回款节点。
+  objectType: Milestone
+  targetParameter: milestone
+  tone: danger
+  parameters:
+    - {apiName: milestone, displayName: 里程碑, type: object_ref, objectType: Milestone, required: true}
+  permissions: [projects]
+  edits: [Milestone.*, PaymentNode.*]
+  writeback: [milestones, payment_nodes]
+  handler: deleteMilestone
+  submissionCriteria:
+    - description: 已完成的里程碑锁定，不可删除
+      rule: statusIsNot
+      args: {status: completed, reason: 里程碑已确认完成，已锁定}
+    - {description: 关联回款未到账, rule: linkedPaymentNotPaid}
+---
+kind: ActionType
+version: v1
+definition:
+  apiName: confirmMilestoneCompletion
+  displayName: 确认里程碑完成
+  description: 管理人员确认里程碑完成，记录确认人与确认时间；确认后锁定。
+  objectType: Milestone
+  targetParameter: milestone
+  tone: confirm
+  parameters:
+    - {apiName: milestone, displayName: 里程碑, type: object_ref, objectType: Milestone, required: true}
+    - {apiName: confirmedBy, displayName: 确认人, type: string, description: 缺省为当前登录用户}
+  permissions: [projects]
+  edits: [Milestone.status, Milestone.completedDate, Milestone.confirmedBy, Milestone.confirmedAt]
+  writeback: [milestones]
+  handler: confirmMilestone
+  submissionCriteria:
+    - description: 里程碑尚未完成
+      rule: statusIsNot
+      args: {status: completed, reason: 里程碑已经确认完成}

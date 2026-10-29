@@ -1,0 +1,88 @@
+# 本体构建包（发布稿）：签约年度维度。本体 5.4.0（新增属性 Contract.signedYear、Project.signedYear 与函数 customerAnnualSummary，非破坏性）。
+# 依据：用户 2026-10-28「CRM 合同的签约时间可以区分合同归属的年度，测算按年度的运营指标；本体浏览中要按年度做查询维度」。
+# 用户选择：合同、项目、客户年度汇总都做；对象浏览加年度筛选；多份合同的项目取最早签约年度。
+kind: OntologyBuild
+stage: release
+supersededBy: 2026-10-28-customer-latest-signing.yaml
+topic: 以合同签约时间划分年度：合同与项目的签约年度、客户年度汇总、对象浏览的年度筛选
+ontologyVersion: 5.4.0
+date: 2026-10-28
+scope:
+  - CQ1 某一年签了哪些合同，金额多少？
+  - CQ2 某一年新签了哪些项目？
+  - CQ3 某一年每个客户新签多少合同额，这些合同开票、回款多少？
+  - CQ4 在本体浏览器中，怎样只看某一年的合同或项目？
+
+rules:
+  - id: R1
+    statement: 合同/订单新增派生属性「签约年度」（signedYear）= 签订日期（CRM「签约时间」）的年份；没有签订日期时为空。
+    basis: 用户 2026-10-28 的要求；部门经营的「新签」已按合同签约日期所在年度统计（economics.department_review），本体沿用同一口径。
+    acceptance: 示例数据中合同 TPL149（2026-06-16）的签约年度为 2026，ZMJ113（2025-12-01）为 2025；对象集按签约年度 = 2026 筛选只得到 TPL149；按签约年度分组求合同金额之和，2025 年为 20000.00，2026 年为 149900.00。
+    verifiedBy: [test_contracts_and_projects_carry_the_signing_year]
+    ontology: [Contract.signedYear, Contract.signedAt]
+  - id: R2
+    statement: 项目新增派生属性「签约年度」（signedYear）= 该项目全部合同/订单中最早签订日期的年份；追加合同不改变项目的年度（在合同上各算各的年度）。没有合同的项目（只有商机，包括状态为成功的商机）为空。
+    basis: 用户 2026-10-28 选择「最早签约年度」：项目在首份合同签订的年度成为新签项目。
+    acceptance: TPL149 的签约年度为 2026，ZMJ113 为 2025，只有商机的 WDR101 为空；同一项目再加一份 2027 年签订的合同后，项目仍为 2025（最早年度），两份合同分别为 2025 和 2027。
+    verifiedBy: [test_contracts_and_projects_carry_the_signing_year]
+    ontology: [Project.signedYear, projectFacts]
+  - id: R3
+    statement: 新增函数「客户年度汇总」（customerAnnualSummary，参数「年度」可选）：按签约年度、客户汇总合同数、项目数、新签合同额，以及这些合同在 CRM 中的已开票、已回款金额；不传年度时列出全部年度。金额按 FINANCE 标记脱敏。
+    basis: 用户 2026-10-28 选择「合同 + 项目 + 客户年度汇总」。客户对象的属性不能带参数，按年度汇总做成函数。开票、回款取合同的 CRM 金额（与 Customer.totalInvoicedAmount、totalReceivedAmount 同源），按合同签约年度归集。
+    acceptance: 年度 = 2026 时只有客户 TPL：合同 1 份、新签 149900.00、已开票 74950.00、已回款 0.00；不传年度时列出 2025、2026 两年，各年合计等于该年合同金额之和；没有 FINANCE 权限时金额为空、redacted_markings 含 FINANCE。
+    verifiedBy: [test_customer_annual_summary_groups_contracts_by_signing_year]
+    ontology: [customerAnnualSummary, Contract.signedYear, Customer]
+  - id: R4
+    statement: 本体浏览器的对象浏览中，有「签约年度」属性的对象类型（合同/订单、项目）在列表上方显示年度筛选，选项为数据中出现的年度；选择后列表只显示该年度的对象，与搜索可以同时使用。
+    basis: 用户 2026-10-28 选择「对象浏览加年度筛选」。列表接口已支持 where.<属性> 过滤，筛选直接使用本体属性，不另写查询口径。
+    acceptance: 对象列表接口带 where.signedYear=2026 时，合同只返回 TPL149，项目只返回 TPL149；页面上合同/订单和项目出现年度筛选，其他对象类型不出现。
+    verifiedBy: [test_contracts_and_projects_carry_the_signing_year]
+    ontology: [Contract.signedYear, Project.signedYear]
+  - id: R5
+    statement: 客户新增三个派生属性：「本年合同总额」「本年已回款」「本年已开票」，只汇总签约年度等于本年度的合同/订单；本年度按服务器当前日期（系统配置时区）计算，跨年后自动切换。在客户详情中单独成组显示。
+    basis: 用户 2026-10-28「客户对象浏览中，也增加一个统计，归属本年度的合同总额、已回款、已开票。本年度时间按照服务器当前时间计算」。年度口径同 R1，金额口径同 5.3.0 的客户汇总（CRM 合同金额）。
+    acceptance: 服务器日期为 2026 年时，客户 TPL 的本年合同总额 149900.00、本年已开票 74950.00、本年已回款 0.00，客户 ZMJ（合同签于 2025 年）三项均为 0.00；把服务器日期设为 2025 年后，ZMJ 的本年合同总额为 20000.00、TPL 为 0.00。三项与客户年度汇总函数中当年的数字一致。
+    verifiedBy: [test_customer_current_year_totals_follow_the_server_date]
+    ontology: [Customer.currentYearContractValue, Customer.currentYearReceivedAmount, Customer.currentYearInvoicedAmount, customerAnnualSummary]
+
+exceptions:
+  - rule: R1
+    case: CRM 合同没有填写签约时间。
+    handling: 签约年度为空，不进入任何年度的筛选和汇总；客户年度汇总单独给出「未填签约时间的合同数」，提醒补数据。
+    basis: 不能凭导入时间或其他日期推测年度，否则会把合同算错年度。
+  - rule: R1
+    case: 销售机会的「预计签单日期」。
+    handling: 不产生签约年度；商机还没有签约（5.2.0 已将商机的 signedAt 改称预计签单日期）。
+    basis: 签约年度只描述已签订的合同。
+  - rule: R2
+    case: 项目跨年追加合同（例如 2025 年签主合同、2026 年追加）。
+    handling: 项目算 2025 年；2026 年追加合同在合同对象上算 2026 年，按年度统计金额时以合同为准，不会漏算追加的金额。
+    basis: 用户选择「最早签约年度」；项目是否为某年新签与合同金额归属是两件事。
+  - rule: R2
+    case: 商机状态为成功、但还没有导入合同的项目。
+    handling: 签约年度为空；项目管理仍按「成功即项目」归为项目（业务规则 1.2），导入合同后自动得到年度。
+    basis: 没有签约时间就无法确定年度。
+  - rule: R3
+    case: CRM 的开票、回款金额是合同的累计值，没有发生日期。
+    handling: 按合同的签约年度归集，表示「该年签订的合同至今开票、回款多少」，不是「该年实际开票、到账多少」。按到账年度统计回款请看部门经营（取回款节点的实际到账日期）。函数说明中写明这一点。
+    basis: CRM 合同记录只有累计金额，没有按日期的明细；混用两种口径会让年度回款前后不一致。
+  - rule: R3
+    case: 没有客户名称的合同。
+    handling: 计入年度合计，在客户行中显示为「未填写客户」，不丢金额。
+    basis: 年度合计必须等于该年合同金额之和；客户对象本身仍不包含这类记录（客户由 records.customer 去重得到）。
+  - rule: R4
+    case: 对象集查询页面。
+    handling: 不加专门的年度控件；签约年度作为普通属性，可在条件中用「等于」筛选，在分组中按「精确值」分组。
+    basis: 对象集查询已支持任意属性的条件和分组，不需要另做控件。
+  - rule: R5
+    case: 年初（例如 1 月上旬）本年还没有签订合同。
+    handling: 三项都显示 0.00，不回退到上一年；看上一年用客户年度汇总函数并传入年度。
+    basis: 用户要求按服务器当前时间计算本年度。
+  - rule: R5
+    case: 跨年当天的缓存。
+    handling: 对象索引的缓存键包含当天日期，日期一变就重建，本年度随之切换；本年度取服务配置时区（环境变量 XTCRM_TIMEZONE，默认 America/Detroit）的日期，与缓存键的系统日期在零点前后可能有短暂差异，最长到下一次重建。
+    basis: index.py 的缓存键（日期 + 数据集版本）；ProjectRepository.today() 使用配置时区。
+  - rule: R5
+    case: 本年已回款、已开票的含义。
+    handling: 是「本年签订的合同至今的 CRM 开票、回款」，不含往年合同在本年的回款（同 R3 的例外）。
+    basis: CRM 合同金额没有发生日期。

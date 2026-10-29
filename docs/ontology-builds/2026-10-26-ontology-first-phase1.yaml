@@ -1,0 +1,117 @@
+# 本体构建包（发布稿）：分析与监控从本体推导，第一阶段。本体 3.1.0。
+# 依据：用户 2026-10-26「我希望页面真正从本体推导。基础程序维护的是项目主数据信息和关键的一些字段维护。分析、监控应该都是从本体推导」，
+# 以及同日的四项决定：页面统一按安全标记脱敏；旧分析接口改成调用本体的薄包装；写入保留基础程序维护接口；先做第一阶段。
+kind: OntologyBuild
+stage: release
+supersededBy: 2026-10-27-pause-economics.yaml
+topic: 分析与监控从本体推导（第一阶段）：项目管理页、项目详情抽屉与部门经营改由本体推导并读取
+ontologyVersion: 3.1.0
+date: 2026-10-26
+scope:
+  - CQ1 项目的风险、预算消耗、回款、待办、经营口径由哪条本体规则算出？基础程序里还有没有分析计算？
+  - CQ2 项目管理页、项目详情抽屉、部门经营页的数据是否都来自本体函数？
+  - CQ3 没有财务金额权限、没有人员工时权限的账号，在页面上看到什么？
+  - CQ4 迁移前后，同一份数据算出的结果是否一致？
+  - CQ5 本体推导的结果什么时候重新计算？
+
+rules:
+  - id: R1
+    statement: 基础程序（ProjectRepository）只维护项目主数据和关键字段，并把每个项目的原始数据（CRM 记录、人工设置、工时、里程碑、回款节点与约定、管理干预）交给本体；项目的风险、健康度、预算、回款汇总、待办、异常提醒和经营口径都在本体推导，基础程序不含这些计算，也不引用本体。
+    basis: 用户 2026-10-26「基础程序维护的是项目主数据信息和关键的一些字段维护。分析、监控应该都是从本体推导」。
+    acceptance: ProjectRepository 及其模块中不再有 project_health、list_projects、get_project、_build_project、_project_health_row、compute_project_economics 等分析函数；基础模块不导入本体或经营口径模块；本体注册了 projectFacts、projectEconomics、projectInvestment 三条推导规则。
+    verifiedBy: [test_base_programs_hold_no_project_analytics]
+    ontology: [Project, projectFacts, projectEconomics, projectInvestment]
+  - id: R2
+    statement: 项目的每个派生属性都在元数据中用 derivedFrom 指明计算它的推导规则；对象类型用 derivations 声明推导顺序；推导规则的输出必须与元数据声明完全一致，否则元数据编译或对象加载直接失败。
+    basis: 技能原则 6「每个属性都写清来源」；原则 1「LLM 生成，本体裁决」——让元数据成为推导的契约，而不是事后说明。
+    acceptance: Project 的全部派生属性都指向 projectFacts、projectEconomics 或 projectInvestment；去掉一个派生属性的 derivedFrom 时编译报「必须是本对象的推导规则之一」；把投资属性错标为 projectFacts 时，服务加载项目即报「推导规则 projectFacts 的输出与元数据不一致」。
+    verifiedBy: [test_project_properties_are_computed_by_declared_derivations, test_ontology_definitions_are_consistent]
+    ontology: [Project, Project.riskLevel, Project.economicsStatus, Project.costToWinPersonDays]
+  - id: R3
+    statement: 项目管理页、项目详情抽屉和部门经营页通过本体函数读取数据（portfolioHealth、projectOverview、departmentOperatingReview、customerEconomicsRollup、portfolioEconomics、resourceHealth）；原有接口 /api/v1/projects、/api/v1/projects/{编号}、/api/v1/project-health、/api/v1/department/* 保留一个版本，改为调用同一批函数的薄包装。
+    basis: 用户 2026-10-26 决定「改成调用本体的薄包装（推荐）」。
+    acceptance: 同一份数据下，/api/v1/project-health 与 portfolioHealth、/api/v1/projects/TPL149 与 projectOverview、/api/v1/projects 与 projectList、/api/v1/department/customers 与 customerEconomicsRollup 的结果完全相同；不存在的项目返回 404；浏览器中三个页面的请求都是 /api/v1/ontology/functions/*/execute。
+    verifiedBy: [test_page_functions_match_the_compatibility_endpoints]
+    ontology: [portfolioHealth, projectOverview, projectList, customerEconomicsRollup, portfolioEconomics, departmentOperatingReview, resourceHealth]
+  - id: R4
+    statement: 迁移不改变任何口径：推导代码从基础程序原样移入本体，项目页、抽屉、部门经营和 PM Assistant 的结果与迁移前一致。
+    basis: 原则 9「不要自行改变业务含义」；本次只改变计算所在的层，不改口径。
+    acceptance: 迁移前已有的全部接口测试在迁移后不加修改地通过，包括预算阈值、工作量结算、回款约定排序、待办完成状态、额外投入和 SEY 经营口径。
+    verifiedBy: [test_one_budget_threshold_set_drives_risk_and_operations, test_project_portfolio, test_workload_settlement_uses_confirmed_revenue_instead_of_contract_ratio, test_project_overview_payment_term_summary_prioritizes_next_linked_milestone, test_completed_todos_distinguish_on_time_and_delayed_completion, test_project_health_warns_about_worktime_after_contract_completion, test_customer_rollup_lists_exceeded_projects]
+    ontology: [Project, portfolioHealth, projectOverview]
+  - id: R5
+    statement: 项目的主数据字段在本体中物化一次（数据源 projects），与推导事实中的同名字段保持一致。
+    basis: 原则 5「一个概念一个名字」；主数据由数据源物化、派生属性由推导规则计算，两处出现的同名字段不能出现两个值。
+    acceptance: 对每个项目，数据源物化的名称、客户、销售人员、CRM 分类、合同额、开票、CRM 回款、项目类型、项目状态和预算人天，与 projectFacts 推导出的对应字段完全相同。
+    verifiedBy: [test_master_data_matches_derived_facts]
+    ontology: [Project.subject, Project.customerName, Project.contractValue, Project.lifecycleStatus, Project.plannedPersonDays]
+  - id: R6
+    statement: 页面统一按安全标记脱敏：没有 FINANCE 标记的账号看不到金额（金额为空、含金额的提醒文字改写），没有 PERSONNEL 标记的账号看不到个人工时；结果中的 redacted_markings 列出被隐藏的标记，页面据此提示。
+    basis: 用户 2026-10-26 决定「统一按标记脱敏（推荐）」。
+    acceptance: 只有「项目管理（只读）」权限的账号打开项目管理页，合同总额与每行合同额、回款计划金额为空，健康状态仍可见，redacted_markings 为 FINANCE 与 PERSONNEL；管理员不隐藏；只有「项目管理」权限的项目经理打开项目详情，能看到合同额，但个人工时为空，redacted_markings 为 PERSONNEL；只读账号不能打开项目详情。
+    verifiedBy: [test_pages_redact_by_markings]
+    ontology: [projectOverview, portfolioHealth, Project.contractValue]
+  - id: R7
+    statement: 推导结果缓存在对象索引中；任何写入通过数据集版本使缓存失效，跨天自动重算；读取不重复推导。
+    basis: 原则 10「日常查询走对象索引缓存」；技能 repo-map 陷阱 3（新表登记为数据集）。
+    acceptance: 连续读取项目管理页和项目详情时，Project 的索引构建次数不变、命中次数增加；保存项目设置后，下一次读取即看到新值。
+    verifiedBy: [test_derived_projects_are_cached_in_the_object_index]
+    ontology: [Project]
+
+exceptions:
+  - rule: R1
+    case: 资源运营监控、资源调度沙盘、员工工时评价和投入成本分析还没有迁移。
+    handling: 它们的计算暂留在基础程序和 investment.py（第二、三阶段迁移），但读取的项目事实已经来自本体推导，不再自己计算项目。
+    basis: 用户 2026-10-26 决定「先做第一阶段」。
+  - rule: R1
+    case: 写入时的校验（受控合同类型必须有预算人天、已到账回款受保护、经营输入的取值范围）。
+    handling: 留在基础程序，本体动作调用同一套校验；这是关键字段的维护规则，不是分析。
+    basis: 用户说明「基础程序维护的是项目主数据信息和关键的一些字段维护」；经验库 L10。
+  - rule: R1
+    case: PM Assistant 需要按问题检索项目。
+    handling: CRM 文本检索留在基础程序（只返回项目编号和 CRM 记录），项目事实从本体读取。
+    basis: 检索是对基础数据的查询，不是分析。
+  - rule: R2
+    case: 员工、客户、成本对象等其他对象的派生属性。
+    handling: 暂由各自的数据源计算，derivedFrom 仍指向函数；随第二、三阶段改为推导规则。
+    basis: 分阶段迁移，避免一次改动过大。
+  - rule: R2
+    case: 推导规则需要把中间结果交给后续规则（例如经营口径需要未四舍五入的已用人天）。
+    handling: 以「__」开头的内部字段传递，不属于属性，不参与输出检查，也永远不会序列化给页面。
+    basis: 已用人天按 0.125 天的粒度产生，格式化到两位小数会改变动态成本。
+  - rule: R3
+    case: 外部系统仍在调用原有分析接口。
+    handling: 接口地址、参数和返回格式保留一个版本，内部改为调用本体函数，权限与脱敏随之统一；下线前另行通知。
+    basis: 用户 2026-10-26 决定。
+  - rule: R3
+    case: 项目详情抽屉保存后需要刷新。
+    handling: 维护接口仍由基础程序处理写入，返回的项目视图同样来自本体函数 projectOverview。
+    basis: 用户决定「保留基础程序维护接口」。
+  - rule: R4
+    case: 本体浏览器中项目对象的默认顺序。
+    handling: 由迁移前的「风险等级 → 项目编号」改为按项目编号，与对象类型的 defaultOrder 一致；项目管理页的排序（风险 → 健康度 → 编号）不变。
+    basis: 对象浏览的顺序原本是加载顺序的副作用，不是业务口径。
+  - rule: R4
+    case: PM Assistant 的检索测试原先断言「每次提问只加载候选项目」。
+    handling: 项目事实改由本体索引提供，全量只在索引失效时构建一次；测试改为断言后续提问不再重建项目。
+    basis: 原则 10：索引缓存取代逐次的局部构建。
+  - rule: R5
+    case: 没有 CRM 记录、只在兼容模式下出现的项目。
+    handling: 两处都显示客户「未匹配 CRM 主数据」、名称取项目编号。
+    basis: 迁移前的既有行为。
+  - rule: R6
+    case: 只有「项目管理」权限的项目经理需要看本项目成员的工时。
+    handling: 按规定隐藏个人工时，项目合计仍可见；需要时给账号加「资源运营监控」或「员工工时数据」权限，或调整 PERSONNEL 标记的授权名单。
+    basis: 用户选择「统一按标记脱敏」时已说明可能需要给部分账户补权限。
+  - rule: R6
+    case: 第二、三阶段的页面（资源运营监控、调度沙盘、员工工时、投入成本分析）。
+    handling: 暂时仍按菜单权限控制，迁移到本体后统一按标记脱敏。
+    basis: 分阶段迁移。
+  - rule: R6
+    case: 金额被隐藏时，项目表「回款」列原本会显示「暂无合同金额」。
+    handling: 改为显示「金额需要财务金额权限」，页面顶部和抽屉标题旁提示哪些数值被隐藏，避免把无权限误读为没有数据。
+    basis: 原则：不能把「无数据」和「无权限」混为一谈。
+  - rule: R7
+    case: 逾期、到期提醒依赖当天日期。
+    handling: 索引签名包含日期，跨天自动重建。
+    basis: 对象索引的既有签名规则。

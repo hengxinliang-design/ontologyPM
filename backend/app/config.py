@@ -27,6 +27,11 @@ class Settings:
     initial_admin_password: str = "Tsnt@2026"
     session_hours: int = 12
     require_crm_project_match: bool = True
+    ontology_metadata_dir: Path | None = None
+    slow_request_ms: int = 800
+    china_holiday_rest_ics_url: str = "https://ical.muhan.org/rest.ics"
+    china_holiday_work_ics_url: str = "https://ical.muhan.org/work.ics"
+    china_holiday_cache_hours: int = 12
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -64,6 +69,18 @@ class Settings:
             require_crm_project_match=os.getenv(
                 "TSG_PM_REQUIRE_CRM_PROJECT_MATCH", "true"
             ).lower() in {"1", "true", "yes"},
+            ontology_metadata_dir=(
+                Path(os.environ["TSG_PM_ONTOLOGY_METADATA_DIR"])
+                if os.getenv("TSG_PM_ONTOLOGY_METADATA_DIR") else None
+            ),
+            slow_request_ms=int(os.getenv("TSG_PM_SLOW_REQUEST_MS", "800")),
+            china_holiday_rest_ics_url=os.getenv(
+                "TSG_PM_CHINA_HOLIDAY_REST_ICS_URL", "https://ical.muhan.org/rest.ics"
+            ),
+            china_holiday_work_ics_url=os.getenv(
+                "TSG_PM_CHINA_HOLIDAY_WORK_ICS_URL", "https://ical.muhan.org/work.ics"
+            ),
+            china_holiday_cache_hours=int(os.getenv("TSG_PM_CHINA_HOLIDAY_CACHE_HOURS", "12")),
         )
 
 
