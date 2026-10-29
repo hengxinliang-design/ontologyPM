@@ -18,8 +18,8 @@ definition:
   handler: editPaymentNode
   submissionCriteria:
     - description: 已到账的回款节点锁定
-      rule: statusIsNot
-      args: {status: paid, reason: 回款已确认到账，已锁定}
+      rule: notLocked
+      args: {lock: paymentNode}
     - description: 计划金额不能为负数
       rule: nonNegative
       args: {parameters: [plannedAmount]}
@@ -41,8 +41,8 @@ definition:
   handler: deletePaymentNode
   submissionCriteria:
     - description: 已到账的回款节点锁定
-      rule: statusIsNot
-      args: {status: paid, reason: 回款已确认到账，已锁定}
+      rule: notLocked
+      args: {lock: paymentNode}
     - {description: 不是里程碑关联的回款节点, rule: notLinkedToMilestone}
 ---
 kind: ActionType
@@ -89,5 +89,5 @@ definition:
   handler: updateInterventionStatus
   submissionCriteria:
     - description: 已关闭的干预不能重新打开
-      rule: statusIsNot
-      args: {status: closed, reason: 管理干预已关闭}
+      rule: notLocked
+      args: {lock: intervention}

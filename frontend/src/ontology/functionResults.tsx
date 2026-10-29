@@ -198,10 +198,10 @@ function CustomerAnnualView({ result }: { result: Json }) {
     {years.map(year => <Section key={String(year.year)} title={`${year.year} 年 · ${year.contract_count} 份合同 · ${year.project_count} 个项目 · ${year.customer_count} 个客户`}>
       <div className="fr-stats">
         <Stat label="新签合同额" value={money(year.signed_amount)} />
-        <Stat label="已开票" value={money(year.invoiced_amount)} />
-        <Stat label="已回款" value={money(year.received_amount)} />
+        <Stat label="累计开票" value={money(year.invoiced_amount)} hint="这些合同至今的 CRM 开票" />
+        <Stat label="累计回款" value={money(year.received_amount)} hint="这些合同至今的 CRM 回款，不是该年到账" />
       </div>
-      <table className="fr-table"><thead><tr><th>客户</th><th>合同</th><th>项目</th><th>新签合同额</th><th>已开票</th><th>已回款</th></tr></thead>
+      <table className="fr-table"><thead><tr><th>客户</th><th>合同</th><th>项目</th><th>新签合同额</th><th>累计开票</th><th>累计回款</th></tr></thead>
         <tbody>{((year.customers as Json[] | undefined) ?? []).map(row => <tr key={String(row.customer_name)}>
           <td>{String(row.customer_name)}</td><td>{String(row.contract_count)}</td><td>{String(row.project_count)}</td>
           <td>{money(row.signed_amount)}</td><td>{money(row.invoiced_amount)}</td><td>{money(row.received_amount)}</td>

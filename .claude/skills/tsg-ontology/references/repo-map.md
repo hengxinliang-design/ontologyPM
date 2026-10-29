@@ -19,6 +19,7 @@
 | `backend/app/ontology/versioning.py` | 版本登记与差异 |
 | `backend/app/db.py` | 表结构、迁移、`OBJECT_DATASETS`（触发器维护数据集版本） |
 | `backend/app/project_repository.py`、`investment.py` | 业务计算的主体（风险、健康、资源、投入） |
+| `backend/app/maintenance_rules.py` | 人工维护规则的唯一实现（提交条件与基础程序兜底共用） |
 | `frontend/src/ontology/` | 本体浏览器；`functionResults.tsx` 是函数结果的可读视图 |
 | `docs/BUSINESS_RULES.md` | 计算口径清单，每条口径的“本体位置” |
 | `docs/ONTOLOGY_ARCHITECTURE.md` | 本体架构与演进路线 |
@@ -76,8 +77,9 @@ npx tsc -b && npm test && npm run build
 14. **数据源的输出顺序要确定。** 原始数据来自集合时先排序，否则对象顺序每次不同。
 16. **按月查看用统计期间，不要给属性加参数。** 对象类型写 `period`（汇总对象用 activeProperty，带日期的记录用 dateProperty，有计划起止的用 startProperty + endProperty；range 允许月份区间；defaultView 为 all 或 latest；options 只在 activeProperty 时必填），按月计算的属性标 `periodic: true`，数据源从 `ctx.period` 取月份（为空时用默认月份）；需要按月筛选的关系写 `periodProperty`，resolver 关系在解析器里按 `ctx.period` 过滤。按月计算的对象不进共享索引；对象集查询还不支持月份（7.2.0）。
 17. **列表列用 listProperties 声明。** 对象列表默认取前四个属性；需要指定列（例如里程碑的状态）时在对象类型写 `listProperties`，不要为了显示而调整属性顺序。
+18. **维护规则写在 `app/maintenance_rules.py`。** 新规则先在这里写判定函数（返回中文原因或 None），再由 `rules.py` 的提交条件和 `ProjectRepository` 的兜底（`rules.ensure(...)`）调用；状态锁定加进 `LOCKS` 表、提交条件用 `notLocked`。动作新增写入时同步 `edits` 与 `writeback`，否则 `test_actions_write_only_declared_datasets` 会失败；新增动作要在该测试中补一次执行。
 12. **升主版本后，旧构建包要标注被取代。** 旧发布稿的 `ontologyVersion` 不再等于当前版本，给它加 `supersededBy: <新构建包文件名>`；设计稿实施后也这样处理。
 
-## 当前规模（v7.4.0）
+## 当前规模（v7.5.0）
 
 13 个对象类型、18 种关系、17 个动作、16 个函数、4 条推导规则、2 个安全标记。数字变化时同步更新本节、PRD 第 8 章和本体架构文档。

@@ -8,13 +8,14 @@ from decimal import Decimal
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from . import maintenance_rules as rules
+from .maintenance_rules import CAPPED_TYPES
 from .china_holiday_calendar import ChinaHolidayCalendarService
 from .db import Database
 from .pagination import CursorError, decode_cursor, encode_cursor
 from .repository import SnapshotRepository
 
 
-CAPPED_TYPES = {"construction", "maintenance"}
 INTERNAL_NONPROJECT_CODE = "TSG999"
 # Effort counts submitted and approved time; rejected entries were ruled out of the project, drafts were never submitted.
 EFFORT_APPROVAL_STATUSES = frozenset({"submitted", "approved"})
@@ -553,8 +554,7 @@ class ProjectRepository:
         planned_end = _optional_iso_date(
             payload.get("planned_end", current.get("planned_end")), "planned_end"
         )
-        if planned_start and planned_end and planned_start > planned_end:
-            raise ValueError("planned_start must be earlier than or equal to planned_end")
+        rules.ensure(rules.date_order(planned_start, planned_end, "计划结束日期"))
         values = {
             "contract_type": payload.get("contract_type", current.get("contract_type", "unknown")),
             "lifecycle_status": payload.get(
@@ -574,8 +574,7 @@ class ProjectRepository:
             ),
             "notes": payload.get("notes", current.get("notes")),
         }
-        if values["contract_type"] in CAPPED_TYPES and not values["planned_person_days"]:
-            raise ValueError("planned_person_days is required for capped contract types")
+        rules.ensure(rules.capped_budget(values["contract_type"], values["planned_person_days"]))
         with self.database.connect() as connection:
             connection.execute(
                 """
@@ -759,8 +758,7 @@ class ProjectRepository:
         planned_start = _optional_iso_date(
             payload.get("planned_start") or planned_end, "planned_start"
         )
-        if planned_start is not None and planned_start > planned_end:
-            raise ValueError("planned_start must be on or before planned_end")
+        rules.ensure(rules.date_order(planned_start, planned_end, "计划完成日期"))
         payment_term_id = payload.get("payment_term_id") or None
         is_payment_node = bool(payment_term_id) or bool(payload.get("is_payment_node", False))
         payment_date = payload.get("payment_date")
@@ -845,8 +843,7 @@ class ProjectRepository:
         )
         if current is None:
             raise KeyError("milestone not found")
-        if current["status"] == "completed":
-            raise ValueError("completed milestones are locked and cannot be edited")
+        rules.ensure(rules.locked("milestone", current["status"]))
         if payload.get("status") == "completed":
             raise ValueError("use the confirm endpoint to complete a milestone")
         values = {**current, **payload}
@@ -858,8 +855,7 @@ class ProjectRepository:
         planned_start = _optional_iso_date(
             values.get("planned_start") or planned_end, "planned_start"
         )
-        if planned_start is not None and planned_start > planned_end:
-            raise ValueError("planned_start must be on or before planned_end")
+        rules.ensure(rules.date_order(planned_start, planned_end, "计划完成日期"))
         term_supplied = "payment_term_id" in payload
         payment_term_id = payload.get("payment_term_id") if term_supplied else None
         payment_node_id = current.get("payment_node_id")
@@ -991,8 +987,7 @@ class ProjectRepository:
         )
         if current is None:
             raise KeyError("milestone not found")
-        if current["status"] == "completed":
-            raise ValueError("completed milestones are locked and cannot be deleted")
+        rules.ensure(rules.locked("milestone", current["status"]))
         payment_node_id = current.get("payment_node_id")
         with self.database.connect() as connection:
             if payment_node_id:
@@ -1000,8 +995,7 @@ class ProjectRepository:
                     "SELECT status FROM payment_nodes WHERE payment_node_id = ?",
                     (payment_node_id,),
                 ).fetchone()
-                if payment and payment["status"] == "paid":
-                    raise ValueError("a confirmed payment node cannot be deleted")
+                rules.ensure(rules.linked_payment_unpaid(payment["status"] if payment else None))
             connection.execute(
                 "DELETE FROM milestones WHERE milestone_id = ? AND project_number = ?",
                 (milestone_id, project_number),
@@ -1054,6 +1048,11 @@ class ProjectRepository:
             raise KeyError("payment term not found")
         values = self._validated_payment_term({**current, **payload})
         with self.database.connect() as connection:
+            if current.get("payment_node_id"):
+                payment = connection.execute(
+                    "SELECT status FROM payment_nodes WHERE payment_node_id=?", (current["payment_node_id"],)
+                ).fetchone()
+                rules.ensure(rules.term_locked(payment["status"] if payment else None))
             connection.execute(
                 """
                 UPDATE payment_terms SET name=?, payment_ratio=?, planned_amount=?,
@@ -1091,8 +1090,7 @@ class ProjectRepository:
             ).fetchone()
             if row is None:
                 raise KeyError("payment term not found")
-            if row["linked_milestone_id"]:
-                raise ValueError("linked payment terms must be unlinked through the milestone")
+            rules.ensure(rules.term_unlinked(row["linked_milestone_id"]))
             connection.execute(
                 "DELETE FROM payment_terms WHERE payment_term_id=?", (payment_term_id,)
             )
@@ -1106,14 +1104,12 @@ class ProjectRepository:
         if amount in (None, ""):
             raise ValueError("planned_amount is required")
         amount_text = _decimal_text(amount)
-        if Decimal(amount_text) < 0:
-            raise ValueError("planned_amount must be non-negative")
+        rules.ensure(rules.non_negative(amount_text))
         ratio = payload.get("payment_ratio")
         ratio_text = None
         if ratio not in (None, ""):
             ratio_text = _decimal_text(ratio)
-            if Decimal(ratio_text) < 0 or Decimal(ratio_text) > 100:
-                raise ValueError("payment_ratio must be between 0 and 100")
+            rules.ensure(rules.payment_ratio(ratio_text))
         return {
             "name": name,
             "payment_ratio": ratio_text,
@@ -1136,8 +1132,7 @@ class ProjectRepository:
         ).fetchone()
         if row is None:
             raise ValueError("payment term not found")
-        if row["linked_milestone_id"] and row["linked_milestone_id"] != milestone_id:
-            raise ValueError("payment term is already linked to another milestone")
+        rules.ensure(rules.term_available(row["linked_milestone_id"], milestone_id))
         return dict(row)
 
     def _upsert_payment_event_for_term(
@@ -1154,8 +1149,7 @@ class ProjectRepository:
             "SELECT status FROM payment_nodes WHERE payment_node_id=?",
             (payment_node_id,),
         ).fetchone()
-        if existing and existing["status"] == "paid":
-            raise ValueError("a confirmed payment node cannot be changed")
+        rules.ensure(rules.locked("paymentNode", existing["status"] if existing else None))
         if existing:
             connection.execute(
                 """
@@ -1197,8 +1191,7 @@ class ProjectRepository:
             "SELECT status FROM payment_nodes WHERE payment_node_id=?",
             (payment_node_id,),
         ).fetchone()
-        if payment and payment["status"] == "paid":
-            raise ValueError("a confirmed payment node cannot be removed")
+        rules.ensure(rules.locked("paymentNode", payment["status"] if payment else None))
         connection.execute(
             "UPDATE payment_terms SET linked_milestone_id=NULL, payment_node_id=NULL, updated_at=? "
             "WHERE linked_milestone_id=?",
@@ -1242,8 +1235,7 @@ class ProjectRepository:
             ).fetchone()
             if row is None:
                 raise KeyError("payment node not found")
-            if row["status"] == "paid":
-                raise ValueError("a confirmed payment node cannot be edited")
+            rules.ensure(rules.locked("paymentNode", row["status"]))
             connection.execute(
                 """
                 UPDATE payment_nodes SET name=?, planned_date=?, planned_amount=?,
@@ -1269,14 +1261,12 @@ class ProjectRepository:
             ).fetchone()
             if row is None:
                 raise KeyError("payment node not found")
-            if row["status"] == "paid":
-                raise ValueError("a confirmed payment node cannot be deleted")
+            rules.ensure(rules.locked("paymentNode", row["status"]))
             linked_milestone = connection.execute(
                 "SELECT milestone_id FROM milestones WHERE payment_node_id=?",
                 (payment_node_id,),
             ).fetchone()
-            if linked_milestone is not None:
-                raise ValueError("linked payment nodes must be managed through the milestone")
+            rules.ensure(rules.node_not_milestone_managed(linked_milestone["milestone_id"] if linked_milestone else None))
             connection.execute(
                 "DELETE FROM payment_nodes WHERE payment_node_id=?",
                 (payment_node_id,),
@@ -1346,8 +1336,7 @@ class ProjectRepository:
         )
         if current is None:
             raise KeyError("intervention not found")
-        if current["status"] == "closed" and status != "closed":
-            raise ValueError("a closed intervention cannot be reopened")
+        rules.ensure(rules.locked("intervention", current["status"]))
         with self.database.connect() as connection:
             connection.execute(
                 """

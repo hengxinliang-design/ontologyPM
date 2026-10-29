@@ -2,6 +2,7 @@
 # 依据：用户 2026-10-29「里程碑对象查询，也需要增加月份查询，不过这里需要按照起始时间可以查询跨度」；「里程碑查询列表中，需要增加一列状态展示，并对已完成和其他状态颜色区分」。
 kind: OntologyBuild
 stage: release
+supersededBy: 2026-10-29-rule-homes-and-linkages.yaml
 topic: 统计期间支持有起止日期的对象和月份区间；里程碑按计划起止与所选月份区间是否重叠筛选
 ontologyVersion: 7.4.0
 date: 2026-10-29

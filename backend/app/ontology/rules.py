@@ -23,6 +23,7 @@ from .derivations.project import (
 )
 from ..investment import InvestmentService, _phase
 from ..plans import AnnualPlanRepository
+from .. import maintenance_rules
 from ..project_repository import (
     CAPPED_TYPES,
     POLICY_RANGES,
@@ -768,28 +769,19 @@ def _effective(values: dict[str, Any], target: dict[str, Any] | None, key: str) 
 
 @RULES.criterion("cappedBudget")
 def capped_budget(ctx, values, target) -> str | None:
-    contract_type = _effective(values, target, "contractType")
-    if contract_type in CAPPED_TYPES and not _effective(values, target, "plannedPersonDays"):
-        return "系统实施、TSnT365 项目必须填写预算人天"
-    return None
+    return maintenance_rules.capped_budget(_effective(values, target, "contractType"), _effective(values, target, "plannedPersonDays"))
 
 
 @RULES.criterion("dateOrder")
 def date_order(ctx, values, target, *, start: str, end: str, label: str, ignore_target: bool = False) -> str | None:
     """``ignore_target`` for actions that create a new object: the target is its parent, whose dates do not apply."""
     source = None if ignore_target else target
-    start_value, end_value = _effective(values, source, start), _effective(values, source, end)
-    if start_value and end_value and end_value < start_value:
-        return f"{label}不能早于开始日期"
-    return None
+    return maintenance_rules.date_order(_effective(values, source, start), _effective(values, source, end), label)
 
 
 @RULES.criterion("nonNegative")
 def non_negative(ctx, values, target, *, parameters: list[str]) -> str | None:
-    for key in parameters:
-        if values.get(key) is not None and Decimal(values[key]) < 0:
-            return "金额不能为负数"
-    return None
+    return next((reason for key in parameters if (reason := maintenance_rules.non_negative(values.get(key)))), None)
 
 
 @RULES.criterion("statusIsNot")
@@ -797,33 +789,45 @@ def status_is_not(ctx, values, target, *, status: str, reason: str) -> str | Non
     return reason if target and target.get("status") == status else None
 
 
+@RULES.criterion("notLocked")
+def not_locked(ctx, values, target, *, lock: str) -> str | None:
+    """Status locks (completed milestone, received payment, closed intervention): one table for actions and base program."""
+    return maintenance_rules.locked(lock, (target or {}).get("status"))
+
+
 @RULES.criterion("linkedPaymentNotPaid")
 def linked_payment_not_paid(ctx, values, target) -> str | None:
     payment = ctx.get("PaymentNode", (target or {}).get("paymentNodeId") or "")
-    if payment and payment["status"] == "paid":
-        return "关联回款已确认到账，不能删除"
-    return None
+    return maintenance_rules.linked_payment_unpaid(payment["status"] if payment else None)
+
+
+@RULES.criterion("paymentRatioRange")
+def payment_ratio_range(ctx, values, target) -> str | None:
+    return maintenance_rules.payment_ratio(values.get("paymentRatio"))
+
+
+@RULES.criterion("termAvailable")
+def term_available(ctx, values, target) -> str | None:
+    """Linking a payment term: it may not already belong to another milestone (create: target is the project)."""
+    term_id = values.get("paymentTermId")
+    term = ctx.get("PaymentTerm", term_id) if term_id else None
+    milestone_id = (target or {}).get("milestoneId")
+    return maintenance_rules.term_available(term.get("linkedMilestoneId"), milestone_id) if term else None
 
 
 @RULES.criterion("notLinkedToMilestone")
 def not_linked_to_milestone(ctx, values, target) -> str | None:
-    if target and target.get("linkedMilestoneId"):
-        return "该回款节点由里程碑管理，请通过编辑里程碑维护"
-    return None
+    return maintenance_rules.node_not_milestone_managed((target or {}).get("linkedMilestoneId"))
 
 
 @RULES.criterion("termNotPaid")
 def term_not_paid(ctx, values, target) -> str | None:
-    if target and target.get("nodeStatus") == "paid":
-        return "回款约定已确认到账，已锁定"
-    return None
+    return maintenance_rules.term_locked((target or {}).get("nodeStatus"))
 
 
 @RULES.criterion("termNotLinked")
 def term_not_linked(ctx, values, target) -> str | None:
-    if target and target.get("linkedMilestoneId"):
-        return "回款约定已关联里程碑，请先在里程碑上解除关联"
-    return None
+    return maintenance_rules.term_unlinked((target or {}).get("linkedMilestoneId"))
 
 
 def _text_list(value: Any) -> list[str] | None:

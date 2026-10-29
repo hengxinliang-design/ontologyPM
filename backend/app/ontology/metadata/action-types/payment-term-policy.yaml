@@ -20,6 +20,7 @@ definition:
     - description: 约定金额不能为负数
       rule: nonNegative
       args: {parameters: [plannedAmount]}
+    - {description: 回款比例在 0 到 100 之间, rule: paymentRatioRange}
 ---
 kind: ActionType
 version: v1
@@ -36,7 +37,7 @@ definition:
     - {apiName: paymentRatio, displayName: 回款比例, type: decimal, description: 0–100}
     - {apiName: notes, displayName: 备注, type: string}
   permissions: [projects]
-  edits: [PaymentTerm.name, PaymentTerm.plannedAmount, PaymentTerm.paymentRatio, PaymentTerm.notes]
+  edits: [PaymentTerm.name, PaymentTerm.plannedAmount, PaymentTerm.paymentRatio, PaymentTerm.notes, PaymentNode.name, PaymentNode.plannedAmount, PaymentNode.notes]
   writeback: [payment_terms, payment_nodes]
   handler: editPaymentTerm
   submissionCriteria:
@@ -45,6 +46,7 @@ definition:
     - description: 约定金额不能为负数
       rule: nonNegative
       args: {parameters: [plannedAmount]}
+    - {description: 回款比例在 0 到 100 之间, rule: paymentRatioRange}
 ---
 kind: ActionType
 version: v1

@@ -1,0 +1,67 @@
+# 本体构建包（发布稿）：规则唯一实现、联动显式声明、年度回款改名。本体 7.5.0（新增提交条件、补齐动作声明、改显示名，非破坏性）。
+# 依据：需求基线 v1.0 第 10 节第一批 G2 + G3 + G5a；用户 2026-10-29「开始第一批」。
+kind: OntologyBuild
+stage: release
+topic: 每条维护规则只有一份实现；动作声明它实际改动的全部对象并由测试把关；按签约年度归集的回款改名
+ontologyVersion: 7.5.0
+date: 2026-10-29
+scope:
+  - CQ-G2 每次人工维护写入是否都经过本体动作的校验，而且校验与基础程序的兜底一致？
+  - CQ-G4 一个动作实际会改动哪些对象？与声明是否一致？
+  - CQ-R3 客户本年度的回款是「当年到账」还是「本年签订合同至今的回款」？
+
+rules:
+  - id: R1
+    statement: 人工维护规则只有一份实现，放在 app/maintenance_rules.py。本体动作的提交条件与基础程序的写入兜底都调用它，原因文字统一为中文。覆盖需求基线第 5 节中「双写」的规则：计划起止顺序、系统实施与 TSnT365 必须有预算人天、金额不为负、已完成里程碑锁定、已到账回款节点锁定、已关闭干预锁定、关联回款未到账才能删除里程碑、未关联里程碑才能删除回款约定、里程碑关联的回款节点只能通过里程碑管理、已到账的回款约定锁定（原来基础程序允许编辑已到账约定、只是不同步节点，现与动作一致：拒绝）。
+    basis: 需求基线 G2 与技能原则 15；经验库 L32（提交条件与写入逻辑各写一份并出现分歧）。基础程序不能引用本体（ProjectRepository 的分层测试），所以规则放在本体与基础程序都能引用的基础层模块中。
+    acceptance: 对同一条规则，通过本体动作和直接调用基础程序得到相同的中文原因；锁定规则的状态与原因由同一张锁定表给出；基础程序中不再有这些规则的英文原因文字。
+    verifiedBy: [test_rules_have_one_implementation_for_actions_and_base_program]
+    ontology: [configureProject, editMilestone, deleteMilestone, editPaymentNode, deletePaymentNode, confirmPaymentReceived, updateInterventionStatus, createPaymentTerm, editPaymentTerm, deletePaymentTerm]
+  - id: R2
+    statement: 补进本体两条原来只在基础程序里的规则：「回款比例在 0 到 100 之间」（新建、编辑回款约定）和「一个回款约定只能关联一个里程碑」（新建、编辑里程碑关联约定时）。
+    basis: 需求基线第 5 节：这两条规则本体看不到，预检（validateOnly）不会提示，只有提交时才由基础程序报英文错误。
+    acceptance: 回款比例填 120 时，新建回款约定的预检就被拒绝并提示「回款比例必须在 0 到 100 之间」；把已关联里程碑 A 的约定再关联到里程碑 B，预检被拒绝并提示该约定已关联其他里程碑；关联到原里程碑 A 不受影响。
+    verifiedBy: [test_rules_have_one_implementation_for_actions_and_base_program]
+    ontology: [createPaymentTerm, editPaymentTerm, createMilestone, editMilestone, PaymentTerm.paymentRatio, PaymentTerm.linkedMilestoneId]
+  - id: R3
+    statement: 动作的 edits 与 writeback 列全它实际改动的对象和数据表：「编辑回款约定」同步回款节点的名称与金额，补声明 PaymentNode 的名称、金额、备注（payment_nodes 已在 writeback 中）；「删除里程碑」会解除回款约定的关联，补声明 PaymentTerm.linkedMilestoneId 与 payment_terms。新增把关测试：逐个执行每个动作，比较执行前后各数据表的版本，实际写入的表必须都在动作的 writeback 中。
+    basis: 需求基线 G3 与技能原则 16；需求基线第 6 节标出的两处「未声明」联动；经验库 L33（联动藏在代码里）。
+    acceptance: 17 个动作的实际写入都不超出声明；把「编辑回款约定」的 writeback 去掉 payment_nodes 后，把关测试失败并指出该动作和数据表。
+    verifiedBy: [test_actions_write_only_declared_datasets]
+    ontology: [editPaymentTerm, deleteMilestone, PaymentNode, PaymentTerm.linkedMilestoneId]
+  - id: R4
+    statement: 按合同签约年度归集的 CRM 回款、开票改名：客户的「本年已回款」改为「本年签订合同的累计回款」，「本年已开票」改为「本年签订合同的累计开票」；客户年度汇总函数的结果中，回款、开票列标注「累计」。计算口径不变。
+    basis: 需求基线 D5：年度回款以回款节点到账日期为准，CRM 回款没有日期，按签约年度归集的值不能读成当年到账。开票同理（需求基线第 8 节）。
+    acceptance: 客户对象的 currentYearReceivedAmount 显示名为「本年签订合同的累计回款」、currentYearInvoicedAmount 为「本年签订合同的累计开票」；数值与修改前相同。
+    verifiedBy: [test_customer_current_year_totals_follow_the_server_date]
+    ontology: [Customer.currentYearReceivedAmount, Customer.currentYearInvoicedAmount, customerAnnualSummary]
+
+exceptions:
+  - rule: R1
+    case: 已关闭的管理干预能否修改备注。
+    handling: 保持现状：本体动作拒绝对已关闭干预的任何更新（原提交条件的行为），基础程序原来只拒绝重新打开、允许改备注，统一后两边都按本体动作的行为。
+    basis: 用户实际走的是本体动作，统一到它的行为不改变用户可见结果（原则 9）。
+  - rule: R1
+    case: 每日工时 0–24、CRM 导入字段校验等导入规则。
+    handling: 不在本次范围，仍由导入程序校验；导入不是人工维护动作，没有提交条件。
+    basis: 需求基线第 5 节将其标为「导入校验」。
+  - rule: R1
+    case: 运营口径参数的范围校验。
+    handling: 不改，经验库 L10 整改后提交条件已直接调用基础程序的同一份范围表。
+    basis: 已经是一份实现。
+  - rule: R2
+    case: 编辑里程碑时保持原关联不变（不提交回款约定）。
+    handling: 不触发「一个约定只关联一个里程碑」的检查。
+    basis: 只有提交了回款约定参数才是关联操作。
+  - rule: R3
+    case: 派生属性随写入重算（例如确认到账后项目的已回款）。
+    handling: 不算作动作的写入；把关测试只比较数据表，派生属性由推导规则按数据集版本重算。
+    basis: 推导结果不落库。
+  - rule: R3
+    case: 动作写审计日志（ontology_action_log）。
+    handling: 审计表不需要在 writeback 中声明，把关测试排除它。
+    basis: 审计是所有动作的通用行为，不是业务联动。
+  - rule: R4
+    case: 客户的「已回款」「已开票」（不分年度的累计值）。
+    handling: 不改名，它们本来就是全部合同的累计值，不涉及年度。
+    basis: 歧义只出在「本年」上。

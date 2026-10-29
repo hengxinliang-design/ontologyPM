@@ -61,6 +61,7 @@ definition:
     - description: 计划完成日不早于计划开始日
       rule: dateOrder
       args: {start: plannedStart, end: plannedEnd, label: 计划完成日期, ignore_target: true}
+    - {description: 一个回款约定只能关联一个里程碑, rule: termAvailable}
 ---
 kind: ActionType
 version: v1

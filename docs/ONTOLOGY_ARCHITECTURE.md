@@ -1,6 +1,6 @@
 # TSG PM 本体（Ontology）语义层架构
 
-> 版本：ontology v7.4.0 · 2026-10-29（元数据驱动；本文第 1–10 节写于 v1.1，后续版本的变化见第 11 节）
+> 版本：ontology v7.5.0 · 2026-10-29（元数据驱动；本文第 1–10 节写于 v1.1，后续版本的变化见第 11 节）
 > 目标：在不推翻现有 CRM / 工时 / 人工维护数据架构的前提下，引入一层**语义层（Ontology）**，把“表和字段”提升为“业务对象、关系、动作和规则”，让 UI、API、PM Assistant 和后续系统都面向同一套业务语言工作。
 
 ## 1. 为什么要加语义层
@@ -451,6 +451,16 @@ when: [{property: contractType, notIn: [sales]}, {property: lifecycleStatus, not
 - **引用名称**（运行时，不改元数据）：对象详情返回 `references`，凡是保存着另一个对象主键的属性（由 join 关系推出），给出该对象的类型、主键和标题，页面显示名称并可点开，例如里程碑的关联回款节点显示「验收款」。
 
 构建包见 [2026-10-29-milestone-span-period.yaml](./ontology-builds/2026-10-29-milestone-span-period.yaml)。
+
+### 11.24 规则唯一实现与写入范围把关（v7.5.0）
+
+需求基线第一批（G2、G3、G5a）：
+
+- **规则唯一实现**：人工维护规则集中在 `backend/app/maintenance_rules.py`（基础层，本体和基础程序都能引用）。提交条件与 `ProjectRepository` 的写入兜底都调用它，原因统一为中文；状态锁定（已完成里程碑、已到账回款节点、已关闭干预）由一张锁定表给出，提交条件改用 `notLocked`。新增提交条件 `paymentRatioRange`、`termAvailable`，把只在基础程序里的两条规则补进本体。统一时发现并消除两处分歧：已关闭干预、已到账回款约定，基础程序原来比动作宽松。
+- **写入范围把关**：补齐「编辑回款约定 → 回款节点」「删除里程碑 → 回款约定」的声明；测试 `test_actions_write_only_declared_datasets` 逐个执行 17 个动作，比较各数据集版本，实际写入超出 `writeback` 或不属于 `edits` 中的对象时失败。
+- **改名**：客户的本年度回款、开票改为「本年签订合同的累计回款 / 开票」（需求基线 D5）。
+
+构建包见 [2026-10-29-rule-homes-and-linkages.yaml](./ontology-builds/2026-10-29-rule-homes-and-linkages.yaml)。
 
 ## 12. 代码结构
 

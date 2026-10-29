@@ -39,11 +39,12 @@ definition:
   handler: editMilestone
   submissionCriteria:
     - description: 已完成的里程碑锁定，不可编辑
-      rule: statusIsNot
-      args: {status: completed, reason: 里程碑已确认完成，已锁定}
+      rule: notLocked
+      args: {lock: milestone}
     - description: 计划完成日不早于计划开始日
       rule: dateOrder
       args: {start: plannedStart, end: plannedEnd, label: 计划完成日期}
+    - {description: 一个回款约定只能关联一个里程碑, rule: termAvailable}
 ---
 kind: ActionType
 version: v1
@@ -57,13 +58,13 @@ definition:
   parameters:
     - {apiName: milestone, displayName: 里程碑, type: object_ref, objectType: Milestone, required: true}
   permissions: [projects]
-  edits: [Milestone.*, PaymentNode.*]
-  writeback: [milestones, payment_nodes]
+  edits: [Milestone.*, PaymentNode.*, PaymentTerm.linkedMilestoneId]
+  writeback: [milestones, payment_nodes, payment_terms]
   handler: deleteMilestone
   submissionCriteria:
     - description: 已完成的里程碑锁定，不可删除
-      rule: statusIsNot
-      args: {status: completed, reason: 里程碑已确认完成，已锁定}
+      rule: notLocked
+      args: {lock: milestone}
     - {description: 关联回款未到账, rule: linkedPaymentNotPaid}
 ---
 kind: ActionType

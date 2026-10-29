@@ -9,6 +9,7 @@ from datetime import date
 from fastapi.testclient import TestClient
 
 from app.main import create_app
+from app.ontology import load_ontology
 from app.ontology.derivations.project import _budget_thresholds, derive_project
 from app.project_repository import ProjectRepository
 
@@ -89,6 +90,10 @@ def test_customer_current_year_totals_follow_the_server_date(tmp_path, monkeypat
         (tmp_path / folder).mkdir()
         with TestClient(create_app(settings(tmp_path / folder))) as client:
             return {o["primaryKey"]: o["properties"] for o in objects(client, "Customer")}
+
+    # 7.5.0 R4: sign-year receipts read as cumulative, not as this year's cash (requirements baseline D5).
+    labels = {p.api_name: p.display_name for p in load_ontology().object_type("Customer").properties}
+    assert (labels["currentYearReceivedAmount"], labels["currentYearInvoicedAmount"]) == ("本年签订合同的累计回款", "本年签订合同的累计开票")
 
     in_2026 = customers_on(date(2026, 10, 28), "y2026")
     assert (in_2026["TPL"]["currentYearContractValue"], in_2026["TPL"]["currentYearInvoicedAmount"],

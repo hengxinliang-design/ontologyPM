@@ -83,7 +83,7 @@ definition:
     - {apiName: totalReceivedAmount, displayName: 已回款, type: money, sourceKind: derived, source: 该客户全部合同/订单的 Σ records.received_amount（CRM 回款金额；不含回款节点的人工到账）, marking: FINANCE, unit: yuan}
     - {apiName: totalInvoicedAmount, displayName: 已开票, type: money, sourceKind: derived, source: 该客户全部合同/订单的 Σ records.invoiced_amount（CRM 开票金额）, marking: FINANCE, unit: yuan}
     - {apiName: currentYearContractValue, displayName: 本年合同总额, type: money, sourceKind: derived, source: 签约年度等于本年度（服务器当前日期）的合同/订单 Σ records.total_amount, marking: FINANCE, unit: yuan}
-    - {apiName: currentYearReceivedAmount, displayName: 本年已回款, type: money, sourceKind: derived, source: 本年度签订的合同/订单至今的 Σ records.received_amount（CRM 回款金额，按签约年度归集，不是本年到账）, marking: FINANCE, unit: yuan}
-    - {apiName: currentYearInvoicedAmount, displayName: 本年已开票, type: money, sourceKind: derived, source: 本年度签订的合同/订单至今的 Σ records.invoiced_amount（CRM 开票金额，按签约年度归集）, marking: FINANCE, unit: yuan}
+    - {apiName: currentYearReceivedAmount, displayName: 本年签订合同的累计回款, type: money, sourceKind: derived, source: 本年度签订的合同/订单至今的 Σ records.received_amount（CRM 回款金额，按签约年度归集，不是本年到账）, marking: FINANCE, unit: yuan}
+    - {apiName: currentYearInvoicedAmount, displayName: 本年签订合同的累计开票, type: money, sourceKind: derived, source: 本年度签订的合同/订单至今的 Σ records.invoiced_amount（CRM 开票金额，按签约年度归集）, marking: FINANCE, unit: yuan}
     - {apiName: latestSignedAt, displayName: 最近签订, type: date, sourceKind: derived, source: 该客户合同/订单签订日期的最大值（不含商机的预计签单日期）；没有合同时为空}
     - {apiName: crmOwners, displayName: CRM 负责人, type: json, sourceKind: derived, source: distinct(records.owner)}
