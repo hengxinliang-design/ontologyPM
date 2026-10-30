@@ -170,6 +170,7 @@ description: TSG PM 本体（Palantir 式语义层：对象类型、属性、关
 3. 覆盖每条验收口径的测试，全部通过。
 4. 通过的诊断报告（带 `--database`、`--build`、`--require-build`）。
 5. 经验库的更新，以及相关文档（口径文档、本体架构、PRD）的同步修改。
+6. 发布：按 `docs/VERSIONING.md` 更新 PRD 文档版本与 CHANGELOG，用户确认提交后打附注标签 `vX.Y.Z` 并 `git push origin main --follow-tags`（远端 ontologyPM）。提交与推送都要用户同意。
 
 ## 质量检查脚本
 

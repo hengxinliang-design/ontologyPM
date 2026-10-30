@@ -2,6 +2,8 @@
 
 FastAPI + SQLite 后端与 React 前端，用于把 CRM 合同/销售机会、员工工时、项目人天预算、里程碑与回款节点聚合为 TSG PM 项目生命周期视图。
 
+仓库：<https://github.com/hengxinliang-design/ontologyPM>。版本记录见 [CHANGELOG](CHANGELOG.md)，发布规则见 [版本管理](docs/VERSIONING.md)。
+
 ## 架构
 
 ```text
