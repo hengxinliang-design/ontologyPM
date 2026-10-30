@@ -119,7 +119,7 @@ def test_maintenance_endpoints_run_ontology_actions(tmp_path):
 
         log = client.get("/api/v1/ontology/action-log", params={"objectType": "Project", "primaryKey": "WDR101"}).json()["data"]
         assert {entry["actionType"] for entry in log} >= {"createMilestone", "configureProject", "createPaymentTerm"}
-        assert {entry["channel"] for entry in log} == {"ontology"}, "no second, legacy write path"
+        assert {entry["channel"] for entry in log} == {"business"}, "business pages run ontology actions; no second, legacy write path"
 
         # The REST path names the project; an object of another project is not found there.
         assert client.patch(f"/api/v1/projects/TPL149/milestones/{milestone_id}", json={"name": "x"}).status_code == 404

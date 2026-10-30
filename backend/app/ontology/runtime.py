@@ -5,6 +5,7 @@ import json
 import math
 import re
 import uuid
+from dataclasses import replace
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Any, Callable
@@ -14,7 +15,7 @@ from ..project_repository import ProjectRepository
 from ..repository import SnapshotRepository
 from .index import ObjectIndex
 from .model import ActionTypeDef, LinkTypeDef, ObjectTypeDef, Ontology, ParameterDef
-from .security import OntologyPermissionError, Principal, SecurityPolicy
+from .security import OntologyPermissionError, Principal, SecurityPolicy, in_scope
 
 
 NUMERIC_TYPES = {"integer", "decimal", "money", "percent"}
@@ -46,8 +47,12 @@ class OntologyContext:
         principal: Principal,
         object_index: ObjectIndex | None = None,
         period: str | None = None,
+        unscoped: "OntologyContext | None" = None,
     ):
         self.ontology = ontology
+        # A scoped principal (project manager, 7.7.0) reads objects through an unscoped inner context, so
+        # loaders, derivations and the shared index always see every row; only results are filtered.
+        self.unscoped = unscoped
         # Selected statistics period (YYYY-MM) for object types that declare one; None = their default period.
         self.period = period
         self.database = database
@@ -55,7 +60,7 @@ class OntologyContext:
         self.records = records
         self.principal = principal
         self.object_index = object_index
-        self._datasets: dict[str, Any] = {}
+        self._datasets: dict[str, Any] = unscoped._datasets if unscoped is not None else {}
         self._objects: dict[str, list[dict[str, Any]]] = {}
         self._index: dict[str, dict[str, dict[str, Any]]] = {}
         self._dataset_versions: dict[str, int] | None = None
@@ -96,6 +101,11 @@ class OntologyContext:
         return item["__facts"] if item else None
 
     def objects(self, object_type: str) -> list[dict[str, Any]]:
+        if object_type not in self._objects and self.unscoped is not None:
+            definition = self._require_type(object_type)
+            self._objects[object_type] = [
+                item for item in self.unscoped.objects(object_type) if in_scope(self.principal, definition, item)
+            ]
         if object_type not in self._objects:
             definition = self._require_type(object_type)
             if definition.period is not None and self.period is not None and any(p.periodic for p in definition.properties):
@@ -110,6 +120,9 @@ class OntologyContext:
         return self._objects[object_type]
 
     def get(self, object_type: str, primary_key: Any) -> dict[str, Any] | None:
+        if self.unscoped is not None:
+            item = self.unscoped.get(object_type, primary_key)
+            return item if item is not None and in_scope(self.principal, self._require_type(object_type), item) else None
         if object_type not in self._index:
             definition = self._require_type(object_type)
             objects = self.objects(object_type)
@@ -170,10 +183,28 @@ class OntologyService:
             raise OntologyNotFoundError(str(exc.args[0])) from exc
 
     def context(self, user: dict[str, Any], period: str | None = None) -> OntologyContext:
+        principal = Principal.from_user(user)
+        if not principal.scoped:
+            return OntologyContext(
+                self.ontology, self.database, self.projects, self.records, principal, self.index, period,
+            )
+        # A project manager's own projects: Project.projectManager equals the account's name (D10).
+        base = OntologyContext(
+            self.ontology, self.database, self.projects, self.records,
+            Principal.from_user(self.SYSTEM_USER), self.index, period,
+        )
+        own = frozenset(
+            str(p["projectNumber"]) for p in base.objects("Project")
+            if principal.person_name and p.get("projectManager") == principal.person_name
+        )
         return OntologyContext(
             self.ontology, self.database, self.projects, self.records,
-            Principal.from_user(user), self.index, period,
+            replace(principal, project_scope=own), self.index, period, unscoped=base,
         )
+
+    def project_scope(self, user: dict[str, Any]) -> frozenset[str] | None:
+        """The projects a user may see; None = all projects."""
+        return self.context(user).principal.project_scope if Principal.from_user(user).scoped else None
 
     def _period_context(
         self, user: dict[str, Any], object_type: str, month: str | None, month_to: str | None = None,
@@ -305,7 +336,7 @@ class OntologyService:
             "actionTypes": [
                 {
                     **_action_schema(action),
-                    "permitted": self.security.can_apply(principal, action),
+                    "permitted": self.security.can_apply_in_browser(principal, action),
                 }
                 for action in self.ontology.action_types
                 if action.object_type in visible_names
@@ -566,9 +597,9 @@ class OntologyService:
             result.append(
                 {
                     **schema,
-                    "permitted": self.security.can_apply(ctx.principal, action),
+                    "permitted": self.security.can_apply_in_browser(ctx.principal, action),
                     "criteria": criteria,
-                    "available": self.security.can_apply(ctx.principal, action)
+                    "available": self.security.can_apply_in_browser(ctx.principal, action)
                     and all(c["passed"] for c in criteria),
                 }
             )
@@ -615,13 +646,20 @@ class OntologyService:
         *,
         validate_only: bool = False,
         include_record: bool = False,
+        channel: str = "ontology",
     ) -> dict[str, Any]:
-        """``include_record`` returns the written base row; only the compatibility endpoints use it."""
+        """``include_record`` returns the written base row; only the compatibility endpoints use it.
+
+        ``channel`` is where the request comes from: "business" pages or the "ontology" browser, where
+        actions are for administrators only (requirements baseline D3, D12).
+        """
         action = self.ontology.action_type(action_type)
         if action is None:
             raise OntologyNotFoundError(f"未知动作类型：{action_type}")
         ctx = self.context(user)
         self.security.require_apply(ctx.principal, action)
+        if channel != "business" and not self.security.can_apply_in_browser(ctx.principal, action):
+            raise OntologyPermissionError("本体浏览器中的动作只有管理员可以执行，日常维护请在业务页面进行")
         if not isinstance(parameters, dict):
             raise ActionValidationError(
                 "parameters 必须是对象",
@@ -647,7 +685,7 @@ class OntologyService:
             ]
             self.log_action(
                 action_type, action.object_type, target_key, parameters,
-                actor=ctx.principal.username, status="rejected", message="；".join(reasons),
+                actor=ctx.principal.username, status="rejected", channel=channel, message="；".join(reasons),
             )
             raise ActionValidationError("；".join(reasons), details)
         try:
@@ -655,14 +693,14 @@ class OntologyService:
         except (KeyError, ValueError) as exc:
             self.log_action(
                 action_type, action.object_type, target_key, parameters,
-                actor=ctx.principal.username, status="failed", message=str(exc),
+                actor=ctx.principal.username, status="failed", channel=channel, message=str(exc),
             )
             raise ActionValidationError(str(exc), details) from exc
         edits = outcome.get("edits", [])
         log_id = self.log_action(
             action_type, action.object_type, target_key, parameters,
             actor=ctx.principal.username, status="succeeded",
-            message=outcome.get("message"), edits=edits,
+            message=outcome.get("message"), edits=edits, channel=channel,
         )
         fresh = self.context(user)
         edited_objects = []
@@ -762,7 +800,7 @@ class OntologyService:
                 "executedAt": row["executed_at"],
             }
             for row in rows
-            if row["object_type"] in visible
+            if row["object_type"] in visible and (not principal.scoped or row["actor"] == principal.username)
         ]
         total = len(entries)
         start = (page - 1) * page_size

@@ -190,7 +190,8 @@ def test_investment_settings_and_cost_visibility(tmp_path):
         assert client.patch("/api/v1/investment/settings", headers=analyst, json={"stall_days": 60}).status_code == 200
         cost_object = client.get("/api/v1/ontology/objects/CostObject/LOS300", headers=analyst).json()["data"]
         assert cost_object["properties"]["estimatedCost"] is None and "estimatedCost" in cost_object["redactedProperties"]
-        assert client.post("/api/v1/ontology/actions/recordOpportunityOutcome/apply", headers=analyst, json={
+        # The investment page is a business page (channel "business"); browser actions are for administrators.
+        assert client.post("/api/v1/ontology/actions/recordOpportunityOutcome/apply", headers={**analyst, "X-TSG-Channel": "business"}, json={
             "parameters": {"costObject": "LOS300", "outcome": "lost", "reason": "竞争失败"}}).status_code == 200
 
         client.post("/api/v1/users", headers=admin, json={"username": "crmonly", "password": "crmonly-pass-1", "permissions": ["crm"]})

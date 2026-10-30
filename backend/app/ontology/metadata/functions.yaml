@@ -9,6 +9,7 @@ definition:
   outputType: RiskAssessment
   permissions: [projects, health, resource]
   implementation: projectRiskAssessment
+  dataScope: project
 ---
 kind: Function
 version: v1
@@ -21,6 +22,7 @@ definition:
   outputType: BudgetStatus
   permissions: [projects, health, resource]
   implementation: projectBudgetStatus
+  dataScope: project
 ---
 kind: Function
 version: v1
@@ -33,6 +35,7 @@ definition:
   outputType: PaymentStatus
   permissions: [projects, crm]
   implementation: projectPaymentStatus
+  dataScope: project
 ---
 kind: Function
 version: v1
@@ -47,6 +50,7 @@ definition:
   outputType: ProjectHealth
   permissions: [projects, health]
   implementation: projectHealthForPeriod
+  dataScope: project
 ---
 kind: Function
 version: v1
@@ -74,6 +78,7 @@ definition:
   outputType: PortfolioSummary
   permissions: [projects]
   implementation: portfolioSummary
+  dataScope: project
 ---
 kind: Function
 version: v1
@@ -124,6 +129,7 @@ definition:
   outputType: WorkingCalendar
   permissions: [employeeWorktime, resource, health, projects]
   implementation: workingCalendar
+  dataScope: shared
 ---
 kind: Function
 version: v1
@@ -167,6 +173,7 @@ definition:
   outputType: ProjectList
   permissions: [projects]
   implementation: projectList
+  dataScope: project
 ---
 kind: Function
 version: v1
@@ -191,6 +198,7 @@ definition:
   outputType: PortfolioHealth
   permissions: [projects, health]
   implementation: portfolioHealth
+  dataScope: project
 ---
 kind: Function
 version: v1
@@ -203,6 +211,7 @@ definition:
   outputType: ProjectOverview
   permissions: [projects]
   implementation: projectOverview
+  dataScope: project
 ---
 kind: Function
 version: v1
@@ -217,4 +226,5 @@ definition:
   outputType: MaintenanceWorklist
   permissions: [projects, health]
   implementation: maintenanceWorklist
+  dataScope: project
 

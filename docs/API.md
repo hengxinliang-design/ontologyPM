@@ -30,6 +30,12 @@ Authorization: Bearer <XTCRM_API_TOKEN>
 
 `GET /health` 不需要鉴权。
 
+**账号、角色与数据范围（7.7.0）**：开启登录鉴权时，`POST/PATCH /api/v1/users` 接受 `role`（`admin`、`pmo`、`department_head`、`project_manager`、`analyst`）与 `person_name`；未给 `permissions` 时取角色默认菜单。项目经理角色必须填写 `person_name`，菜单只能是 `projects`、`health`；`person_name` 在账号间唯一。`/auth/login`、`/auth/me` 与用户列表返回 `role`、`role_label`、`person_name`、`data_scope`（`all` 或 `own`）。`GET /api/v1/project-managers` 返回启用的项目经理账号姓名。
+
+项目经理（`data_scope = own`）只能看到「项目经理」等于其姓名的项目：本体对象、对象集、函数和项目接口都按此过滤，范围外的项目返回 404；没有声明数据范围的对象类型与函数返回 403；`POST /api/v1/pm-assistant/chat` 返回 403。`GET /api/v1/exports/latest` 需要 `crm` 菜单。
+
+**动作渠道**：`POST /api/v1/ontology/actions/{action}/apply` 带请求头 `X-TSG-Channel: business` 表示业务页面发起，否则视为本体浏览器发起，只有管理员可以执行（含 `validateOnly` 预检）。审计日志的 `channel` 为 `business` 或 `ontology`。
+
 ### 1.3 金额与日期格式
 
 - 金额统一使用十进制字符串，避免浮点误差，例如 `"420000.00"`。

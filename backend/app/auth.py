@@ -25,6 +25,20 @@ ALL_MENU_PERMISSIONS = (
 )
 
 
+# Roles (requirements baseline D9): a role sets the data scope and the default menus; an administrator may
+# still add or remove menus per account. A project manager sees only their own projects (D2): the projects
+# whose project manager equals the account's name (D10), so the role keeps to the project menus.
+ROLES: dict[str, dict[str, Any]] = {
+    "admin": {"label": "管理员", "scope": "all", "menus": ALL_MENU_PERMISSIONS},
+    "pmo": {"label": "PMO", "scope": "all",
+            "menus": ("projects", "investment", "department", "resource", "crm", "employeeWorktime", "sync")},
+    "department_head": {"label": "部门负责人", "scope": "all", "menus": ("health", "department", "resource", "investment", "crm")},
+    "project_manager": {"label": "项目经理", "scope": "own", "menus": ("projects",)},
+    "analyst": {"label": "分析人员", "scope": "all", "menus": ("health", "department", "resource", "investment", "crm", "ontology")},
+}
+PROJECT_MANAGER_MENUS = frozenset({"projects", "health"})
+
+
 class AuthenticationError(ValueError):
     pass
 
@@ -50,8 +64,8 @@ class AuthService:
                 """
                 INSERT INTO users (
                     username, password_hash, is_admin, permissions_json, is_active,
-                    created_at, updated_at
-                ) VALUES (?, ?, 1, ?, 1, ?, ?)
+                    created_at, updated_at, role
+                ) VALUES (?, ?, 1, ?, 1, ?, ?, 'admin')
                 """,
                 (username, _hash_password(password), json.dumps(list(ALL_MENU_PERMISSIONS)), now, now),
             )
@@ -110,19 +124,21 @@ class AuthService:
     def create_user(self, payload: dict[str, Any]) -> dict[str, Any]:
         username = _username(payload.get("username"))
         password = _password(payload.get("password"))
-        is_admin = _boolean(payload.get("is_admin", False), "管理员标记")
-        permissions = _permissions(payload.get("permissions", []), is_admin)
+        role, is_admin = _role(payload.get("role"), _boolean(payload.get("is_admin", False), "管理员标记"))
+        permissions = _permissions(payload.get("permissions", list(ROLES[role]["menus"]) if role else []), is_admin)
+        person_name = _person_name(payload.get("person_name"))
         now = _now()
         with self.database.connect() as connection:
+            _check_role(connection, username, role, permissions, person_name)
             try:
                 connection.execute(
                     """
                     INSERT INTO users (
                         username, password_hash, is_admin, permissions_json, is_active,
-                        created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, 1, ?, ?)
+                        created_at, updated_at, role, person_name
+                    ) VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?)
                     """,
-                    (username, _hash_password(password), int(is_admin), json.dumps(permissions), now, now),
+                    (username, _hash_password(password), int(is_admin), json.dumps(permissions), now, now, role, person_name),
                 )
             except Exception as exc:
                 if "UNIQUE" in str(exc).upper():
@@ -137,26 +153,48 @@ class AuthService:
             current = connection.execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
             if not current:
                 raise ValueError("用户不存在")
-            is_admin = _boolean(payload.get("is_admin", current["is_admin"]), "管理员标记")
-            permissions = _permissions(payload.get("permissions", json.loads(current["permissions_json"])), is_admin)
+            admin_flag = _boolean(payload.get("is_admin", current["is_admin"]), "管理员标记")
+            if "role" in payload:
+                requested = payload["role"]
+            elif "is_admin" in payload:  # former clients only toggle the administrator flag
+                requested = "admin" if admin_flag else (None if current["role"] == "admin" else current["role"])
+            else:
+                requested = current["role"]
+            role, is_admin = _role(requested, admin_flag)
+            role_changed = role != current["role"]
+            default_menus = list(ROLES[role]["menus"]) if role_changed and role else json.loads(current["permissions_json"])
+            permissions = _permissions(payload.get("permissions", default_menus), is_admin)
+            person_name = _person_name(payload["person_name"] if "person_name" in payload else current["person_name"])
             is_active = _boolean(payload.get("is_active", current["is_active"]), "启用状态")
             password_hash = current["password_hash"]
             if payload.get("password"):
                 password_hash = _hash_password(_password(payload["password"]))
             if username == "admin" and (not is_admin or not is_active):
                 raise ValueError("初始管理员不能被停用或移除管理员权限")
+            _check_role(connection, username, role, permissions, person_name)
             connection.execute(
                 """
                 UPDATE users
-                SET password_hash = ?, is_admin = ?, permissions_json = ?, is_active = ?, updated_at = ?
+                SET password_hash = ?, is_admin = ?, permissions_json = ?, is_active = ?, updated_at = ?,
+                    role = ?, person_name = ?
                 WHERE username = ?
                 """,
-                (password_hash, int(is_admin), json.dumps(permissions), int(is_active), _now(), username),
+                (password_hash, int(is_admin), json.dumps(permissions), int(is_active), _now(),
+                 role, person_name, username),
             )
             if not is_active:
                 connection.execute("DELETE FROM auth_sessions WHERE username = ?", (username,))
             connection.commit()
         return self.get_user(username)
+
+    def project_manager_names(self) -> list[str]:
+        """Names of active project-manager accounts: the choices for Project.projectManager (D10)."""
+        with self.database.connect() as connection:
+            rows = connection.execute(
+                "SELECT person_name FROM users WHERE role = 'project_manager' AND is_active = 1 "
+                "AND person_name IS NOT NULL ORDER BY person_name"
+            ).fetchall()
+        return [row["person_name"] for row in rows]
 
     def get_user(self, username: str) -> dict[str, Any]:
         with self.database.connect() as connection:
@@ -214,6 +252,37 @@ def _permissions(value: Any, is_admin: bool) -> list[str]:
     return sorted(set(value))
 
 
+def _role(value: Any, is_admin: bool) -> tuple[str | None, bool]:
+    """The account's role and its administrator flag; without a role the former flag still decides."""
+    if value in (None, ""):
+        return ("admin", True) if is_admin else (None, False)
+    if value not in ROLES:
+        raise ValueError("角色设置无效")
+    return value, value == "admin"
+
+
+def _person_name(value: Any) -> str | None:
+    if value in (None, ""):
+        return None
+    if not isinstance(value, str) or not value.strip() or len(value.strip()) > 40:
+        raise ValueError("姓名应为 1 到 40 个字符")
+    return value.strip()
+
+
+def _check_role(connection: Any, username: str, role: str | None, permissions: list[str], person_name: str | None) -> None:
+    if role == "project_manager":
+        if not person_name:
+            raise ValueError("项目经理角色必须填写姓名，姓名与项目的「项目经理」字段一致")
+        if not set(permissions) <= PROJECT_MANAGER_MENUS:
+            raise ValueError("项目经理只能访问本人项目，菜单只能是「项目管理」或「项目管理（只读）」")
+    if person_name:
+        taken = connection.execute(
+            "SELECT username FROM users WHERE person_name = ? AND username <> ?", (person_name, username)
+        ).fetchone()
+        if taken:
+            raise ValueError(f"姓名「{person_name}」已被账号 {taken['username']} 使用，请加以区分")
+
+
 def _boolean(value: Any, label: str) -> bool:
     if isinstance(value, bool):
         return value
@@ -228,6 +297,10 @@ def _user_payload(row: Any, *, include_meta: bool = False) -> dict[str, Any]:
         "is_admin": bool(row["is_admin"]),
         "permissions": list(ALL_MENU_PERMISSIONS) if row["is_admin"] else json.loads(row["permissions_json"]),
         "is_active": bool(row["is_active"]),
+        "role": row["role"],
+        "role_label": ROLES[row["role"]]["label"] if row["role"] in ROLES else "未设角色",
+        "person_name": row["person_name"],
+        "data_scope": ROLES[row["role"]]["scope"] if row["role"] in ROLES else "all",
     }
     if include_meta:
         payload.update({"created_at": row["created_at"], "updated_at": row["updated_at"]})

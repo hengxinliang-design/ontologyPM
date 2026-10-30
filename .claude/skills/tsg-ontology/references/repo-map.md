@@ -79,6 +79,7 @@ npx tsc -b && npm test && npm run build
 17. **列表列用 listProperties 声明。** 对象列表默认取前四个属性；需要指定列（例如里程碑的状态）时在对象类型写 `listProperties`，不要为了显示而调整属性顺序。
 18. **维护规则写在 `app/maintenance_rules.py`。** 新规则先在这里写判定函数（返回中文原因或 None），再由 `rules.py` 的提交条件和 `ProjectRepository` 的兜底（`rules.ensure(...)`）调用；状态锁定加进 `LOCKS` 表、提交条件用 `notLocked`。动作新增写入时同步 `edits` 与 `writeback`，否则 `test_actions_write_only_declared_datasets` 会失败；新增动作要在该测试中补一次执行。
 19. **里程碑、回款约定、回款节点是逻辑删除。** 删除只写 `deleted_at`、`deleted_by`（`ProjectRepository._mark_deleted`），行保留。读这三张表的新查询必须带 `app/db.py` 的 `ACTIVE_ROW` 或 `active_filter(table)`（本体的 `ctx.table` 与仓储的 `_rows_grouped`、`_row_by_project_id` 已经带上）；新增唯一约束要写成只约束有效行的部分索引。要追溯删除，查数据库的失效行和审计日志 `ontology_action_log`。
+20. **新对象类型和函数要声明数据范围。** 带项目编号的对象类型写 `projectScope: <项目编号属性>`，否则项目经理看不到它；只由对象计算的函数写 `dataScope: project`，不含项目数据的写 `shared`，直接读原始表或 CRM 记录的函数不要声明（项目经理会被拒绝）。范围过滤只在 `OntologyContext.objects/get`，不要在接口里另写；新增直接读基础程序的接口要调用 `require_in_scope`。业务页面调用动作要带 `X-TSG-Channel: business`（前端 `ontologyAction`，或 `applyAction(..., "business")`），否则只有管理员能执行。
 12. **升主版本后，旧构建包要标注被取代。** 旧发布稿的 `ontologyVersion` 不再等于当前版本，给它加 `supersededBy: <新构建包文件名>`；设计稿实施后也这样处理。
 
 ## 当前规模（v7.5.0）

@@ -340,6 +340,8 @@ def compile_documents(documents: list[MetadataDocument], rules: RuleRegistry = R
         unknown_columns = [c for c in definition.list_properties or () if not any(p.api_name == c for p in definition.properties)]
         if unknown_columns:
             errors.append(f"{where}: listProperties 引用了未知属性 {unknown_columns}")
+        if definition.project_scope and not any(p.api_name == definition.project_scope for p in definition.properties):
+            errors.append(f"{where}: projectScope 引用了未知属性 {definition.project_scope!r}")
         period = None
         periodic = {p.api_name: p for p in definition.properties if p.periodic}
         if definition.period is None and periodic:
@@ -396,6 +398,7 @@ def compile_documents(documents: list[MetadataDocument], rules: RuleRegistry = R
                 metadata_source=doc.source,
                 period=period,
                 list_properties=tuple(definition.list_properties or ()),
+                project_scope=definition.project_scope,
             )
         )
 
@@ -493,6 +496,7 @@ def compile_documents(documents: list[MetadataDocument], rules: RuleRegistry = R
                 output_type=function.output_type,
                 required_permissions=function.permissions,
                 implementation=implementation or _missing_implementation,
+                data_scope=function.data_scope,
             )
         )
 

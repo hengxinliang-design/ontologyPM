@@ -38,6 +38,7 @@ from .ontology import (
     OntologyService,
     load_ontology,
 )
+from .ontology.security import Principal
 from .repository import SnapshotRepository
 from .project_repository import ProjectRepository
 from .pm_assistant import PmAssistantError, PmAssistantService
@@ -175,6 +176,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return token or None
 
     def _permission_for_path(path: str) -> str | None:
+        if path.startswith("/api/v1/exports"):
+            return "crm"  # the full CRM snapshot (7.7.0: formerly open to every logged-in user)
         if path.startswith("/api/v1/pm-assistant"):
             return "projects"
         if path.startswith("/api/v1/records"):
@@ -310,6 +313,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 auth_service.logout(token)
         return {"data": True}
 
+    def require_in_scope(user: dict[str, Any], project_number: str) -> None:
+        """Endpoints that read the base program directly follow the same data scope as the ontology (D2)."""
+        scope = ontology_service.project_scope(user)
+        if scope is not None and project_number not in scope:
+            raise HTTPException(status_code=404, detail="project not found")
+
+    @app.get("/api/v1/project-managers", dependencies=[auth], tags=["Users"])
+    def list_project_manager_names() -> dict[str, Any]:
+        """Names of active project-manager accounts, the choices for a project's project manager (D10)."""
+        return {"data": auth_service.project_manager_names()}
+
     @app.get("/api/v1/users", tags=["Users"])
     def list_users(
         _user: dict[str, Any] = Depends(require_admin),
@@ -338,7 +352,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     @app.post("/api/v1/pm-assistant/chat", dependencies=[auth], tags=["PM Assistant"])
-    async def pm_assistant_chat(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    async def pm_assistant_chat(
+        payload: dict[str, Any] = Body(...), user: dict[str, Any] = Depends(require_auth)
+    ) -> dict[str, Any]:
+        if Principal.from_user(user).scoped:
+            # The assistant puts every project into its prompt; it opens to project managers with G5.
+            raise HTTPException(status_code=403, detail="PM Assistant 暂未对项目经理开放（需求基线 G5 后按本人项目开放）")
         message = payload.get("message")
         if not isinstance(message, str) or not message.strip():
             raise HTTPException(status_code=422, detail="message is required")
@@ -358,7 +377,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         dependencies=[auth],
         tags=["PM Assistant"],
     )
-    async def project_ai_analysis(project_number: str) -> dict[str, Any]:
+    async def project_ai_analysis(project_number: str, user: dict[str, Any] = Depends(require_auth)) -> dict[str, Any]:
+        require_in_scope(user, project_number)
         try:
             analysis = await pm_assistant.analyze_project(project_number)
         except PmAssistantError as exc:
@@ -509,7 +529,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         dependencies=[auth],
         tags=["Projects"],
     )
-    def get_project_records(project_number: str) -> dict[str, Any]:
+    def get_project_records(project_number: str, user: dict[str, Any] = Depends(require_auth)) -> dict[str, Any]:
+        require_in_scope(user, project_number)
         records = repository.get_project(project_number)
         if not records:
             raise HTTPException(status_code=404, detail="project not found")
@@ -545,7 +566,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             if obj is None or obj.get("projectNumber") != project_number:
                 raise HTTPException(status_code=404, detail=missing)
         try:
-            return ontology_service.apply_action(user, action, parameters, include_record=True).get("record")
+            return ontology_service.apply_action(user, action, parameters, include_record=True, channel="business").get("record")
         except OntologyNotFoundError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         except OntologyPermissionError as exc:
@@ -1043,6 +1064,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         action_type: str,
         payload: dict[str, Any] = Body(...),
         user: dict[str, Any] = Depends(require_auth),
+        channel: Annotated[str | None, Header(alias="X-TSG-Channel")] = None,
     ) -> dict[str, Any]:
         parameters = payload.get("parameters", {})
         validate_only = payload.get("validateOnly", False)
@@ -1051,7 +1073,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return {
             "data": ontology_call(
                 ontology_service.apply_action, user, action_type, parameters,
-                validate_only=validate_only,
+                validate_only=validate_only, channel="business" if channel == "business" else "ontology",
             )
         }
 

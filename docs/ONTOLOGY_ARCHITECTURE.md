@@ -473,6 +473,18 @@ when: [{property: contractType, notIn: [sales]}, {property: lifecycleStatus, not
 
 构建包见 [2026-10-29-logical-delete.yaml](./ontology-builds/2026-10-29-logical-delete.yaml)。
 
+### 11.26 角色与数据范围（v7.7.0）
+
+需求基线 D2、D3、D9–D12 / G6：
+
+- **账号**：`users` 增加 `role`、`person_name`（启动时迁移补列，原管理员记为 admin，其余为「未设角色」）。角色、默认菜单与项目经理可用菜单在 `app/auth.py` 的 `ROLES`、`PROJECT_MANAGER_MENUS`。
+- **范围只有一处**：`Principal` 带 `role`、`person_name` 与 `project_scope`；`OntologyService.context()` 为项目经理先建一个不带范围的内部上下文，从项目对象算出本人项目，再返回带范围的上下文。带范围的上下文的 `objects()` / `get()` 委托内部上下文取数后用 `security.in_scope` 过滤，所以对象列表、详情、关系、对象集、统计期间可选月份、动作引用选项、动作目标与参数校验、函数都按同一范围；推导、关系解析和共享对象索引始终在内部上下文中计算，不会缓存过滤后的结果（测试 `test_scoped_requests_do_not_pollute_the_shared_index`）。
+- **元数据声明**：对象类型 `projectScope`（项目、里程碑、回款节点、回款约定、管理干预，值为 `projectNumber`），没有声明的类型对项目经理不可读；函数 `dataScope: project | shared`，未声明的函数对项目经理返回 403。编译器校验 `projectScope` 引用的属性存在。
+- **不经过本体的接口**：项目 CRM 记录与 AI 分析先检查范围（`require_in_scope`）；PM Assistant 对项目经理返回 403；`/exports/latest` 改为需要 `crm` 菜单。
+- **渠道**：动作请求带 `X-TSG-Channel: business` 为业务页面，否则视为本体浏览器；本体浏览器渠道只允许管理员（`can_apply_in_browser`），本体结构与可用动作的 `permitted` 按此计算，审计日志记录渠道。渠道不是安全边界，安全边界是菜单权限与数据范围。
+
+构建包见 [2026-10-30-roles-and-data-scope.yaml](./ontology-builds/2026-10-30-roles-and-data-scope.yaml)。
+
 ## 12. 代码结构
 
 ```text

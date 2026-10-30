@@ -1,4 +1,4 @@
-import type { AuthenticatedUser, AuthSession, ChinaHolidayCalendarResponse, ContractType, CrmImportLogsResponse, EmployeeWorktimeResponse, LifecycleStatus, ManagedUser, MenuPermission, PmAssistantChatMessage, PmAssistantResponse, PortfolioResponse, ProjectDetail, ProjectHealthResponse, RecordsResponse, ResourceOperationsResponse, SyncStatus, WorktimeBaseline } from "./types";
+import type { AuthenticatedUser, AuthSession, ChinaHolidayCalendarResponse, ContractType, CrmImportLogsResponse, EmployeeWorktimeResponse, LifecycleStatus, ManagedUser, MenuPermission, PmAssistantChatMessage, PmAssistantResponse, PortfolioResponse, ProjectDetail, ProjectHealthResponse, RecordsResponse, ResourceOperationsResponse, SyncStatus, UserRole, WorktimeBaseline } from "./types";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "";
 const API_TOKEN = import.meta.env.VITE_API_TOKEN ?? "";
@@ -74,18 +74,31 @@ export async function fetchUsers(): Promise<ManagedUser[]> {
   return response.data;
 }
 
-export async function createUser(payload: { username: string; password: string; is_admin: boolean; permissions: MenuPermission[] }): Promise<ManagedUser> {
+export interface UserPayload {
+  password?: string;
+  role?: UserRole;
+  person_name?: string | null;
+  is_active?: boolean;
+  permissions?: MenuPermission[];
+}
+
+export async function createUser(payload: UserPayload & { username: string; password: string }): Promise<ManagedUser> {
   const response = await request<{ data: ManagedUser }>("/api/v1/users", {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload)
   });
   return response.data;
 }
 
-export async function updateUser(username: string, payload: { password?: string; is_admin?: boolean; is_active?: boolean; permissions?: MenuPermission[] }): Promise<ManagedUser> {
+export async function updateUser(username: string, payload: UserPayload): Promise<ManagedUser> {
   const response = await request<{ data: ManagedUser }>(`/api/v1/users/${encodeURIComponent(username)}`, {
     method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload)
   });
   return response.data;
+}
+
+// Names of active project-manager accounts: the choices for a project's project manager (D10).
+export async function fetchProjectManagerNames(): Promise<string[]> {
+  return (await request<{ data: string[] }>("/api/v1/project-managers")).data;
 }
 
 export interface RecordFilters {
@@ -283,7 +296,7 @@ export async function ontologyAction(name: string, parameters: Record<string, un
   const body = Object.fromEntries(Object.entries(parameters).filter(([, value]) => value !== undefined));
   await request(`/api/v1/ontology/actions/${encodeURIComponent(name)}/apply`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", "X-TSG-Channel": "business" },
     body: JSON.stringify({ parameters: body })
   });
 }

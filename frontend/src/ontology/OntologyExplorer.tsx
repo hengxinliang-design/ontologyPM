@@ -406,9 +406,13 @@ function ObjectDetail({ schema, focus, openObject, changed, month }: {
       </div>}
     </div>
 
-    {actions.length > 0 && <div className="detail-block">
+    {actions.length > 0 && !actions.some(action => action.permitted) && <div className="detail-block">
       <h3>动作</h3>
-      <div className="action-buttons">{actions.map(action =>
+      <p className="detail-empty">本体浏览器只读：动作仅管理员可在这里执行，日常维护请在业务页面进行。</p>
+    </div>}
+    {actions.some(action => action.permitted) && <div className="detail-block">
+      <h3>动作</h3>
+      <div className="action-buttons">{actions.filter(action => action.permitted).map(action =>
         <button key={action.apiName} className={`action-button ${action.tone} ${activeAction?.apiName === action.apiName ? "active" : ""}`}
           disabled={!action.permitted}
           title={action.available ? action.description : action.criteria.filter(c => !c.passed).map(c => c.reason).join("；") || "当前用户无权执行"}

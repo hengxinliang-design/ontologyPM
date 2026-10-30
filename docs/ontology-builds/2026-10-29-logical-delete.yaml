@@ -2,6 +2,7 @@
 # 依据：需求基线 v1.0 决定 D6 与第 10 节 G7；用户 2026-10-29「开始 G7」。
 kind: OntologyBuild
 stage: release
+supersededBy: 2026-10-30-roles-and-data-scope.yaml
 topic: 删除改为标记失效并保留记录；失效记录不参与任何查询、推导和校验；唯一约束只约束有效记录；管理干预不能删除
 ontologyVersion: 7.6.0
 date: 2026-10-29

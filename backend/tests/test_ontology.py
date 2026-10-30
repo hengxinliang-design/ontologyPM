@@ -186,7 +186,7 @@ def test_actions_validate_write_back_and_audit(tmp_path):
         log = client.get("/api/v1/ontology/action-log", params={"objectType": "Project", "primaryKey": "TPL149"}).json()
         channels = {entry["channel"] for entry in log["data"]}
         statuses = {entry["status"] for entry in log["data"]}
-        assert channels == {"ontology"}, "maintenance endpoints run ontology actions, so every write is one channel"
+        assert channels == {"ontology", "business"}, "maintenance endpoints run ontology actions (business channel); no legacy path"
         assert {"succeeded", "rejected"} <= statuses
         milestone_log = client.get(
             "/api/v1/ontology/action-log", params={"primaryKey": milestone_id}

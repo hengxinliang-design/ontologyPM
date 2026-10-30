@@ -1,0 +1,104 @@
+# 本体构建包（发布稿）：角色与数据范围。本体 7.7.0（对象类型新增 projectScope、函数新增 dataScope，非破坏性）。
+# 依据：需求基线 D1–D3 与 G6；用户 2026-10-30「开始 G6」，G6 的四个问题确认为 D9–D12（角色 5 个且菜单可调、账号姓名对应项目经理、项目经理金额可见个人工时不可见、本体浏览器动作只给管理员）。
+kind: OntologyBuild
+stage: release
+topic: 账号有角色与姓名；项目经理只能看到和维护本人项目，范围过滤在本体上下文一处实现；函数声明数据范围；本体浏览器的动作只给管理员
+ontologyVersion: 7.7.0
+date: 2026-10-30
+scope:
+  - CQ-G6a 一个项目经理登录后能看到哪些项目？能维护哪些？
+  - CQ-G6b 项目经理能不能通过本体浏览器、对象集查询、函数或其他接口看到别人项目的数据？
+  - CQ-G6c 一个账号是什么角色、对应哪位项目经理、默认有哪些菜单？
+  - CQ-G6d 谁能在本体浏览器里执行动作？业务页面的维护是否受影响？
+
+rules:
+  - id: R1
+    statement: 账号增加角色（role）与姓名（person_name）。角色有 5 个：管理员（admin）、PMO（pmo）、部门负责人（department_head）、项目经理（project_manager）、分析人员（analyst），每个角色有数据范围（项目经理为「本人项目」，其余为「全部项目」）和默认菜单。新建账号或改角色时未给菜单则取角色默认菜单，管理员可再增减；项目经理角色只能有「项目管理」「项目管理（只读）」两个菜单，并且必须填写姓名。姓名在账号间唯一。管理员角色与原「管理员」标记一致。
+    basis: 需求基线 D9（5 个角色、菜单可调）、D10（账号姓名与项目经理字段对应）；D2 要求账号能对应到项目经理。
+    acceptance: 新建项目经理账号不填姓名、或给它「CRM 查询」菜单时返回 422 并给出中文原因；新建 PMO 账号不给菜单时得到 PMO 默认菜单；两个账号填同一姓名时返回 422；登录与「当前用户」接口返回角色、姓名和数据范围；把角色改为管理员后该账号的管理员标记为真。
+    verifiedBy: [test_roles_set_scope_and_default_menus]
+    ontology: [Project.projectManager]
+  - id: R2
+    statement: 数据范围只在本体上下文（OntologyContext.objects / get）实现一处。对象类型用 projectScope 声明保存项目编号的属性（项目、里程碑、回款节点、回款约定、管理干预）。项目经理的上下文只返回本人项目的对象（项目经理字段等于账号姓名的项目）；没有声明 projectScope 的对象类型对项目经理不可读。推导规则、关系解析的原始数据和共享对象索引始终在不带范围的内部上下文中计算，范围只在结果返回给用户之前生效。因此对象列表、对象详情、关系、对象集查询、统计期间可选月份、动作的引用选项、动作目标与参数校验、函数结果都按同一范围过滤。
+    basis: 需求基线 D2（项目经理只看、只维护本人项目）；技能原则 15（一条规则一份实现）——如果在每个接口各自过滤，漏掉一处就会泄露别人项目；共享索引如果用带范围的上下文构建，会把过滤后的数据缓存给所有用户。
+    acceptance: 项目经理「刘浪」的项目对象列表、项目列表函数、项目健康函数只有 TPL149、WDR101（测试数据）；读取 ZMJ113 返回 404，在 ZMJ113 上新建里程碑被拒绝（找不到项目）；读取客户、员工、工时记录类型返回 403；对象集查询项目只返回本人项目；项目经理请求之后，管理员看到的项目数和维护状态不变（索引没有被过滤结果污染）。
+    verifiedBy: [test_project_manager_sees_and_maintains_only_own_projects, test_scoped_requests_do_not_pollute_the_shared_index]
+    ontology: [Project, Milestone, PaymentNode, PaymentTerm, Intervention, Customer, Employee, TimeEntry]
+  - id: R3
+    statement: 函数用 dataScope 声明数据范围：project 表示结果只由带范围的对象计算（项目风险、预算、回款、期间健康、组合摘要、项目列表、项目健康、项目概览、待维护清单），shared 表示不含项目数据（工作日历）。项目经理只能执行声明了 dataScope 的函数；未声明的函数（客户年度汇总、部门经营复盘、资源健康、投入分析、员工利用率）对项目经理返回 403。
+    basis: 有些函数直接读原始数据（CRM 记录、工时表），不经过对象，范围过滤管不到；默认拒绝比逐个检查更安全（原则 15、16 的同类做法：声明即契约，测试把关）。
+    acceptance: 项目经理执行客户年度汇总、部门经营复盘返回 403；执行项目列表只得到本人项目；执行工作日历正常返回；本体结构中每个函数的 dataScope 与本构建包一致。
+    verifiedBy: [test_project_manager_sees_and_maintains_only_own_projects, test_function_data_scope_is_declared]
+    ontology: [projectRiskAssessment, projectBudgetStatus, projectPaymentStatus, projectHealthForPeriod, portfolioSummary, projectList, portfolioHealth, projectOverview, maintenanceWorklist, workingCalendar, customerAnnualSummary, departmentOperatingReview, resourceHealth]
+  - id: R4
+    statement: 不经过本体的接口同样按范围：项目的 CRM 原始记录（/projects/{编号}/records）与项目 AI 分析（/projects/{编号}/ai-analysis）先检查项目在范围内；PM Assistant 对话在 G5 改为基于本体之前，项目经理角色不可用；导出最新 CRM 快照（/exports/latest）改为需要「CRM 查询」菜单（原来任何登录用户都能导出全部 CRM 数据）。
+    basis: 需求基线 D2；这些接口直接读基础程序，本体上下文的过滤管不到。PM Assistant 现在把全部项目放进提示词，G5 才会改为基于本体并遵守数据范围（需求基线 G5）。
+    acceptance: 项目经理读取 ZMJ113 的 CRM 记录返回 404、读取 TPL149 的返回 200；项目经理调用 PM Assistant 返回 403；没有「CRM 查询」菜单的账号导出快照返回 403。
+    verifiedBy: [test_base_program_endpoints_follow_the_scope]
+    ontology: [Project]
+  - id: R5
+    statement: 指定项目经理时可以从项目经理账号的姓名中选择：新增接口列出启用的项目经理账号姓名（有项目管理菜单即可读取）；业务页面的项目设置表单提供这些姓名作为候选，手填的名字没有对应账号时提示「该项目经理没有账号，登录后看不到本项目」。「项目经理」字段类型和「设置项目」动作参数不变。
+    basis: 需求基线 D10：按姓名精确匹配，手打不一致会让项目经理看不到自己的项目。
+    acceptance: 接口只返回启用的项目经理账号姓名；页面测试覆盖候选列表与无账号提示。
+    verifiedBy: [test_roles_set_scope_and_default_menus]
+    ontology: [Project.projectManager, configureProject]
+  - id: R6
+    statement: 动作请求区分渠道：业务页面发起的请求带渠道标记「business」，本体浏览器发起的请求为「ontology」。本体浏览器渠道只允许管理员执行和预检动作；本体结构与对象可用动作中，非管理员的动作显示为不可执行，本体浏览器隐藏动作入口。审计日志记录渠道。
+    basis: 需求基线 D3、D12：日常维护只走业务页面，本体浏览器的动作只给管理员。
+    acceptance: PMO 账号通过本体浏览器渠道执行「编辑里程碑」返回 403，通过业务渠道执行同一动作成功；审计日志中两条记录的渠道分别为 ontology 和 business；PMO 读取对象可用动作时 permitted 为假，管理员为真。
+    verifiedBy: [test_ontology_browser_actions_are_admin_only]
+    ontology: [editMilestone]
+
+exceptions:
+  - rule: R1
+    case: 本次升级前已有的非管理员账号。
+    handling: 角色记为「未设角色」，保留原菜单，数据范围为全部项目，直到管理员为其设定角色。
+    basis: 不悄悄改变现有用户能看到的内容（原则 9）；管理员在用户管理页逐个设定。
+  - rule: R1
+    case: 初始管理员账号 admin。
+    handling: 角色固定为管理员，不能改为其他角色（与原规则「初始管理员不能被移除管理员权限」一致）。
+    basis: 防止系统失去最后一个管理员。
+  - rule: R1
+    case: 既是 PMO 又负责具体项目的人。
+    handling: 设为 PMO 角色；PMO 的数据范围是全部项目，已包含本人项目。
+    basis: 一个账号一个角色，取范围大的角色即可。
+  - rule: R1
+    case: 两位同事同名。
+    handling: 姓名必须唯一，在账号姓名和项目经理字段中加区分（例如「张伟（实施）」），两处保持一致。
+    basis: 按姓名精确匹配（D10），重名会让一个人看到另一个人的项目。
+  - rule: R2
+    case: 「项目经理」字段为空，或填的名字没有对应账号的项目。
+    handling: 没有项目经理能看到它，由 PMO 维护；项目设置表单对无账号的名字给出提示（R5）。
+    basis: 范围按字段精确匹配，不猜测。
+  - rule: R2
+    case: 项目换了项目经理。
+    handling: 下一次请求即按新字段计算范围，原项目经理立即看不到该项目。
+    basis: 范围每次请求从项目对象计算，不单独保存授权清单。
+  - rule: R2
+    case: 本人项目的工时与成员。
+    handling: 项目经理通过项目对象的派生属性（累计人天、预算使用等）看到项目工时汇总；工时记录、员工两个对象类型没有 projectScope，对项目经理不可读，项目页面中按员工的工时被 PERSONNEL 标记遮蔽。
+    basis: 需求基线 D11：金额可见、个人工时不可见。
+  - rule: R2
+    case: 审计日志（本体动作记录）。
+    handling: 项目经理只能看到自己执行的动作记录。
+    basis: 审计日志按对象类型过滤会包含别人项目的记录；只看本人操作既满足自查，又不泄露范围外数据。
+  - rule: R3
+    case: 工作日历（workingCalendar）。
+    handling: 声明为 shared，项目经理可以执行。
+    basis: 它只有法定节假日和工作日，不含项目数据。
+  - rule: R4
+    case: PM Assistant。
+    handling: 项目经理角色暂不可用，G5 改为基于本体（使用带范围的函数和对象集）后开放。
+    basis: 现在的实现把全部项目放进提示词，无法按范围过滤；先关闭比先泄露安全。
+  - rule: R5
+    case: 外包或临时项目经理没有系统账号，或项目经理账号已停用。
+    handling: 允许手填姓名并保存，只提示不阻止；该项目由 PMO 维护，账号开通后按姓名自动对应。
+    basis: 项目经理字段记录的是业务事实，不以是否有账号为前提（D10 只要求提示）。
+  - rule: R6
+    case: 渠道标记的可信度。
+    handling: 渠道由前端声明，不作为安全边界；安全边界是动作权限（菜单）与数据范围（R2），绕过前端改渠道也只能维护自己有权维护的对象。
+    basis: D12 的目的是让日常维护只走业务页面，而不是新增一道权限。
+  - rule: R6
+    case: 系统设置页的「调整运营口径」、部门经营页的「设定年度经营计划」。
+    handling: 属于业务页面渠道，不受本体浏览器限制，仍按原菜单权限执行。
+    basis: 它们是业务页面的正常维护入口。

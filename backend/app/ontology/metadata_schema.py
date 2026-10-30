@@ -162,6 +162,9 @@ class ObjectTypeDoc(MetadataModel):
     period: PeriodDoc | None = None
     # Columns of the object list, in order; omitted = the first four plain properties.
     list_properties: tuple[str, ...] | None = None
+    # Data scope (7.7.0): the property holding the project number. A project manager sees only objects of
+    # their own projects; a type without projectScope is not readable for a project manager at all.
+    project_scope: str | None = None
     properties: tuple[PropertyDoc, ...] = Field(min_length=1)
 
 
@@ -240,6 +243,9 @@ class FunctionDoc(MetadataModel):
     output_type: str
     permissions: tuple[str, ...] = Field(min_length=1)
     implementation: str
+    # Data scope (7.7.0): "project" = computed only from scoped objects, so it runs on the caller's scoped
+    # context; "shared" = holds no project data. Omitted = not available to a project manager.
+    data_scope: Literal["project", "shared"] | None = None
 
 
 KIND_MODELS: dict[str, type[MetadataModel]] = {

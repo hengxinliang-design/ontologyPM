@@ -21,6 +21,11 @@ class Principal:
     username: str
     is_admin: bool
     permissions: frozenset[str]
+    # Data scope (7.7.0, requirements baseline D2): a project manager sees only their own projects, the
+    # ones whose project manager is ``person_name``. ``project_scope`` is filled in by the context.
+    role: str | None = None
+    person_name: str | None = None
+    project_scope: frozenset[str] | None = None
 
     @classmethod
     def from_user(cls, user: dict[str, Any]) -> "Principal":
@@ -28,7 +33,13 @@ class Principal:
             username=user.get("username") or "anonymous",
             is_admin=bool(user.get("is_admin")),
             permissions=frozenset(user.get("permissions") or ()),
+            role=user.get("role"),
+            person_name=user.get("person_name"),
         )
+
+    @property
+    def scoped(self) -> bool:
+        return self.role == "project_manager" and not self.is_admin
 
     def holds_any(self, permissions: tuple[str, ...]) -> bool:
         if self.is_admin or not permissions:
@@ -36,11 +47,22 @@ class Principal:
         return any(permission in self.permissions for permission in permissions)
 
 
+def in_scope(principal: Principal, object_type: ObjectTypeDef, item: dict[str, Any]) -> bool:
+    """Row-level scope (D2): the one place that decides whether a scoped principal may see an object."""
+    if not principal.scoped:
+        return True
+    if not object_type.project_scope:
+        return False
+    return str(item.get(object_type.project_scope) or "") in (principal.project_scope or frozenset())
+
+
 class SecurityPolicy:
     def __init__(self, ontology: Ontology):
         self.ontology = ontology
 
     def can_read_type(self, principal: Principal, object_type: ObjectTypeDef) -> bool:
+        if principal.scoped and not object_type.project_scope:
+            return False
         return principal.holds_any(object_type.read_permissions)
 
     def require_read_type(self, principal: Principal, object_type: ObjectTypeDef) -> None:
@@ -68,7 +90,13 @@ class SecurityPolicy:
             raise OntologyPermissionError(f"当前用户无权执行动作「{action.display_name}」")
 
     def can_execute(self, principal: Principal, function: FunctionDef) -> bool:
+        if principal.scoped and function.data_scope is None:
+            return False
         return principal.holds_any(function.required_permissions)
+
+    def can_apply_in_browser(self, principal: Principal, action: ActionTypeDef) -> bool:
+        """Requirements baseline D12: actions in the ontology browser are for administrators only."""
+        return principal.is_admin and self.can_apply(principal, action)
 
     def require_execute(self, principal: Principal, function: FunctionDef) -> None:
         if not self.can_execute(principal, function):

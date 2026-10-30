@@ -126,6 +126,7 @@ class ObjectTypeDef:
     metadata_source: str = ""
     period: Period | None = None
     list_properties: tuple[str, ...] = ()
+    project_scope: str | None = None
 
     def property(self, api_name: str) -> PropertyDef | None:
         return next((p for p in self.properties if p.api_name == api_name), None)
@@ -205,6 +206,7 @@ class FunctionDef:
     output_type: str
     required_permissions: tuple[str, ...]
     implementation: Callable[["OntologyContext", dict[str, Any]], Any]
+    data_scope: str | None = None
 
 
 @dataclass(frozen=True)

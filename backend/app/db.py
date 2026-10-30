@@ -577,6 +577,13 @@ class Database:
         }
         if "payment_term_id" not in payment_columns:
             connection.execute("ALTER TABLE payment_nodes ADD COLUMN payment_term_id TEXT")
+        # Roles and data scope (7.7.0): every account has a role and, for a project manager, the name that
+        # matches Project.projectManager. Accounts created before have no role ("未设角色", all projects).
+        user_columns = {row["name"] for row in connection.execute("PRAGMA table_info(users)").fetchall()}
+        for name in ("role", "person_name"):
+            if name not in user_columns:
+                connection.execute(f"ALTER TABLE users ADD COLUMN {name} TEXT")
+        connection.execute("UPDATE users SET role = 'admin' WHERE is_admin = 1 AND role IS NULL")
         for table in sorted(LOGICALLY_DELETED):
             columns = {row["name"] for row in connection.execute(f"PRAGMA table_info({table})").fetchall()}
             for name in ("deleted_at", "deleted_by"):

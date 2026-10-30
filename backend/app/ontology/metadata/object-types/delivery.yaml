@@ -10,6 +10,7 @@ definition:
   datasource: milestones
   backingDatasets: [milestones]
   readPermissions: [projects]
+  projectScope: projectNumber
   icon: flag
   displayOrder: 8
   defaultOrder: plannedEnd
@@ -45,6 +46,7 @@ definition:
   datasource: paymentNodes
   backingDatasets: [payment_nodes]
   readPermissions: [projects]
+  projectScope: projectNumber
   icon: wallet
   displayOrder: 9
   defaultOrder: plannedDate
@@ -73,6 +75,7 @@ definition:
   datasource: interventions
   backingDatasets: [interventions]
   readPermissions: [projects]
+  projectScope: projectNumber
   icon: alert
   displayOrder: 10
   defaultOrder: -updatedAt
@@ -103,6 +106,7 @@ definition:
     - {apiName: linkMilestone, displayName: 关联里程碑, property: linkedMilestoneId, action: editMilestone}
   backingDatasets: [payment_terms, payment_nodes, milestones]
   readPermissions: [projects]
+  projectScope: projectNumber
   icon: wallet
   displayOrder: 9
   defaultOrder: plannedDate

@@ -2,11 +2,18 @@ export type DataType = "contract_order" | "sales_opportunity";
 
 export type MenuPermission = "projects" | "health" | "resource" | "crm" | "investment" | "department" | "employeeWorktime" | "sync" | "ontology" | "settings";
 
+export type UserRole = "admin" | "pmo" | "department_head" | "project_manager" | "analyst";
+
 export interface AuthenticatedUser {
   username: string;
   is_admin: boolean;
   permissions: MenuPermission[];
   is_active: boolean;
+  // Roles and data scope (ontology 7.7.0); absent when authentication is disabled.
+  role?: UserRole | null;
+  role_label?: string;
+  person_name?: string | null;
+  data_scope?: "all" | "own";
 }
 
 export interface AuthSession {

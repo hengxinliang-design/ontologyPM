@@ -219,7 +219,7 @@ function OutcomeForm({ code, done }: { code: string; done: () => void }) {
   async function submit() {
     setBusy(true); setMessage(null);
     try {
-      await applyAction("recordOpportunityOutcome", { costObject: code, outcome, reason, outcomeDate: outcomeDate || undefined, notes: notes || undefined });
+      await applyAction("recordOpportunityOutcome", { costObject: code, outcome, reason, outcomeDate: outcomeDate || undefined, notes: notes || undefined }, false, "business");
       done();
     } catch (err) {
       setMessage(err instanceof ApiError ? err.message : errorMessage(err, "记录失败"));
@@ -247,7 +247,7 @@ function SunkReview({ analysis, canEdit, changed }: { analysis: Analysis; canEdi
   async function reopen(code: string) {
     if (!reopenReason.trim()) { setMessage("请填写重新激活的理由"); return; }
     setMessage(null);
-    try { await applyAction("reopenOpportunity", { costObject: code, reason: reopenReason.trim() }); setReopening(null); setReopenReason(""); changed(); }
+    try { await applyAction("reopenOpportunity", { costObject: code, reason: reopenReason.trim() }, false, "business"); setReopening(null); setReopenReason(""); changed(); }
     catch (err) { setMessage(errorMessage(err, "重新激活失败")); }
   }
   return <section className="panel">

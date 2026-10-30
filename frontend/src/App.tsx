@@ -6,6 +6,7 @@ import { zhCN } from "date-fns/locale";
 import "react-datepicker/dist/react-datepicker.css";
 import { OntologyExplorer } from "./ontology/OntologyExplorer";
 import { milestonePayload, showsLegacyPaymentNote } from "./milestoneForm";
+import { ROLE_OPTIONS, defaultMenus, menuAllowed, projectManagerHint, roleOption } from "./roles";
 import { InvestmentAnalysisPage } from "./investment/InvestmentAnalysis";
 import { DepartmentOperationsPage } from "./department/DepartmentOperations";
 import "react-day-picker/style.css";
@@ -36,6 +37,7 @@ import {
   createUser,
   fetchCurrentUser,
   fetchUsers,
+  fetchProjectManagerNames,
   getStoredUser,
   login,
   logout,
@@ -64,6 +66,7 @@ import type {
   ResourceOperationsResponse,
   RecordsResponse,
   SyncStatus,
+  UserRole,
   TimeEntry,
   WorktimeBaseline
 } from "./types";
@@ -526,7 +529,7 @@ export function App() {
         </nav>
         <div className="sidebar-foot">
           <span className={`status-dot ${sync?.status === "succeeded" ? "ok" : "warn"}`} />
-          <div><strong>{authUser.username}</strong><small>{authUser.is_admin ? "管理员" : "受限访问用户"}</small></div>
+          <div><strong>{authUser.username}</strong><small>{authUser.role_label ?? (authUser.is_admin ? "管理员" : "受限访问用户")}{authUser.data_scope === "own" ? " · 仅本人项目" : ""}</small></div>
           <button type="button" className="logout-button" onClick={() => void handleLogout()}>Logout</button>
         </div>
       </aside>
@@ -612,7 +615,7 @@ export function App() {
           await load();
         }}
       />}
-      {canAccess("projects") && <PmAssistant />}
+      {canAccess("projects") && authUser?.data_scope !== "own" && <PmAssistant />}
     </div>
   );
 }
@@ -753,9 +756,11 @@ function UserSettings() {
   const [selected, setSelected] = useState<ManagedUser | null>(null);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [isAdmin, setIsAdmin] = useState(false);
+  const [role, setRole] = useState<UserRole>("project_manager");
+  const [personName, setPersonName] = useState("");
   const [isActive, setIsActive] = useState(true);
-  const [permissions, setPermissions] = useState<MenuPermission[]>(["projects"]);
+  const [permissions, setPermissions] = useState<MenuPermission[]>(defaultMenus("project_manager"));
+  const isAdmin = role === "admin";
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -769,10 +774,14 @@ function UserSettings() {
   useEffect(() => { void refresh(); }, [refresh]);
 
   function beginCreate() {
-    setSelected(null); setUsername(""); setPassword(""); setIsAdmin(false); setIsActive(true); setPermissions(["projects"]); setMessage(null);
+    setSelected(null); setUsername(""); setPassword(""); setRole("project_manager"); setPersonName(""); setIsActive(true); setPermissions(defaultMenus("project_manager")); setMessage(null);
   }
   function beginEdit(user: ManagedUser) {
-    setSelected(user); setUsername(user.username); setPassword(""); setIsAdmin(user.is_admin); setIsActive(user.is_active); setPermissions(user.permissions); setMessage(null);
+    setSelected(user); setUsername(user.username); setPassword(""); setRole(user.role ?? (user.is_admin ? "admin" : "pmo")); setPersonName(user.person_name ?? ""); setIsActive(user.is_active); setPermissions(user.permissions); setMessage(null);
+  }
+  // A role brings its default menus; menus can still be adjusted afterwards (D9).
+  function chooseRole(next: UserRole) {
+    setRole(next); setPermissions(defaultMenus(next));
   }
   function togglePermission(permission: MenuPermission) {
     setPermissions(current => current.includes(permission) ? current.filter(item => item !== permission) : [...current, permission]);
@@ -782,10 +791,10 @@ function UserSettings() {
     setSaving(true); setMessage(null);
     try {
       if (selected) {
-        await updateUser(selected.username, { password: password || undefined, is_admin: isAdmin, is_active: isActive, permissions });
+        await updateUser(selected.username, { password: password || undefined, role, person_name: personName.trim() || null, is_active: isActive, permissions });
         setMessage("用户权限已保存");
       } else {
-        await createUser({ username, password, is_admin: isAdmin, permissions });
+        await createUser({ username, password, role, person_name: personName.trim() || null, permissions });
         setMessage("用户已添加");
       }
       await refresh();
@@ -799,7 +808,7 @@ function UserSettings() {
     <div className="settings-grid">
       <section className="panel user-list-panel"><div className="settings-section-head"><div><h3>系统用户</h3><p>{loading ? "正在加载…" : `共 ${users.length} 个账户`}</p></div></div>
         <div className="user-list">{users.map(user => <article className={`user-row ${selected?.username === user.username ? "selected" : ""}`} key={user.username}>
-          <div><strong>{user.username}</strong><small>{user.is_admin ? "管理员 · 全部菜单" : `${user.permissions.length} 项菜单权限`} · {user.is_active ? "已启用" : "已停用"}</small></div>
+          <div><strong>{user.username}{user.person_name ? `（${user.person_name}）` : ""}</strong><small>{user.role_label ?? (user.is_admin ? "管理员" : "未设角色")} · {user.is_admin ? "全部菜单" : `${user.permissions.length} 项菜单权限`}{user.data_scope === "own" ? " · 仅本人项目" : ""} · {user.is_active ? "已启用" : "已停用"}</small></div>
           <button type="button" className="button secondary" onClick={() => beginEdit(user)}>编辑</button>
         </article>)}{!loading && !users.length && <p className="detail-empty">暂无用户</p>}</div>
       </section>
@@ -808,9 +817,14 @@ function UserSettings() {
         {message && <div className="settings-message">{message}</div>}
         <div className="user-form-fields"><label>登录账号<input value={username} onChange={event => setUsername(event.target.value)} disabled={Boolean(selected) || saving} required /></label>
         <label>{selected ? "新密码（可选）" : "登录密码"}<input type="password" value={password} onChange={event => setPassword(event.target.value)} disabled={saving} minLength={selected ? undefined : 8} required={!selected} /></label></div>
-        <label className="check-row"><input type="checkbox" checked={isAdmin} onChange={event => setIsAdmin(event.target.checked)} disabled={saving || selected?.username === "admin"} />管理员（可访问全部菜单并管理账户）</label>
+        <div className="user-form-fields">
+          <label>角色<select value={role} onChange={event => chooseRole(event.target.value as UserRole)} disabled={saving || selected?.username === "admin"}>
+            {ROLE_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+          </select><small>{roleOption(role)?.hint}</small></label>
+          <label>姓名{role === "project_manager" ? "（必填）" : "（可选）"}<input value={personName} onChange={event => setPersonName(event.target.value)} disabled={saving} required={role === "project_manager"} placeholder="与项目的「项目经理」字段一致" /></label>
+        </div>
         {selected && <label className="check-row"><input type="checkbox" checked={isActive} onChange={event => setIsActive(event.target.checked)} disabled={saving || selected.username === "admin"} />启用此账户</label>}
-        {!isAdmin && <fieldset><legend>可访问菜单</legend><div className="permission-grid">{MENU_OPTIONS.filter(item => item.value !== "settings").map(item => <label key={item.value}><input type="checkbox" checked={permissions.includes(item.value)} onChange={() => togglePermission(item.value)} disabled={saving} />{item.label}<small>{item.group}</small></label>)}</div></fieldset>}
+        {!isAdmin && <fieldset><legend>可访问菜单</legend><div className="permission-grid">{MENU_OPTIONS.filter(item => item.value !== "settings").map(item => <label key={item.value}><input type="checkbox" checked={permissions.includes(item.value)} onChange={() => togglePermission(item.value)} disabled={saving || !menuAllowed(role, item.value)} />{item.label}<small>{menuAllowed(role, item.value) ? item.group : "项目经理不可用"}</small></label>)}</div></fieldset>}
         <button className="button primary settings-save" type="submit" disabled={saving}>{saving ? "保存中…" : selected ? "保存用户设置" : "添加用户"}</button>
       </form>
     </div>
@@ -1234,6 +1248,9 @@ function PmoResourceTable({ project }: { project: ProjectDetail }) {
 
 function ProjectDrawer({ project, close, refresh }: { project: ProjectDetail; close: () => void; refresh: () => Promise<void> }) {
   const [saving, setSaving] = useState(false);
+  // Project-manager accounts' names (D10); an empty list just means no suggestions.
+  const [managerNames, setManagerNames] = useState<string[]>([]);
+  useEffect(() => { fetchProjectManagerNames().then(setManagerNames).catch(() => setManagerNames([])); }, []);
   const [message, setMessage] = useState<string | null>(null);
   const [confirmedBy, setConfirmedBy] = useState(project.project_manager ?? "");
   const [settings, setSettings] = useState({
@@ -1495,7 +1512,9 @@ function ProjectDrawer({ project, close, refresh }: { project: ProjectDetail; cl
         <label>每人天小时<input type="number" min="0.1" step="0.1" required value={settings.hours_per_person_day} onChange={e => setSettings({ ...settings, hours_per_person_day: e.target.value })} /></label>
         <label>计划开始<CalendarDatePicker value={settings.planned_start} onChange={planned_start => setSettings({ ...settings, planned_start })} label="选择项目计划开始日期" clearable /></label>
         <label>计划结束<CalendarDatePicker value={settings.planned_end} onChange={planned_end => setSettings({ ...settings, planned_end })} label="选择项目计划结束日期" minDate={settings.planned_start} clearable /></label>
-        <label className="span-2">项目经理<input required value={settings.project_manager} onChange={e => setSettings({ ...settings, project_manager: e.target.value })} /></label>
+        <label className="span-2">项目经理<input required list="project-manager-names" value={settings.project_manager} onChange={e => setSettings({ ...settings, project_manager: e.target.value })} />
+          <datalist id="project-manager-names">{managerNames.map(name => <option key={name} value={name} />)}</datalist>
+          {projectManagerHint(settings.project_manager, managerNames) && <small className="field-hint warn-text">{projectManagerHint(settings.project_manager, managerNames)}</small>}</label>
         <div className="form-actions span-2"><button className="button primary" disabled={saving}>保存基础配置</button><button type="button" className="button secondary" disabled={saving} onClick={() => { setSettings({ contract_type: project.contract_type, lifecycle_status: project.lifecycle_status, planned_person_days: project.planned_person_days ?? "", hours_per_person_day: project.settings.hours_per_person_day ?? "8.00", planned_start: project.planned_start ?? "", planned_end: project.planned_end ?? "", project_manager: project.project_manager ?? "" }); setConfigEditing(false); }}>取消</button></div>
       </form>}
     </section>

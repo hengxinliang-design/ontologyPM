@@ -32,10 +32,14 @@ export async function fetchObjectActions(objectType: string, primaryKey: string)
   return (await request<{ data: ObjectActionAvailability[] }>(`${BASE}/objects/${enc(objectType)}/${enc(primaryKey)}/actions`)).data;
 }
 
-export async function applyAction(actionType: string, parameters: Record<string, unknown>, validateOnly = false): Promise<ActionResult> {
+// Actions from the ontology browser are for administrators (requirements baseline D12); business pages that
+// reuse this helper pass channel "business".
+export async function applyAction(
+  actionType: string, parameters: Record<string, unknown>, validateOnly = false, channel: "ontology" | "business" = "ontology"
+): Promise<ActionResult> {
   return (await request<{ data: ActionResult }>(`${BASE}/actions/${enc(actionType)}/apply`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", "X-TSG-Channel": channel },
     body: JSON.stringify({ parameters, validateOnly })
   })).data;
 }

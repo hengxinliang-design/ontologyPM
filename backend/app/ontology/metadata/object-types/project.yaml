@@ -19,6 +19,7 @@ definition:
     - {apiName: planMilestones, displayName: 制定里程碑计划, link: milestones, minCount: 1, action: createMilestone}
   backingDatasets: [records, project_settings, time_entries, milestones, payment_nodes, payment_terms, interventions, opportunity_outcomes, investment_settings, worktime_baseline_config]
   readPermissions: [projects, health, resource, department]
+  projectScope: projectNumber
   icon: briefcase
   displayOrder: 1
   defaultOrder: projectNumber
