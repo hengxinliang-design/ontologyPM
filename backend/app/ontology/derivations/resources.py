@@ -418,3 +418,140 @@ class ResourceMetrics:
         for row in rows:
             summary[row["status"]] = summary.get(row["status"], 0) + 1
         return {"month": month, "data": rows, "summary": summary}
+
+    # ------------------------------------------------------------ resource forecast (G8, D18–D21)
+    def forecast(self, projects: list[dict[str, Any]], months: int = 3) -> dict[str, Any]:
+        """CQ-W5–W7: capacity per person, demand per project and the gap per month, from tomorrow on.
+
+        ``projects`` are Project objects (camelCase properties). Capacity = working days × the minimum utilization
+        target (D19); demand = remaining budget spread over working days, or the recent monthly average without a
+        budget (D20); both in standard person-days. Demand is not allocated to people (D21).
+        """
+        policy = self.projects.get_worktime_baseline()
+        standard_hours = Decimal(policy["standard_hours_per_day"])
+        target = Decimal(policy["minimum_utilization_percent"]) / HUNDRED
+        today = self.projects.today()
+        start = date.fromordinal(today.toordinal() + 1)
+        period = [_shift(today.isoformat()[:7], offset) for offset in range(months)]
+        period_end = _month_end(period[-1])
+        days_cache: dict[tuple[str, str], int] = {}
+
+        def working_days(first: str, last: str) -> int:
+            if first > last:
+                return 0
+            if (first, last) not in days_cache:
+                days_cache[(first, last)] = int(self.projects.workday_summary(first, last)["working_days"])
+            return days_cache[(first, last)]
+
+        def window(month: str) -> tuple[str, str]:
+            return max(start.isoformat(), f"{month}-01"), _month_end(month)
+
+        month_days = {m: working_days(*window(m)) for m in period}
+
+        # CQ-W5: people on staff = effective hours in the latest worktime month (the department review's headcount).
+        latest = self.latest_work_month()
+        staff = list(self.monthly_hours([latest]).values()) if latest else []
+        per_person = {m: Decimal(month_days[m]) * target for m in period}
+        people = sorted(
+            ({"employee_id": p["employee_id"], "employee_name": p["employee_name"],
+              "months": {m: _format_decimal(per_person[m]) for m in period},
+              "total": _format_decimal(sum(per_person.values(), ZERO))} for p in staff),
+            key=lambda row: (row["employee_name"], str(row["employee_id"])))
+
+        # CQ-W6: recent monthly person-days per project, for projects without a budget.
+        internal = self.internal_codes()
+        recent_hours: dict[str, Decimal] = {}
+        if latest:
+            recent = [_shift(latest, -2), _shift(latest, -1), latest]
+            for row in project_effort(self.entries(f"{recent[0]}-01", _month_end(latest)), internal):
+                recent_hours[row["project_number"]] = recent_hours.get(row["project_number"], ZERO) + _total_entry_hours(row)
+
+        demand_rows, data_gaps = [], []
+        for project in projects:
+            number = str(project.get("projectNumber") or "")
+            if project.get("lifecycleStatus") in INACTIVE_LIFECYCLES or number.upper() in internal:
+                continue
+            hours_per_day = Decimal(str(project.get("hoursPerPersonDay") or standard_hours))
+            planned_start, planned_end = project.get("plannedStart"), project.get("plannedEnd")
+            if planned_start and planned_start > period_end:
+                continue  # starts after the forecast period
+            label = {"project_number": number, "subject": project.get("subject")}
+            budget = _decimal_or_none(project.get("plannedPersonDays"))
+            reported = _decimal_or_none(project.get("reportedPersonDays")) or ZERO
+            if budget is not None:
+                remaining = max(budget - reported, ZERO)
+                if reported > budget:
+                    data_gaps.append({**label, "reason": "已超预算，未计入后续需求",
+                                      "reported_person_days": _format_decimal(reported), "planned_person_days": _format_decimal(budget)})
+                if remaining == 0:
+                    continue
+                method, basis = "budget", f"剩余 {_format_decimal(remaining)} 人天（预算 {_format_decimal(budget)} − 已填报 {_format_decimal(reported)}），按工作日均摊到计划结束"
+            else:
+                monthly = recent_hours.get(number, ZERO) / Decimal(3) / hours_per_day
+                if monthly == 0:
+                    data_gaps.append({**label, "reason": "没有预算人天，也没有最近 3 个月的工时，无法测算"})
+                    continue
+                method, basis = "run_rate", f"最近 3 个月月均 {_format_decimal(monthly)} 人天，延续到计划结束"
+            if not planned_end:
+                data_gaps.append({**label, "reason": "缺计划结束日期，无法排期"})
+                continue
+            if planned_end < start.isoformat():
+                gap = {**label, "reason": f"计划结束 {planned_end} 已过，项目仍在执行"}
+                if method == "budget":
+                    gap["remaining_person_days"] = _format_decimal(remaining)
+                data_gaps.append(gap)
+                continue
+            begin = max(start.isoformat(), planned_start or start.isoformat())
+            spread = {m: working_days(max(begin, f"{m}-01"), min(planned_end, _month_end(m))) for m in period}
+            if method == "budget":
+                total_days = working_days(begin, planned_end)
+                share = {m: remaining * Decimal(spread[m]) / Decimal(total_days) if total_days else ZERO for m in period}
+            else:
+                full = {m: working_days(f"{m}-01", _month_end(m)) for m in period}
+                share = {m: monthly * Decimal(spread[m]) / Decimal(full[m]) if full[m] else ZERO for m in period}
+            # Project person-days → hours → standard person-days (one unit with capacity, principle 5).
+            standard = {m: share[m] * hours_per_day / standard_hours for m in period}
+            demand_rows.append({**label, "method": method, "basis": basis,
+                                "months": {m: _format_decimal(standard[m]) for m in period},
+                                "total": _format_decimal(sum(standard.values(), ZERO)), "_values": standard})
+
+        month_rows = []
+        for m in period:
+            capacity = per_person[m] * len(staff)
+            demand = sum((row["_values"][m] for row in demand_rows), ZERO)
+            top = sorted((row for row in demand_rows if row["_values"][m] > 0), key=lambda row: -row["_values"][m])[:5]
+            month_rows.append({
+                "month": m, "working_days": month_days[m], "capacity_person_days": _format_decimal(capacity),
+                "demand_person_days": _format_decimal(demand), "gap_person_days": _format_decimal(demand - capacity),
+                "status": "shortage" if demand > capacity else "surplus",
+                "top_projects": [{"project_number": row["project_number"], "subject": row["subject"],
+                                  "person_days": _format_decimal(row["_values"][m])} for row in top],
+            })
+        for row in demand_rows:
+            row.pop("_values")
+        demand_rows.sort(key=lambda row: (-Decimal(row["total"]), row["project_number"]))
+        return {
+            "as_of": today.isoformat(),
+            "period_start": start.isoformat(),
+            "period_end": period_end,
+            "months": month_rows,
+            "headcount": len(staff),
+            "headcount_month": latest,
+            "people": people,
+            "projects": demand_rows,
+            "data_gaps": data_gaps,
+            "assumptions": {
+                "minimum_utilization_percent": policy["minimum_utilization_percent"],
+                "standard_hours_per_day": policy["standard_hours_per_day"],
+                "capacity": "每人每月可用人天 = 测算期内工作日 × 最低利用率目标",
+                "demand": "有预算：剩余人天按工作日均摊到计划结束；无预算：最近 3 个月月均人天延续到计划结束；均按标准每日小时数换算",
+            },
+            "limitations": "只基于导入工时、项目预算与计划和工作日历；没有请假、入离职、技能和排班数据，需求不分摊到个人。",
+        }
+
+
+INACTIVE_LIFECYCLES = frozenset({"on_hold", "completed", "closed"})
+
+
+def _decimal_or_none(value: Any) -> Decimal | None:
+    return None if value in (None, "") else Decimal(str(value))

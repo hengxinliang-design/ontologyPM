@@ -161,6 +161,27 @@ describe("FunctionResultView", () => {
     expect(review).toContain("1. 推动验收回款");
   });
 
+  it("shows the resource forecast per month with the projects behind a shortage and the data gaps", () => {
+    const html = render("ResourceForecast", {
+      period_start: "2026-10-31", period_end: "2026-12-31", headcount: 9, headcount_month: "2026-10",
+      months: [
+        { month: "2026-11", working_days: 21, capacity_person_days: "141.75", demand_person_days: "180.00", gap_person_days: "38.25", status: "shortage",
+          top_projects: [{ project_number: "SEY101", person_days: "120.00" }] },
+        { month: "2026-12", working_days: 23, capacity_person_days: "155.25", demand_person_days: "100.00", gap_person_days: "-55.25", status: "surplus", top_projects: [] }
+      ],
+      projects: [{ project_number: "SEY101", method: "budget", basis: "剩余 200 人天", months: { "2026-11": "120.00", "2026-12": "80.00" }, total: "200.00" }],
+      data_gaps: [{ project_number: "TPL149", reason: "计划结束 2026-10-15 已过，项目仍在执行", remaining_person_days: "60.00" }],
+      assumptions: { capacity: "每人每月可用人天 = 测算期内工作日 × 最低利用率目标", minimum_utilization_percent: "75.00", demand: "有预算按剩余" },
+      limitations: "需求不分摊到个人。"
+    });
+    expect(html).toContain("缺口 38.25 人天");
+    expect(html).toContain("富余 55.25 人天");
+    expect(html).toContain("SEY101 120.00 人天");
+    expect(html).toContain("预算剩余");
+    expect(html).toContain("计划结束 2026-10-15 已过，项目仍在执行（剩余 60.00 人天）");
+    expect(html).toContain("最低利用率 75.00%");
+  });
+
   it("lists objects that still need maintenance with per-requirement counts", () => {
     const html = render("MaintenanceWorklist", {
       summary: [{ objectType: "Project", requirement: "planMilestones", label: "制定里程碑计划", missing: 2, maintained: 1, applicable: 3 }],

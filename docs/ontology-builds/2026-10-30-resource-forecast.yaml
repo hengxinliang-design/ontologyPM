@@ -1,0 +1,67 @@
+# 本体构建包（发布稿）：资源测算（未来三个月可用产能、项目需求与缺口）。本体 7.9.0（新增函数 resourceForecast，非破坏性）。
+# 依据：需求基线 D8 与 G8（CQ-W5–W7）；用户 2026-10-30「开始 G8」，G8 的四个问题确认为 D18–D21。
+kind: OntologyBuild
+stage: release
+topic: 本月起三个自然月，按在岗人员与最低利用率目标给出每人每月可用人天，按预算剩余或近期月均给出在建项目每月需求，按月汇总缺口并列出拉动需求的项目与数据缺口
+ontologyVersion: 7.9.0
+date: 2026-10-30
+scope:
+  - CQ-W5 未来三个月每个人还有多少可用人天？
+  - CQ-W6 在建项目按计划未来三个月需要多少人天？
+  - CQ-W7 人力缺口落在哪个月、哪些项目？
+
+rules:
+  - id: R1
+    statement: 新增本体函数 resourceForecast（资源测算），实现放在资源指标的唯一模块 app/ontology/derivations/resources.py。测算期间为本月起 3 个自然月（D18），本月只计明天起的工作日；工作日用中国工作日历。函数可选参数 months（1–6，缺省 3）。
+    basis: 需求基线 D8「用本体函数实现，可在 PM Assistant 中询问」与 D18；G4 规定资源指标只有一份实现（技能原则 15）。
+    acceptance: 2026-10-30 测算时期间为 2026-10、2026-11、2026-12，10 月只计 10-31 起的工作日；本体结构中有函数 resourceForecast，PM Assistant 的工具中自动出现；项目经理执行返回 403。
+    verifiedBy: [test_forecast_period_capacity_and_people]
+    ontology: [resourceForecast]
+  - id: R2
+    statement: 可用产能（CQ-W5，D19、D21）：在岗人员为最近有工时月份中有有效工时的员工（与部门经营的在岗人数同一口径）；每人每月可用人天 = 该月测算期内的工作日 × 最低利用率目标（运营口径 minimumUtilizationPercent）。只给每人产能，不按近期工时分摊项目需求。
+    basis: 需求基线 D19、D21；在岗人数与部门经营一致，避免同名不同义（经验库 L37）。
+    acceptance: 最低线 75%、某月 20 个工作日时每人可用 15.00 人天；部门每月产能 = 在岗人数 × 每人可用人天；最近工时月份没有有效工时的员工不计入；结果中不出现按人分摊的项目需求。
+    verifiedBy: [test_forecast_period_capacity_and_people]
+    ontology: [resourceForecast, OperatingPolicy.minimumUtilizationPercent, Employee]
+  - id: R3
+    statement: 项目需求（CQ-W6，D20）：纳入未暂停、未结束、未关闭的项目（含售前）。有预算人天的项目，剩余人天 = max(预算 − 已填报, 0)，按工作日均摊到 max(明天, 计划开始) 至计划结束之间的各月；没有预算的项目，按最近 3 个月（截至最近有工时月份）的月均人天延续到计划结束。需求先按项目的每人天小时数换算为工时，再按标准每日小时数换算为标准人天，与产能同一量纲。
+    basis: 需求基线 D20；技能原则 5（单位对齐：项目人天按项目自己的每人天小时数，产能按标准每日小时数）。
+    acceptance: 预算 200、已填报 140、计划结束 12-31 的项目，剩余 60 人天按 10-31 至 12-31 的工作日比例分到 10、11、12 月，三个月合计 60.00；没有预算、最近 3 个月共 30 人天的项目每月需求 10.00；每人天 6 小时的项目 12 人天需求换算为 9.00 标准人天。
+    verifiedBy: [test_forecast_demand_from_budget_and_run_rate]
+    ontology: [resourceForecast, Project.plannedPersonDays, Project.reportedPersonDays, Project.plannedStart, Project.plannedEnd, Project.hoursPerPersonDay, Project.lifecycleStatus]
+  - id: R4
+    statement: 缺口（CQ-W7）：每月缺口 = 需求 − 产能，大于 0 为人力不足、否则为富余；每月列出需求最大的项目（最多 5 个）；无法测算的项目单列为数据缺口并写明原因（缺计划结束、计划结束已过仍有剩余人天、没有预算也没有近期工时）。
+    basis: CQ-W7「缺口落在哪个月、哪些项目」；技能原则：区分「否」与「不知道」，缺数据的项目不能当作没有需求。
+    acceptance: 需求高于产能的月份标为不足并列出拉动需求的项目；缺计划结束的项目出现在数据缺口中且不计入需求；计划结束已过的在建项目列为数据缺口并给出剩余人天。
+    verifiedBy: [test_forecast_gaps_and_data_gaps]
+    ontology: [resourceForecast]
+
+exceptions:
+  - rule: R1
+    case: 测算日是本月最后一天或之后没有工作日。
+    handling: 本月产能和需求都按 0 计，仍列出该月，便于对照。
+    basis: 期间口径固定为本月起 3 个自然月（D18）。
+  - rule: R2
+    case: 请假、离职、新人入职、外包人员。
+    handling: 系统没有这些数据，不作调整；结果说明中注明限制。
+    basis: 不臆造数据（需求基线第 8 节口径边界）。
+  - rule: R2
+    case: 内部非项目工时。
+    handling: 不单独扣减产能；产能按最低利用率目标折算，已为内部事务留出余量。
+    basis: D19 选择最低线的理由。
+  - rule: R3
+    case: 已超预算仍在执行的项目（已填报大于预算）。
+    handling: 剩余人天按 0 计，同时在数据缺口中注明「已超预算，未计入后续需求」。
+    basis: 预算口径下没有剩余；但它多半仍会占用人力，需要提醒维护预算或计划。
+  - rule: R3
+    case: 计划开始晚于测算期结束的项目。
+    handling: 测算期内需求为 0，不列为数据缺口。
+    basis: 项目计划在测算期之后启动。
+  - rule: R3
+    case: 内部代码（投入设置维护）。
+    handling: 不作为项目需求。
+    basis: 内部代码不是项目（D15）。
+  - rule: R4
+    case: 部门总量富余但个别人超载。
+    handling: 不判断（D21 不按人分摊）；需要时结合资源运营监控的调剂状态看。
+    basis: 没有排班数据，按人推算会被误读为安排。

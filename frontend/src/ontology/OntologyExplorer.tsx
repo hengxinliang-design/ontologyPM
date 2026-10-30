@@ -156,6 +156,12 @@ function ModelView({ schema, selectedType, setSelectedType, browse }: {
       </table></div>
     </section>
 
+    {schema.functions.some(fn => fn.permitted && !fn.parameters.some(p => p.dataType === "object_ref")) && <section className="panel">
+      <div className="panel-head"><div><h2>运行全局函数</h2><p>不针对单个对象的函数（如资源健康、资源测算），按你的权限计算；针对对象的函数在对象详情中运行。</p></div></div>
+      <div className="detail-block">{schema.functions.filter(fn => fn.permitted && !fn.parameters.some(p => p.dataType === "object_ref"))
+        .map(fn => <FunctionRunner key={fn.apiName} fn={fn} valueTypes={schema.valueTypes} />)}</div>
+    </section>}
+
     <div className="ontology-split two-panels">
       <section className="panel">
         <div className="panel-head"><div><h2>函数</h2><p>可复用的业务规则，派生属性均由函数定义。</p></div></div>
@@ -570,8 +576,9 @@ function ParameterInput({ param, value, error, onChange }: { param: OntologyPara
 }
 
 // ------------------------------------------------------------ function runner
-function FunctionRunner({ fn, objectType, primaryKey, valueTypes, month }: { fn: OntologyFunction; objectType: string; primaryKey: string; valueTypes: OntologyValueType[]; month?: string }) {
-  const objectParam = fn.parameters.find(p => p.dataType === "object_ref" && p.objectType === objectType)!;
+// Runs a function on the focused object, or a global function (no object parameter) when objectType is omitted.
+function FunctionRunner({ fn, objectType, primaryKey, valueTypes, month }: { fn: OntologyFunction; objectType?: string; primaryKey?: string; valueTypes: OntologyValueType[]; month?: string }) {
+  const objectParam = objectType ? fn.parameters.find(p => p.dataType === "object_ref" && p.objectType === objectType) : undefined;
   const extra = fn.parameters.filter(p => p !== objectParam);
   const thisMonth = month ?? new Date().toISOString().slice(0, 7);
   const [values, setValues] = useState<Record<string, string>>(() =>
@@ -583,7 +590,7 @@ function FunctionRunner({ fn, objectType, primaryKey, valueTypes, month }: { fn:
   async function run() {
     setBusy(true); setError(null);
     try {
-      const params: Record<string, unknown> = { [objectParam.apiName]: primaryKey };
+      const params: Record<string, unknown> = objectParam ? { [objectParam.apiName]: primaryKey } : {};
       for (const [key, value] of Object.entries(values)) if (value) params[key] = value;
       setResult(await executeFunction(fn.apiName, params));
     } catch (err) {

@@ -123,7 +123,7 @@ def test_ontology_models_payment_terms_operating_policy_and_calendar(tmp_path):
     with TestClient(create_app(settings(tmp_path))) as client:
         schema = client.get("/api/v1/ontology/schema").json()["data"]
         types = {t["apiName"]: t for t in schema["objectTypes"]}
-        assert schema["version"] == "7.8.0" and {"PaymentTerm", "OperatingPolicy"} <= set(types)
+        assert schema["version"] == "7.9.0" and {"PaymentTerm", "OperatingPolicy"} <= set(types)
         project_properties = {p["apiName"] for p in types["Project"]["properties"]}
         assert {"category", "lifecycleSource", "revenueSettlementBasis"} <= project_properties
         assert not {"contractStatus", "recognizedRevenueAmount", "confirmedRevenue"} & project_properties, "retired in 3.0.0 and 4.0.0"

@@ -509,6 +509,17 @@ when: [{property: contractType, notIn: [sales]}, {property: lifecycleStatus, not
 
 构建包见 [2026-10-30-assistant-on-ontology.yaml](./ontology-builds/2026-10-30-assistant-on-ontology.yaml)。
 
+### 11.29 资源测算（v7.9.0）
+
+需求基线 D8、G8、D18–D21：函数 `resourceForecast(months=3)`，实现为 `ResourceMetrics.forecast`（`derivations/resources.py`，与 G4 的资源指标同一模块，复用工作日历、运营口径、有效工时和内部代码）。
+
+- **期间**：本月起 N 个自然月，本月从明天起；每月工作日由 `workday_summary` 给出。
+- **产能**：在岗人员 = 最近有工时月份有有效工时的员工（`monthly_hours`，与部门经营同口径）；每人每月 = 工作日 × `minimum_utilization_percent`。
+- **需求**：读取 `Project` 对象（`plannedPersonDays`、`reportedPersonDays`、`plannedStart/End`、`hoursPerPersonDay`、`lifecycleStatus`）；有预算按剩余人天按工作日均摊，无预算按最近 3 个月月均延续；项目人天 → 工时 → 标准人天。
+- **输出**：`months`（产能、需求、缺口、状态、拉动项目）、`people`（只有产能）、`projects`（口径与分月需求）、`data_gaps`（原因）、`assumptions`、`limitations`。本体浏览器「本体模型」页新增「运行全局函数」面板，不针对单个对象的函数（资源测算、资源健康、部门经营复盘等）按用户权限在此运行，资源测算有专门的结果视图。函数不声明 `dataScope`，项目经理不可执行；PM Assistant 自动获得该工具。
+
+构建包见 [2026-10-30-resource-forecast.yaml](./ontology-builds/2026-10-30-resource-forecast.yaml)。
+
 ## 12. 代码结构
 
 ```text

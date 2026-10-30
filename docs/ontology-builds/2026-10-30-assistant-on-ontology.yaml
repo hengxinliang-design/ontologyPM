@@ -2,6 +2,7 @@
 # 依据：需求基线 G5、D1、D3、D2（数据范围）；用户 2026-10-30「开始 G5」，G5 的两个问题确认为 D16–D17。
 kind: OntologyBuild
 stage: release
+supersededBy: 2026-10-30-resource-forecast.yaml
 topic: PM Assistant 的提示词与工具由本体生成，工具是用户可用的函数与对象集查询，按用户身份执行（安全标记、数据范围）；写操作只给经预检的建议；问答留审计
 ontologyVersion: 7.8.0
 date: 2026-10-30

@@ -366,6 +366,43 @@ function DepartmentReviewView({ result }: { result: Json }) {
   </div>;
 }
 
+// CQ-W5–W7 (requirements baseline D18–D21): capacity, demand and gap per month; demand is not allocated to people.
+function ResourceForecastView({ result }: { result: Json }) {
+  const months = (result.months as Json[] | undefined) ?? [];
+  const projects = (result.projects as Json[] | undefined) ?? [];
+  const gaps = (result.data_gaps as Json[] | undefined) ?? [];
+  const assumptions = (result.assumptions as Json | undefined) ?? {};
+  const method: Record<string, string> = { budget: "预算剩余", run_rate: "近期月均" };
+  return <div className="fr">
+    <div className="fr-headline"><span>{String(result.period_start ?? "")} 至 {String(result.period_end ?? "")} · 在岗 {String(result.headcount ?? 0)} 人（{String(result.headcount_month ?? "—")} 有工时）</span></div>
+    <div className="fr-stats">{months.map(month => {
+      const short = month.status === "shortage";
+      return <Stat key={String(month.month)} label={String(month.month)} tone={short ? "bad" : "good"}
+        value={short ? `缺口 ${days(month.gap_person_days)}` : `富余 ${days(String(-Number(month.gap_person_days)))}`}
+        hint={`产能 ${days(month.capacity_person_days)} · 需求 ${days(month.demand_person_days)} · ${String(month.working_days)} 个工作日`} />;
+    })}</div>
+    {months.some(month => ((month.top_projects as Json[] | undefined) ?? []).length > 0) && <Section title="各月拉动需求的项目">
+      <ul className="fr-alerts">{months.filter(month => ((month.top_projects as Json[] | undefined) ?? []).length > 0).map(month =>
+        <li key={String(month.month)} className={month.status === "shortage" ? "critical" : ""}>
+          <div><strong>{String(month.month)}</strong></div>
+          <p>{((month.top_projects as Json[]) ?? []).map(p => `${String(p.project_number)} ${days(p.person_days)}`).join("；")}</p>
+        </li>)}</ul>
+    </Section>}
+    <Section title="项目需求（标准人天）">
+      {projects.length ? <table className="fr-table"><thead><tr><th>项目</th><th>口径</th>{months.map(m => <th key={String(m.month)}>{String(m.month)}</th>)}<th>合计</th></tr></thead>
+        <tbody>{projects.map(p => <tr key={String(p.project_number)}><td>{String(p.project_number)}</td><td title={String(p.basis ?? "")}>{method[String(p.method)] ?? String(p.method)}</td>
+          {months.map(m => <td key={String(m.month)}>{String(((p.months as Json) ?? {})[String(m.month)] ?? "0.00")}</td>)}<td>{String(p.total)}</td></tr>)}</tbody></table>
+        : <Empty>测算期内没有可测算的项目需求</Empty>}
+    </Section>
+    {gaps.length > 0 && <Section title="无法测算的项目（数据缺口）">
+      <ul className="fr-alerts">{gaps.map(gap => <li key={`${String(gap.project_number)}-${String(gap.reason)}`} className="warning">
+        <div><strong>{String(gap.project_number)}</strong></div><p>{String(gap.reason)}{gap.remaining_person_days ? `（剩余 ${days(gap.remaining_person_days)}）` : ""}</p>
+      </li>)}</ul>
+    </Section>}
+    <Empty>{`可用产能：${String(assumptions.capacity ?? "")}（最低利用率 ${String(assumptions.minimum_utilization_percent ?? "—")}%）。需求：${String(assumptions.demand ?? "")}。${String(result.limitations ?? "")}`}</Empty>
+  </div>;
+}
+
 function MaintenanceWorklistView({ result }: { result: Json }) {
   const summary = (result.summary as Json[] | undefined) ?? [];
   const rows = (result.data as Json[] | undefined) ?? [];
@@ -421,6 +458,7 @@ export function FunctionResultView({ outputType, result, valueTypes }: { outputT
     case "WorkingCalendar": return <CalendarView result={data} />;
     case "CustomerAnnualSummary": return <CustomerAnnualView result={data} />;
     case "ResourceHealth": return <ResourceHealthView result={data} />;
+    case "ResourceForecast": return <ResourceForecastView result={data} />;
     case "MaintenanceWorklist": return <MaintenanceWorklistView result={data} />;
     case "DepartmentOperatingReview": return <DepartmentReviewView result={data} />;
     default: return <div className="fr"><GenericObject value={data} /></div>;

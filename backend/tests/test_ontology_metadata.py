@@ -33,12 +33,12 @@ def bump(metadata: Path, version: str) -> None:
 
 def test_metadata_compiles_with_derived_edits_and_stable_checksum():
     ontology = load_ontology()
-    assert ontology.version == "7.8.0"
+    assert ontology.version == "7.9.0"
     assert [t.api_name for t in ontology.object_types][:3] == ["Project", "CostObject", "Contract"]
     assert len(ontology.object_types) == 13
     assert len(ontology.link_types) == 18
     assert len(ontology.action_types) == 17
-    assert len(ontology.functions) == 18
+    assert len(ontology.functions) == 19
     project = ontology.object_type("Project")
     assert project.metadata_source == "object-types/project.yaml"
     assert project.property("contractType").edited_by == ("configureProject",)
@@ -64,7 +64,7 @@ def test_metadata_compiles_with_derived_edits_and_stable_checksum():
         ("object-types/project.yaml", "readPermissions: [projects, health, resource, department]", "readPermissions: [projects, finance]", "finance"),
         ("link-types.yaml", "resolver: {forward: projectTeam, reverse: employeeProjects}", "resolver: {forward: projectTeam, reverse: nope}", "nope"),
         ("action-types/project.yaml", "    - Project.notes\n", "    - Project.notez\n", "Project.notez"),
-        ("ontology.yaml", "  version: 7.8.0", "  version: v7.8", "语义化版本号"),
+        ("ontology.yaml", "  version: 7.9.0", "  version: v7.9", "语义化版本号"),
         ("object-types/project.yaml", "backingDatasets: [records,", "backingDatasets: [crm_cache, records,", "crm_cache"),
         ("object-types/project.yaml", ", unit: count}", "}", "数值属性必须声明量纲"),
         ("object-types/project.yaml", ", unit: hour}", ", unit: yuan}", "money 类型与量纲 yuan 必须同时使用"),
@@ -93,7 +93,7 @@ def test_version_registry_governs_metadata_changes(tmp_path):
 
     with TestClient(create_app(app_settings)) as client:
         versions = client.get("/api/v1/ontology/versions").json()["data"]
-        assert [(v["version"], v["active"]) for v in versions] == [("7.8.0", True)]
+        assert [(v["version"], v["active"]) for v in versions] == [("7.9.0", True)]
         schema = client.get("/api/v1/ontology/schema").json()["data"]
         assert schema["checksum"] == versions[0]["checksum"]
         assert {v["apiName"] for v in schema["valueTypes"]} >= {"ContractType", "RiskLevel"}
@@ -103,7 +103,7 @@ def test_version_registry_governs_metadata_changes(tmp_path):
         with TestClient(create_app(app_settings)):
             pass
 
-    bump(metadata, "7.9.0")
+    bump(metadata, "7.10.0")
     edit(
         metadata / "object-types/project.yaml",
         "    - {apiName: notes, displayName: 备注, type: string, sourceKind: manual, source: project_settings.notes}\n",
@@ -112,19 +112,19 @@ def test_version_registry_governs_metadata_changes(tmp_path):
     edit(metadata / "action-types/project.yaml", "    - Project.notes\n", "")
     with TestClient(create_app(app_settings)) as client:
         versions = client.get("/api/v1/ontology/versions").json()["data"]
-        assert [(v["version"], v["active"]) for v in versions] == [("7.9.0", True), ("7.8.0", False)]
-        diff = client.get("/api/v1/ontology/versions/diff", params={"from": "7.8.0", "to": "7.9.0"}).json()["data"]
+        assert [(v["version"], v["active"]) for v in versions] == [("7.10.0", True), ("7.9.0", False)]
+        diff = client.get("/api/v1/ontology/versions/diff", params={"from": "7.9.0", "to": "7.10.0"}).json()["data"]
         project_change = next(c for c in diff["changes"] if c["kind"] == "ObjectType" and c["apiName"] == "Project")
         paths = {d["path"]: d for d in project_change["details"]}
         assert paths["icon"]["after"] == "folder"
         assert paths["properties.notes"]["change"] == "removed"
         assert project_change["breaking"] is True
         assert diff["summary"]["breaking"] >= 1
-        documents = client.get("/api/v1/ontology/versions/7.8.0").json()["data"]
+        documents = client.get("/api/v1/ontology/versions/7.9.0").json()["data"]
         assert any(doc["kind"] == "ObjectType" and doc["source"] == "object-types/project.yaml" for doc in documents)
         assert client.get("/api/v1/ontology/versions/9.9.9").status_code == 404
 
-    bump(metadata, "7.8.5")
+    bump(metadata, "7.9.5")
     with pytest.raises(OntologyVersionConflict, match="必须递增"):
         with TestClient(create_app(app_settings)):
             pass

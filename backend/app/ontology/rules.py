@@ -1408,6 +1408,14 @@ def fn_employee_worktime_assessment(ctx: OntologyContext, params: dict[str, Any]
         period=period, month=params.get("month"), year=params.get("year"), employee_name=params.get("employeeName"))
 
 
+@RULES.function("resourceForecast")
+def fn_resource_forecast(ctx: OntologyContext, params: dict[str, Any]) -> dict[str, Any]:
+    months = int(params.get("months") or 3)
+    if not 1 <= months <= 6:
+        raise ValueError("测算月数必须在 1 到 6 之间")
+    return _resources(ctx).forecast(ctx.objects("Project"), months)
+
+
 @RULES.function("resourceOperations")
 def fn_resource_operations(ctx: OntologyContext, params: dict[str, Any]) -> dict[str, Any]:
     return _resources(ctx).resource_operations(

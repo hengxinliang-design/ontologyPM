@@ -2,6 +2,7 @@
 # 依据：需求基线第 7 节与 G4；用户 2026-10-30「开始 G4」，G4 的三个问题确认为 D13–D15。
 kind: OntologyBuild
 stage: release
+supersededBy: 2026-10-30-resource-forecast.yaml
 topic: 员工利用率、产能、工时评价、调剂建议与资源健康只有一份实现（本体推导模块）；两个页面接口改为本体函数的包装；过载两种含义改名区分；首月单独标注；内部代码统一读投入设置
 ontologyVersion: 7.8.0
 date: 2026-10-30

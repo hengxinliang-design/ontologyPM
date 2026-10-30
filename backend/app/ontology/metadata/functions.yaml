@@ -259,3 +259,15 @@ definition:
   outputType: ResourceOperations
   permissions: [resource]
   implementation: resourceOperations
+---
+kind: Function
+version: v1
+definition:
+  apiName: resourceForecast
+  displayName: 资源测算
+  description: 本月起三个自然月（本月从明天起算）的人力测算。可用产能：最近有工时月份的在岗员工，每人每月 = 工作日 × 最低利用率目标。项目需求：未暂停、未结束的项目，有预算按剩余人天（预算 − 已填报）按工作日均摊到计划结束，无预算按最近 3 个月月均人天延续到计划结束，均换算为标准人天。按月给出产能、需求、缺口和拉动需求最多的项目，并列出无法测算的项目及原因。需求不分摊到个人。
+  parameters:
+    - {apiName: months, displayName: 测算月数, type: integer, description: 1–6，缺省 3}
+  outputType: ResourceForecast
+  permissions: [resource, department]
+  implementation: resourceForecast
