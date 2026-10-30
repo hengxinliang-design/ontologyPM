@@ -2,6 +2,7 @@
 # 依据：需求基线 v1.0 第 10 节第一批 G2 + G3 + G5a；用户 2026-10-29「开始第一批」。
 kind: OntologyBuild
 stage: release
+supersededBy: 2026-10-29-logical-delete.yaml
 topic: 每条维护规则只有一份实现；动作声明它实际改动的全部对象并由测试把关；按签约年度归集的回款改名
 ontologyVersion: 7.5.0
 date: 2026-10-29

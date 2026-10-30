@@ -51,7 +51,7 @@ version: v1
 definition:
   apiName: deleteMilestone
   displayName: 删除里程碑
-  description: 删除尚未完成的里程碑及其关联回款节点。
+  description: 删除尚未完成的里程碑及其关联回款节点；删除即标记失效（记录保留，可在审计日志追溯），关联的回款约定解除关联后保留。
   objectType: Milestone
   targetParameter: milestone
   tone: danger

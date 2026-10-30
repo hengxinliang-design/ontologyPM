@@ -9,7 +9,7 @@ from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Any, Callable
 
-from ..db import Database
+from ..db import Database, active_filter
 from ..project_repository import ProjectRepository
 from ..repository import SnapshotRepository
 from .index import ObjectIndex
@@ -73,7 +73,9 @@ class OntologyContext:
     def table(self, table: str, order_by: str) -> list[dict[str, Any]]:
         def load() -> list[dict[str, Any]]:
             with self.database.connect() as connection:
-                rows = connection.execute(f"SELECT * FROM {table} ORDER BY {order_by}").fetchall()
+                rows = connection.execute(
+                    f"SELECT * FROM {table} WHERE {active_filter(table)} ORDER BY {order_by}"
+                ).fetchall()
             return [dict(row) for row in rows]
 
         return self.dataset(f"table:{table}", load)

@@ -51,11 +51,11 @@ definition:
     - {apiName: customerConfirmedPersonDays, displayName: 客户确认人天, type: decimal, sourceKind: derived, source: 仅审批状态为 approved 的 approved_hours 之和 / 每人天小时数, derivedFrom: projectFacts, unit: personDay}
     - {apiName: confirmationGapPersonDays, displayName: 确认缺口人天, type: decimal, sourceKind: derived, source: max(已填报 − 客户确认，0)；已驳回和草稿不在已填报中，缺口只剩已提交待确认的工时, derivedFrom: projectFacts, unit: personDay}
     - {apiName: budgetUtilization, displayName: 预算使用率, type: percent, sourceKind: derived, source: 已填报人天 / 预算人天 × 100%；按工作量结算的项目不参与预算规则, derivedFrom: projectFacts, unit: percent}
-    - {apiName: milestoneTotal, displayName: 里程碑数, type: integer, sourceKind: derived, source: count(milestones), derivedFrom: projectFacts, unit: count}
+    - {apiName: milestoneTotal, displayName: 里程碑数, type: integer, sourceKind: derived, source: count(milestones)，不含已删除（标记失效）的里程碑, derivedFrom: projectFacts, unit: count}
     - {apiName: milestoneCompleted, displayName: 已完成里程碑, type: integer, sourceKind: derived, source: count(milestones where completed), derivedFrom: projectFacts, unit: count}
     - {apiName: overdueMilestones, displayName: 逾期里程碑, type: integer, sourceKind: derived, source: 计划结束日已过且未完成, derivedFrom: projectFacts, unit: count}
-    - {apiName: paymentNodeTotal, displayName: 回款节点数, type: integer, sourceKind: derived, source: count(payment_nodes)：已生成的回款节点，来自关联了里程碑的回款约定或独立新建的回款节点；回款约定未关联里程碑时还没有回款节点, derivedFrom: projectFacts, unit: count}
-    - {apiName: paymentTermCount, displayName: 回款约定数, type: integer, sourceKind: derived, source: count(payment_terms)：项目设定的合同回款约定, derivedFrom: projectFacts, unit: count}
+    - {apiName: paymentNodeTotal, displayName: 回款节点数, type: integer, sourceKind: derived, source: count(payment_nodes)：已生成且未删除的回款节点，来自关联了里程碑的回款约定或独立新建的回款节点；回款约定未关联里程碑时还没有回款节点, derivedFrom: projectFacts, unit: count}
+    - {apiName: paymentTermCount, displayName: 回款约定数, type: integer, sourceKind: derived, source: count(payment_terms)：项目设定且未删除的合同回款约定, derivedFrom: projectFacts, unit: count}
     - {apiName: unlinkedPaymentTermCount, displayName: 待关联回款约定, type: integer, sourceKind: derived, source: 尚未关联里程碑的回款约定数（关联后才生成回款节点）, derivedFrom: projectFacts, unit: count}
     - {apiName: overduePaymentNodes, displayName: 逾期回款节点, type: integer, sourceKind: derived, source: 计划日期已过且未到账, derivedFrom: projectFacts, unit: count}
     - {apiName: openInterventions, displayName: 未关闭干预, type: integer, sourceKind: derived, source: count(interventions where status != closed), derivedFrom: projectFacts, unit: count}

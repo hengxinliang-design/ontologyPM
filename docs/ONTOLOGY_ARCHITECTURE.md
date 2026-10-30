@@ -462,6 +462,17 @@ when: [{property: contractType, notIn: [sales]}, {property: lifecycleStatus, not
 
 构建包见 [2026-10-29-rule-homes-and-linkages.yaml](./ontology-builds/2026-10-29-rule-homes-and-linkages.yaml)。
 
+### 11.25 逻辑删除（v7.6.0）
+
+需求基线 D6 / G7：里程碑、回款约定、回款节点的删除改为标记失效。
+
+- **数据**：三张表增加 `deleted_at`、`deleted_by`（启动时迁移补列）。删除动作调用 `ProjectRepository._mark_deleted`，删除人取执行动作的登录用户；删除里程碑同时标记其回款节点，并解除回款约定的关联；编辑里程碑换掉或取消约定时，旧节点同样标记失效。
+- **过滤只有一处**：`app/db.py` 的 `LOGICALLY_DELETED` 与 `ACTIVE_ROW`（`active_filter(table)`）。本体的 `ctx.table`、基础程序的 `_rows_grouped`（项目数据）与 `_row_by_project_id`、按编号查找和默认序号都用它，所以失效记录不进入对象、关系、统计期间可选月份、项目详情与推导；对失效记录的编辑、确认、关联、再次删除都按「找不到」拒绝。
+- **唯一约束**：`idx_payment_nodes_term` 改为部分索引 `WHERE payment_term_id IS NOT NULL AND deleted_at IS NULL`，失效节点保留约定编号以便追溯，同一约定可以重新关联到新的里程碑。
+- **不变**：动作名称、参数、`edits`、`writeback` 不变（标记失效仍是对数据表的写入）；管理干预没有删除动作。
+
+构建包见 [2026-10-29-logical-delete.yaml](./ontology-builds/2026-10-29-logical-delete.yaml)。
+
 ## 12. 代码结构
 
 ```text

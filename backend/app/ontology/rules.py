@@ -1031,7 +1031,7 @@ def create_milestone(ctx, values, target, actor):
 @RULES.handler("editMilestone")
 def edit_milestone(ctx, values, target, actor):
     payload = _snake(values, MILESTONE_FIELDS, frozenset({"owner", "deliverable", "notes", "paymentTermId"}))
-    milestone = ctx.projects.update_milestone(target["projectNumber"], target["milestoneId"], payload)
+    milestone = ctx.projects.update_milestone(target["projectNumber"], target["milestoneId"], payload, actor)
     edits = [_edit("Milestone", target["milestoneId"], "update")]
     if milestone.get("payment_node_id"):
         operation = "update" if target.get("paymentNodeId") else "create"
@@ -1043,7 +1043,7 @@ def edit_milestone(ctx, values, target, actor):
 
 @RULES.handler("deleteMilestone")
 def delete_milestone(ctx, values, target, actor):
-    ctx.projects.delete_milestone(target["projectNumber"], target["milestoneId"])
+    ctx.projects.delete_milestone(target["projectNumber"], target["milestoneId"], actor)
     edits = [_edit("Milestone", target["milestoneId"], "delete")]
     if target.get("paymentNodeId"):
         edits.append(_edit("PaymentNode", target["paymentNodeId"], "delete"))
@@ -1067,7 +1067,7 @@ def edit_payment_node(ctx, values, target, actor):
 
 @RULES.handler("deletePaymentNode")
 def delete_payment_node(ctx, values, target, actor):
-    ctx.projects.delete_payment_node(target["projectNumber"], target["paymentNodeId"])
+    ctx.projects.delete_payment_node(target["projectNumber"], target["paymentNodeId"], actor)
     return {"edits": [_edit("PaymentNode", target["paymentNodeId"], "delete")]}
 
 
@@ -1114,7 +1114,7 @@ def edit_payment_term(ctx, values, target, actor):
 
 @RULES.handler("deletePaymentTerm")
 def delete_payment_term(ctx, values, target, actor):
-    ctx.projects.delete_payment_term(target["projectNumber"], target["paymentTermId"])
+    ctx.projects.delete_payment_term(target["projectNumber"], target["paymentTermId"], actor)
     return {"edits": [_edit("PaymentTerm", target["paymentTermId"], "delete")]}
 
 

@@ -6,7 +6,7 @@ version: v1
 definition:
   apiName: tsg-pm
   displayName: TSG PM 项目运营本体
-  version: 7.5.0
+  version: 7.6.0
   description: 把 CRM、工时与人工维护数据统一为项目运营语义模型：对象、关系、动作、函数与安全策略。
 ---
 kind: Marking

@@ -29,7 +29,7 @@ version: v1
 definition:
   apiName: deletePaymentNode
   displayName: 删除回款节点
-  description: 删除尚未到账、且不由里程碑管理的回款节点。
+  description: 删除尚未到账、且不由里程碑管理的回款节点；删除即标记失效（记录保留，可在审计日志追溯）。
   objectType: PaymentNode
   targetParameter: paymentNode
   tone: danger

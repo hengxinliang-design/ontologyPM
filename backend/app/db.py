@@ -390,6 +390,18 @@ PROJECT_ECONOMICS_COLUMNS = (
 
 DEFAULT_LOST_STATUSES_JSON = '["失败", "失效", "丢单", "输单", "关闭", "放弃"]'
 
+# Logical delete (requirements baseline D6, ontology 7.6.0): deleting one of these marks the row with
+# deleted_at/deleted_by and keeps it. Every read of these tables -- the ontology's ctx.table and the
+# repository's project data and lookups -- filters with ACTIVE_ROW, so a deleted row takes part in nothing.
+LOGICALLY_DELETED = frozenset({"milestones", "payment_nodes", "payment_terms"})
+ACTIVE_ROW = "deleted_at IS NULL"
+
+
+def active_filter(table: str) -> str:
+    """The WHERE condition (or "1=1") that keeps only live rows of ``table``."""
+    return ACTIVE_ROW if table in LOGICALLY_DELETED else "1=1"
+
+
 OBJECT_DATASETS = (
     "records",
     "project_settings",
@@ -565,10 +577,22 @@ class Database:
         }
         if "payment_term_id" not in payment_columns:
             connection.execute("ALTER TABLE payment_nodes ADD COLUMN payment_term_id TEXT")
-        connection.execute(
-            "CREATE UNIQUE INDEX IF NOT EXISTS idx_payment_nodes_term "
-            "ON payment_nodes(payment_term_id) WHERE payment_term_id IS NOT NULL"
+        for table in sorted(LOGICALLY_DELETED):
+            columns = {row["name"] for row in connection.execute(f"PRAGMA table_info({table})").fetchall()}
+            for name in ("deleted_at", "deleted_by"):
+                if name not in columns:
+                    connection.execute(f"ALTER TABLE {table} ADD COLUMN {name} TEXT")
+        # One live payment node per payment term; a deleted node keeps its term id for tracing (7.6.0).
+        term_index = (
+            "CREATE UNIQUE INDEX idx_payment_nodes_term ON payment_nodes(payment_term_id) "
+            "WHERE payment_term_id IS NOT NULL AND deleted_at IS NULL"
         )
+        existing = connection.execute(
+            "SELECT sql FROM sqlite_master WHERE type='index' AND name='idx_payment_nodes_term'"
+        ).fetchone()
+        if not existing or existing["sql"] != term_index:
+            connection.execute("DROP INDEX IF EXISTS idx_payment_nodes_term")
+            connection.execute(term_index)
         connection.commit()
 
     def dataset_versions(self) -> dict[str, int]:

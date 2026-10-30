@@ -53,7 +53,7 @@ version: v1
 definition:
   apiName: deletePaymentTerm
   displayName: 删除回款约定
-  description: 删除尚未关联里程碑的回款约定。已关联的约定需先在里程碑上解除关联。
+  description: 删除尚未关联里程碑的回款约定，已关联的约定需先在里程碑上解除关联；删除即标记失效（记录保留，可在审计日志追溯）。
   objectType: PaymentTerm
   targetParameter: paymentTerm
   tone: danger

@@ -11,7 +11,7 @@ from zoneinfo import ZoneInfo
 from . import maintenance_rules as rules
 from .maintenance_rules import CAPPED_TYPES
 from .china_holiday_calendar import ChinaHolidayCalendarService
-from .db import Database
+from .db import ACTIVE_ROW, Database, active_filter
 from .pagination import CursorError, decode_cursor, encode_cursor
 from .repository import SnapshotRepository
 
@@ -775,7 +775,7 @@ class ProjectRepository:
             sequence_no = payload.get("sequence_no")
             if sequence_no is None:
                 row = connection.execute(
-                    "SELECT COALESCE(MAX(sequence_no), 0) + 1 AS next_no FROM milestones WHERE project_number = ?",
+                    f"SELECT COALESCE(MAX(sequence_no), 0) + 1 AS next_no FROM milestones WHERE project_number = ? AND {ACTIVE_ROW}",
                     (project_number,),
                 ).fetchone()
                 sequence_no = row["next_no"]
@@ -836,7 +836,7 @@ class ProjectRepository:
         return self._milestone_with_payment(milestone_id)
 
     def update_milestone(
-        self, project_number: str, milestone_id: str, payload: dict[str, Any]
+        self, project_number: str, milestone_id: str, payload: dict[str, Any], actor: str | None = None
     ) -> dict[str, Any]:
         current = self._row_by_project_id(
             "milestones", "milestone_id", milestone_id, project_number
@@ -885,7 +885,7 @@ class ProjectRepository:
                 not previous_term or previous_term["payment_term_id"] != payment_term_id
             ):
                 self._remove_milestone_payment_event(
-                    connection, milestone_id, payment_node_id
+                    connection, milestone_id, payment_node_id, actor
                 )
                 payment_node_id = None
             if payment_term:
@@ -905,7 +905,7 @@ class ProjectRepository:
                     payment_node_id = "pay_" + uuid.uuid4().hex[:16]
                 elif not is_payment_node and payment_node_id:
                     self._remove_milestone_payment_event(
-                        connection, milestone_id, payment_node_id
+                        connection, milestone_id, payment_node_id, actor
                     )
                     payment_node_id = None
             connection.execute(
@@ -972,7 +972,7 @@ class ProjectRepository:
                 """
                 UPDATE milestones SET status='completed', completed_date=?,
                     confirmed_by=?, confirmed_at=?, updated_at=?
-                WHERE milestone_id=? AND project_number=?
+                WHERE milestone_id=? AND project_number=? AND deleted_at IS NULL
                 """,
                 (date.today().isoformat(), confirmed_by, now, now, milestone_id, project_number),
             )
@@ -981,7 +981,9 @@ class ProjectRepository:
             connection.commit()
         return self._milestone_with_payment(milestone_id)
 
-    def delete_milestone(self, project_number: str, milestone_id: str) -> dict[str, Any]:
+    def delete_milestone(
+        self, project_number: str, milestone_id: str, deleted_by: str | None = None
+    ) -> dict[str, Any]:
         current = self._row_by_project_id(
             "milestones", "milestone_id", milestone_id, project_number
         )
@@ -996,20 +998,14 @@ class ProjectRepository:
                     (payment_node_id,),
                 ).fetchone()
                 rules.ensure(rules.linked_payment_unpaid(payment["status"] if payment else None))
-            connection.execute(
-                "DELETE FROM milestones WHERE milestone_id = ? AND project_number = ?",
-                (milestone_id, project_number),
-            )
+            self._mark_deleted(connection, "milestones", "milestone_id", milestone_id, deleted_by)
             if payment_node_id:
                 connection.execute(
                     "UPDATE payment_terms SET linked_milestone_id=NULL, payment_node_id=NULL, updated_at=? "
                     "WHERE linked_milestone_id=?",
                     (self._now(), milestone_id),
                 )
-                connection.execute(
-                    "DELETE FROM payment_nodes WHERE payment_node_id = ?",
-                    (payment_node_id,),
-                )
+                self._mark_deleted(connection, "payment_nodes", "payment_node_id", payment_node_id, deleted_by)
             connection.commit()
         # Callers that need the project view read it from the ontology.
         return {"project_number": project_number}
@@ -1082,18 +1078,18 @@ class ProjectRepository:
             connection.commit()
         return self._row_by_id("payment_terms", "payment_term_id", payment_term_id)
 
-    def delete_payment_term(self, project_number: str, payment_term_id: str) -> None:
+    def delete_payment_term(
+        self, project_number: str, payment_term_id: str, deleted_by: str | None = None
+    ) -> None:
         with self.database.connect() as connection:
             row = connection.execute(
-                "SELECT * FROM payment_terms WHERE payment_term_id=? AND project_number=?",
+                f"SELECT * FROM payment_terms WHERE payment_term_id=? AND project_number=? AND {ACTIVE_ROW}",
                 (payment_term_id, project_number),
             ).fetchone()
             if row is None:
                 raise KeyError("payment term not found")
             rules.ensure(rules.term_unlinked(row["linked_milestone_id"]))
-            connection.execute(
-                "DELETE FROM payment_terms WHERE payment_term_id=?", (payment_term_id,)
-            )
+            self._mark_deleted(connection, "payment_terms", "payment_term_id", payment_term_id, deleted_by)
             connection.commit()
 
     def _validated_payment_term(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -1127,7 +1123,7 @@ class ProjectRepository:
         if not payment_term_id:
             return None
         row = connection.execute(
-            "SELECT * FROM payment_terms WHERE payment_term_id=? AND project_number=?",
+            f"SELECT * FROM payment_terms WHERE payment_term_id=? AND project_number=? AND {ACTIVE_ROW}",
             (payment_term_id, project_number),
         ).fetchone()
         if row is None:
@@ -1185,7 +1181,7 @@ class ProjectRepository:
         )
 
     def _remove_milestone_payment_event(
-        self, connection: Any, milestone_id: str, payment_node_id: str
+        self, connection: Any, milestone_id: str, payment_node_id: str, deleted_by: str | None = None
     ) -> None:
         payment = connection.execute(
             "SELECT status FROM payment_nodes WHERE payment_node_id=?",
@@ -1197,8 +1193,16 @@ class ProjectRepository:
             "WHERE linked_milestone_id=?",
             (self._now(), milestone_id),
         )
+        self._mark_deleted(connection, "payment_nodes", "payment_node_id", payment_node_id, deleted_by)
+
+    def _mark_deleted(
+        self, connection: Any, table: str, column: str, value: str, deleted_by: str | None
+    ) -> None:
+        """Logical delete (D6): keep the row, mark when and by whom it was deleted."""
+        now = self._now()
         connection.execute(
-            "DELETE FROM payment_nodes WHERE payment_node_id=?", (payment_node_id,)
+            f"UPDATE {table} SET deleted_at=?, deleted_by=?, updated_at=? WHERE {column}=? AND {ACTIVE_ROW}",
+            (now, deleted_by, now, value),
         )
 
     def confirm_payment_node(
@@ -1207,7 +1211,7 @@ class ProjectRepository:
     ) -> dict[str, Any]:
         with self.database.connect() as connection:
             row = connection.execute(
-                "SELECT * FROM payment_nodes WHERE payment_node_id=? AND project_number=?",
+                f"SELECT * FROM payment_nodes WHERE payment_node_id=? AND project_number=? AND {ACTIVE_ROW}",
                 (payment_node_id, project_number),
             ).fetchone()
             if row is None:
@@ -1230,7 +1234,7 @@ class ProjectRepository:
     ) -> dict[str, Any]:
         with self.database.connect() as connection:
             row = connection.execute(
-                "SELECT * FROM payment_nodes WHERE payment_node_id=? AND project_number=?",
+                f"SELECT * FROM payment_nodes WHERE payment_node_id=? AND project_number=? AND {ACTIVE_ROW}",
                 (payment_node_id, project_number),
             ).fetchone()
             if row is None:
@@ -1253,24 +1257,23 @@ class ProjectRepository:
             connection.commit()
         return self._row_by_id("payment_nodes", "payment_node_id", payment_node_id)
 
-    def delete_payment_node(self, project_number: str, payment_node_id: str) -> None:
+    def delete_payment_node(
+        self, project_number: str, payment_node_id: str, deleted_by: str | None = None
+    ) -> None:
         with self.database.connect() as connection:
             row = connection.execute(
-                "SELECT * FROM payment_nodes WHERE payment_node_id=? AND project_number=?",
+                f"SELECT * FROM payment_nodes WHERE payment_node_id=? AND project_number=? AND {ACTIVE_ROW}",
                 (payment_node_id, project_number),
             ).fetchone()
             if row is None:
                 raise KeyError("payment node not found")
             rules.ensure(rules.locked("paymentNode", row["status"]))
             linked_milestone = connection.execute(
-                "SELECT milestone_id FROM milestones WHERE payment_node_id=?",
+                f"SELECT milestone_id FROM milestones WHERE payment_node_id=? AND {ACTIVE_ROW}",
                 (payment_node_id,),
             ).fetchone()
             rules.ensure(rules.node_not_milestone_managed(linked_milestone["milestone_id"] if linked_milestone else None))
-            connection.execute(
-                "DELETE FROM payment_nodes WHERE payment_node_id=?",
-                (payment_node_id,),
-            )
+            self._mark_deleted(connection, "payment_nodes", "payment_node_id", payment_node_id, deleted_by)
             connection.commit()
 
     def create_payment_node(
@@ -1629,14 +1632,15 @@ class ProjectRepository:
         with self.database.connect() as connection:
             if project_numbers is None:
                 rows = connection.execute(
-                    f"SELECT * FROM {table} ORDER BY {order_by}"
+                    f"SELECT * FROM {table} WHERE {active_filter(table)} ORDER BY {order_by}"
                 ).fetchall()
             elif not project_numbers:
                 rows = []
             else:
                 placeholders = ", ".join("?" for _ in project_numbers)
                 rows = connection.execute(
-                    f"SELECT * FROM {table} WHERE project_number IN ({placeholders}) ORDER BY {order_by}",
+                    f"SELECT * FROM {table} WHERE {active_filter(table)} AND project_number IN ({placeholders}) "
+                    f"ORDER BY {order_by}",
                     tuple(sorted(project_numbers)),
                 ).fetchall()
         grouped: dict[str, list[dict[str, Any]]] = {}
@@ -1657,7 +1661,7 @@ class ProjectRepository:
     ) -> dict[str, Any] | None:
         with self.database.connect() as connection:
             row = connection.execute(
-                f"SELECT * FROM {table} WHERE {column} = ? AND project_number = ?",
+                f"SELECT * FROM {table} WHERE {column} = ? AND project_number = ? AND {active_filter(table)}",
                 (value, project_number),
             ).fetchone()
         return dict(row) if row else None

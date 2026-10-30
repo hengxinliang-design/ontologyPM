@@ -1,0 +1,76 @@
+# 本体构建包（发布稿）：里程碑、回款约定、回款节点改为逻辑删除。本体 7.6.0（删除动作改为标记失效，对象与属性不变，非破坏性）。
+# 依据：需求基线 v1.0 决定 D6 与第 10 节 G7；用户 2026-10-29「开始 G7」。
+kind: OntologyBuild
+stage: release
+topic: 删除改为标记失效并保留记录；失效记录不参与任何查询、推导和校验；唯一约束只约束有效记录；管理干预不能删除
+ontologyVersion: 7.6.0
+date: 2026-10-29
+scope:
+  - CQ-G7a 一个里程碑、回款约定或回款节点被删除后，还能查到它原来的内容、谁删的、什么时候删的吗？
+  - CQ-G7b 被删除的记录会不会继续出现在本体浏览、项目详情、回款统计或进度推导中？
+  - CQ-G7c 里程碑删除后，它原来关联的回款约定能否再关联到新的里程碑？
+  - CQ-G7d 管理干预能被删除吗？
+
+rules:
+  - id: R1
+    statement: 里程碑、回款约定、回款节点三张表增加失效标记 deleted_at（删除时间）与 deleted_by（删除人）。「删除里程碑」「删除回款约定」「删除回款节点」三个动作改为写入失效标记，不再删除数据行。删除里程碑时，同时把它的回款节点标记失效，并解除回款约定的关联（约定本身保留）；编辑里程碑时换掉或取消回款约定，原回款节点同样标记失效。删除前的校验（已完成、已到账锁定，已关联约定不能删等）不变。
+    basis: 需求基线 D6「里程碑、回款约定、回款节点改为逻辑删除（标记失效、保留记录），审计中可追溯」。删除人取自执行动作的登录用户，与审计日志的操作人一致。
+    acceptance: 执行三个删除动作后，数据库中对应的行仍在，deleted_at 有值，deleted_by 为执行动作的用户；删除里程碑后其回款节点也有失效标记，原回款约定的 linked_milestone_id、payment_node_id 为空且约定没有失效标记；审计日志中有这三次删除。
+    verifiedBy: [test_deleted_records_are_kept_and_hidden]
+    ontology: [deleteMilestone, deletePaymentTerm, deletePaymentNode, editMilestone]
+  - id: R2
+    statement: 失效记录不参与任何读取。失效表的清单与过滤条件只有一份，放在 app/db.py（LOGICALLY_DELETED、ACTIVE_ROW），本体的数据读取（ctx.table）和基础程序的项目数据、按编号查找都用它。因此失效记录不出现在本体对象列表、对象详情、关系、统计期间的可选月份、项目详情接口、回款统计与进度推导中；对失效记录执行编辑、确认、关联、再次删除，都按「找不到」拒绝。
+    basis: 需求基线 D6 第三列「查询默认排除失效记录」；技能原则 15（一条规则一份实现）——如果每个查询各自加条件，漏掉一处就会让已删除的回款继续计入统计。
+    acceptance: 删除后，本体对象列表不再列出该对象，按主键读取返回 404；项目详情接口的里程碑、回款节点、回款约定中没有它；项目的回款节点数与计划回款不再计入被删除的节点；编辑、确认、再次删除失效对象返回「找不到」；新建里程碑的默认序号按有效里程碑计算。
+    verifiedBy: [test_deleted_records_are_kept_and_hidden]
+    ontology: [Milestone, PaymentNode, PaymentTerm, Project]
+  - id: R3
+    statement: 唯一约束只约束有效记录。回款节点表上「一个回款约定只对应一个回款节点」的唯一索引改为只对有效节点生效；失效节点保留原来的 payment_term_id，用于追溯它来自哪条约定。
+    basis: 删除里程碑后合同条款仍在，约定需要关联到新的里程碑（需求基线第 6 节联动「回款约定 → 关联里程碑 → 回款节点」）；保留失效节点的约定编号是 D6「可追溯」的要求。如果唯一索引仍约束全部行，重新关联会因失效节点占用约定编号而失败。
+    acceptance: 回款约定关联里程碑 A，删除 A 后再关联里程碑 B 成功；数据库中该约定编号对应两个回款节点，一个失效（来自 A）、一个有效（来自 B）。
+    verifiedBy: [test_a_term_can_be_relinked_after_its_milestone_is_deleted]
+    ontology: [PaymentTerm.linkedMilestoneId, PaymentNode, editMilestone, createMilestone]
+  - id: R4
+    statement: 管理干预不能删除，只能通过「更新干预状态」关闭；关闭后锁定（7.5.0 的锁定表）。本体中没有删除干预的动作。
+    basis: 需求基线 D6 后半句「管理干预不能删除，只能关闭」。
+    acceptance: 本体动作中没有以管理干预为对象的删除动作；以管理干预为对象的动作只有新建和更新状态。
+    verifiedBy: [test_interventions_cannot_be_deleted]
+    ontology: [Intervention, openIntervention, updateInterventionStatus]
+
+exceptions:
+  - rule: R1
+    case: 启动时一次性清理不属于任何 CRM 项目的历史演示维护数据（legacy_orphaned_project_maintenance_cleanup_v1）。
+    handling: 仍然物理删除，不写失效标记。
+    basis: 这是系统迁移，不是人工维护；已在早期版本执行过，有完成标记，不会再次运行。被清理的是没有对应项目的孤立演示数据，没有追溯价值。
+  - rule: R1
+    case: 删除里程碑时它关联的回款约定。
+    handling: 约定不标记失效，只解除关联；需要删除约定时另外执行「删除回款约定」。
+    basis: 约定来自合同条款，里程碑是交付计划；计划调整不等于合同条款作废。
+  - rule: R1
+    case: 恢复被删除的记录。
+    handling: 本次不提供恢复动作；确需恢复时由管理员在数据库中清空失效标记，并在审计中说明。
+    basis: D6 只要求保留和可追溯；恢复会牵涉与新建记录的冲突（例如约定已关联到新的里程碑），需要单独设计。
+  - rule: R1
+    case: 确认到账、确认完成等锁定状态的记录。
+    handling: 仍然不能删除（锁定校验在标记失效之前执行），因此失效记录中不会有已完成的里程碑或已到账的回款。
+    basis: 7.5.0 锁定表不变；逻辑删除只改变删除的方式，不放宽删除的条件。
+  - rule: R2
+    case: 查看已删除的记录。
+    handling: 本体浏览器与 API 不显示失效记录；追溯靠审计日志（动作、参数、操作人、时间）和数据库中保留的行。
+    basis: 需求基线 D3 本体浏览器面向治理与分析，回答「现在是什么」；审计查询已有审计日志页面。如需在页面查看失效记录，另提需求。
+  - rule: R2
+    case: 新建里程碑的默认序号。
+    handling: 按有效里程碑的最大序号加 1，删除最后一个里程碑后其序号会被新里程碑复用。
+    basis: 序号是展示顺序，不是标识；主键另有编号，不会因复用而混淆。
+  - rule: R2
+    case: 标记失效引起的数据集版本变化。
+    handling: 写失效标记是对数据表的更新，会触发数据集版本递增和对象索引失效，与原来物理删除相同；动作的 writeback 声明不变。
+    basis: 7.5.0 写入范围把关测试按数据集版本比较，结果不受删除方式影响。
+  - rule: R3
+    case: 回款约定表上的唯一约束（linked_milestone_id、payment_node_id）。
+    handling: 不改。
+    basis: 约定只有解除关联后才能删除（7.5.0 规则「未关联里程碑才能删除回款约定」），失效约定这两列都为空，不会占用唯一值。
+  - rule: R4
+    case: 误建的管理干预。
+    handling: 关闭并在备注中写明原因，不删除。
+    basis: 干预是管理记录，误建本身也需要留痕（D6）。
