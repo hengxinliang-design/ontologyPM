@@ -159,8 +159,9 @@ def test_base_program_endpoints_follow_the_scope(tmp_path):
         assert client.get("/api/v1/projects/TPL149/records", headers=admin).status_code == client.get(
             "/api/v1/projects/TPL149/records", headers=pm).status_code
         assert client.post("/api/v1/projects/ZMJ113/ai-analysis", headers=pm).status_code == 404
+        # PM Assistant opened to project managers with G5 (its tools run in their scope); no model is configured here.
         chat = client.post("/api/v1/pm-assistant/chat", headers=pm, json={"message": "哪些项目有风险？"})
-        assert chat.status_code == 403 and "G5" in chat.text
+        assert chat.status_code == 503 and "尚未配置模型服务" in chat.text
         assert client.get("/api/v1/exports/latest?format=json", headers=pm).status_code == 403
         assert client.get("/api/v1/exports/latest?format=json", headers=admin).status_code == 200
 

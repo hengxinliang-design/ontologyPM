@@ -87,9 +87,20 @@ export interface PmAssistantChatMessage {
   content: string;
 }
 
+// A write the assistant proposes (requirements baseline D16): pre-checked against the action's rules, never executed.
+export interface PmAssistantSuggestion {
+  actionType: string;
+  displayName: string;
+  parameters: Record<string, unknown>;
+  reason?: string | null;
+  valid: boolean;
+  reasons: string[];
+}
+
 export interface PmAssistantResponse {
   answer: string;
   sources: string[];
+  suggestions?: PmAssistantSuggestion[];
   model: string;
 }
 

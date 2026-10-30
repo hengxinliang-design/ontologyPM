@@ -276,6 +276,18 @@ CREATE TABLE IF NOT EXISTS users (
     updated_at TEXT NOT NULL
 );
 
+-- PM Assistant audit (requirements baseline D17): question, tools and suggestions; the answer is not kept.
+CREATE TABLE IF NOT EXISTS assistant_log (
+    log_id TEXT PRIMARY KEY,
+    actor TEXT NOT NULL,
+    question TEXT NOT NULL,
+    tools_json TEXT NOT NULL DEFAULT '[]',
+    suggestions_json TEXT NOT NULL DEFAULT '[]',
+    status TEXT NOT NULL CHECK (status IN ('succeeded', 'failed')),
+    message TEXT,
+    created_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS auth_sessions (
     token_hash TEXT PRIMARY KEY,
     username TEXT NOT NULL REFERENCES users(username) ON DELETE CASCADE,

@@ -443,3 +443,15 @@ main { padding-bottom: 104px; }
 /* Roles and data scope (7.7.0): hint under the project manager field when the name has no account (D10). */
 .field-hint { display: block; margin-top: 4px; font-size: 12px; font-weight: 400; }
 .warn-text { color: var(--warning); }
+
+/* PM Assistant suggested actions (requirements baseline D16): pre-checked, never executed. */
+.pm-assistant-actions { display: grid; gap: 8px; padding: 10px 16px; border-top: 1px solid var(--line, #e3e8ef); }
+.pm-assistant-actions > span { font-size: 12px; font-weight: 700; color: var(--text-secondary, #5b6475); }
+.pm-assistant-actions article { padding: 8px 10px; border: 1px solid var(--line, #e3e8ef); border-radius: 8px; background: var(--surface, #fff); }
+.pm-assistant-actions article.valid { border-left: 3px solid var(--success, #1f8a5b); }
+.pm-assistant-actions article.invalid { border-left: 3px solid var(--warning); background: var(--warning-soft); }
+.pm-assistant-actions header { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; }
+.pm-assistant-actions header i { font-style: normal; font-size: 12px; color: var(--text-secondary, #5b6475); }
+.pm-assistant-actions p, .pm-assistant-actions li { margin: 4px 0 0; font-size: 12px; overflow-wrap: anywhere; }
+.pm-assistant-actions ul { margin: 4px 0 0; padding-left: 18px; }
+.pm-assistant-actions > small { font-size: 11px; color: var(--text-tertiary, #8a93a3); }

@@ -186,7 +186,7 @@ POST /api/v1/pm-assistant/chat
 Content-Type: application/json
 ```
 
-服务端会先从当前 SQLite 中按项目编号、主题、客户、负责人、风险和 CRM 字段检索相关资料，再将精简后的事实资料提交给 LLM。密钥仅保存在服务端环境变量 `OPENAI_API_KEY`，不会发送到浏览器。
+服务端以提问用户的身份运行（本体 7.8.0 起，需求基线 G5）：模型通过工具调用本体函数和对象集查询（`query_objects`、`aggregate_objects`、`get_object`、`get_linked_objects`、`describe_type`），菜单权限、安全标记和项目经理的数据范围都按该用户生效；项目经理可以使用。最多 6 轮工具调用。写操作只能通过 `suggest_action` 提出，服务端做预检、不执行。密钥仅保存在服务端环境变量 `OPENAI_API_KEY`，不会发送到浏览器。
 
 请求：
 
@@ -210,7 +210,11 @@ Content-Type: application/json
 {
   "data": {
     "answer": "当前优先关注……",
-    "sources": ["项目主数据库：3 个相关项目", "CRM 数据：5 条相关记录"],
+    "sources": ["函数 项目列表（projectList）", "对象 项目"],
+    "suggestions": [
+      {"actionType": "editMilestone", "displayName": "编辑里程碑", "parameters": {"milestone": "ms_…", "plannedEnd": "2026-12-31"},
+       "reason": "客户要求延后", "valid": true, "reasons": []}
+    ],
     "model": "gpt-5.2"
   }
 }
@@ -220,6 +224,9 @@ Content-Type: application/json
 
 CRM 记录是系统接口同步后的只读事实数据。人工维护字段不写入 CRM 记录表。
 列表会返回全部成功解析并已入库的合同与销售机会原始记录；项目主数据库才按项目编号执行汇总。
+
+
+`suggestions` 是建议动作（D16），`valid` 为预检结果，`reasons` 为未通过的原因；需要用户到业务页面执行。每次问答记入审计（D17）：`GET /api/v1/pm-assistant/log?limit=100`（仅管理员）返回提问人、问题、调用的工具与参数、建议和状态，不含回答。
 
 ### 4.1 查询 CRM 记录列表
 

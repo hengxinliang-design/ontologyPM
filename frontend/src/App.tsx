@@ -59,6 +59,7 @@ import type {
   MenuPermission,
   PaymentSummary,
   PmAssistantChatMessage,
+  PmAssistantSuggestion,
   ProjectDetail,
   ProjectHealthResponse,
   ProjectHealthRow,
@@ -615,7 +616,7 @@ export function App() {
           await load();
         }}
       />}
-      {canAccess("projects") && authUser?.data_scope !== "own" && <PmAssistant />}
+      {canAccess("projects") && <PmAssistant />}
     </div>
   );
 }
@@ -836,6 +837,7 @@ function PmAssistant() {
   const [draft, setDraft] = useState("");
   const [messages, setMessages] = useState<PmAssistantChatMessage[]>([]);
   const [sources, setSources] = useState<string[]>([]);
+  const [suggestions, setSuggestions] = useState<PmAssistantSuggestion[]>([]);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -851,6 +853,7 @@ function PmAssistant() {
       const response = await chatWithPmAssistant(content, messages);
       setMessages([...nextHistory, { role: "assistant", content: response.answer }]);
       setSources(response.sources);
+      setSuggestions(response.suggestions ?? []);
     } catch (err) {
       setError(err instanceof Error ? err.message : "PM Assistant 暂时无法回答，请稍后重试。");
     } finally {
@@ -866,15 +869,24 @@ function PmAssistant() {
   return <div className="pm-assistant" aria-live="polite">
     {open && <section className="pm-assistant-panel" role="dialog" aria-label="PM Assistant">
       <header className="pm-assistant-head">
-        <div><span className="pm-assistant-kicker">AI PROJECT COPILOT</span><h2>PM Assistant</h2><p>基于当前系统资料回答项目管理问题</p></div>
+        <div><span className="pm-assistant-kicker">AI PROJECT COPILOT</span><h2>PM Assistant</h2><p>按你的权限调用系统本体回答项目管理问题</p></div>
         <button type="button" className="pm-assistant-close" aria-label="关闭 PM Assistant" onClick={() => setOpen(false)}>×</button>
       </header>
       <div className="pm-assistant-conversation">
-        {!messages.length && <div className="pm-assistant-welcome"><strong>可以问我什么？</strong><p>我会检索项目、CRM、里程碑与工时资料后给出结论；资料不足时会说明缺少什么。</p><div className="pm-assistant-suggestions">{["哪些项目需要优先关注？", "目前有哪些待回款项目？", "工时超预算的项目有哪些？"].map(question => <button key={question} type="button" onClick={() => void send(question)}>{question}</button>)}</div></div>}
+        {!messages.length && <div className="pm-assistant-welcome"><strong>可以问我什么？</strong><p>我会调用系统的本体函数和对象查询，按「结论、数据、依据」回答；资料不足时说明缺少什么。需要改数据时只给出经系统预检的建议，不会直接修改。</p><div className="pm-assistant-suggestions">{["哪些项目需要优先关注？", "目前有哪些待回款项目？", "工时超预算的项目有哪些？"].map(question => <button key={question} type="button" onClick={() => void send(question)}>{question}</button>)}</div></div>}
         {messages.map((item, index) => <article key={`${item.role}-${index}`} className={`pm-message ${item.role}`}><span>{item.role === "user" ? "你" : "PM Assistant"}</span><p>{item.content}</p></article>)}
-        {sending && <article className="pm-message assistant pending"><span>PM Assistant</span><p>正在检索系统资料并整理回答…</p></article>}
+        {sending && <article className="pm-message assistant pending"><span>PM Assistant</span><p>正在查询系统本体并整理回答…</p></article>}
       </div>
-      {sources.length > 0 && <div className="pm-assistant-sources"><span>本次检索</span>{sources.map(source => <small key={source}>{source}</small>)}</div>}
+      {sources.length > 0 && <div className="pm-assistant-sources"><span>本次依据</span>{sources.map(source => <small key={source}>{source}</small>)}</div>}
+      {suggestions.length > 0 && <div className="pm-assistant-actions"><span>建议动作（未执行）</span>
+        {suggestions.map((item, index) => <article key={`${item.actionType}-${index}`} className={item.valid ? "valid" : "invalid"}>
+          <header><strong>{item.displayName}</strong><i>{item.valid ? "预检通过" : "预检未通过"}</i></header>
+          <p>{Object.entries(item.parameters).map(([key, value]) => `${key}：${typeof value === "string" ? value : JSON.stringify(value)}`).join("；")}</p>
+          {item.reason && <p>理由：{item.reason}</p>}
+          {item.reasons.length > 0 && <ul>{item.reasons.map(reason => <li key={reason}>{reason}</li>)}</ul>}
+        </article>)}
+        <small>请在业务页面执行；执行时系统会再次校验。</small>
+      </div>}
       {error && <p className="pm-assistant-error">{error}</p>}
       <form className="pm-assistant-form" onSubmit={submit}><label htmlFor="pm-assistant-input">你的问题</label><div><input id="pm-assistant-input" value={draft} onChange={event => setDraft(event.target.value)} disabled={sending} placeholder="例如：哪些项目本月需要跟进？" maxLength={2000} /><button className="button primary" disabled={sending || !draft.trim()} type="submit">发送</button></div></form>
     </section>}

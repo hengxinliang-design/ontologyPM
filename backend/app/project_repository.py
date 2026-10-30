@@ -1203,37 +1203,6 @@ class ProjectRepository:
     def today(self) -> date:
         return datetime.now(ZoneInfo(self.timezone)).date()
 
-    def assistant_candidate_codes(
-        self, query: str, *, project_limit: int = 16, record_limit: int = 24
-    ) -> tuple[list[str], list[dict[str, Any]]]:
-        """Bounded CRM search for PM Assistant: matching project codes and CRM rows.
-
-        Project facts for the codes come from the ontology; this only searches base data.
-        """
-        records_by_id: dict[str, dict[str, Any]] = {}
-        for term in _assistant_search_terms(query):
-            for record in self.records.assistant_record_candidates(term, limit=record_limit):
-                records_by_id.setdefault(record["record_id"], record)
-                if len(records_by_id) >= record_limit:
-                    break
-            if len(records_by_id) >= record_limit:
-                break
-        records = list(records_by_id.values())
-        project_numbers = {
-            str(record["project_number"])
-            for record in records
-            if record.get("project_number")
-        }
-        if not project_numbers:
-            records = self.records.assistant_record_candidates("", limit=record_limit)
-            project_numbers = {
-                str(record["project_number"])
-                for record in records
-                if record.get("project_number")
-            }
-        project_numbers.difference_update(self.internal_codes())
-        return sorted(project_numbers)[:project_limit], records
-
     def _crm_search_terms_by_project(self) -> dict[str, list[str]]:
         """Return all CRM names usable for the project-master fuzzy search.
 
@@ -1375,15 +1344,6 @@ def _cursor_page(
         else None
     )
     return page, next_cursor
-
-
-def _assistant_search_terms(question: str) -> list[str]:
-    """Extract small searchable terms from a natural-language PM question."""
-    terms = re.findall(r"[A-Za-z0-9_-]{2,}", question)
-    for phrase in re.findall(r"[\u4e00-\u9fff]{2,}", question):
-        terms.append(phrase)
-        terms.extend(phrase[index : index + 2] for index in range(len(phrase) - 1))
-    return list(dict.fromkeys(term for term in terms if len(term) >= 2))[:8]
 
 
 def _cursor_scope(**values: Any) -> str:

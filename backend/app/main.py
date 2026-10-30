@@ -38,7 +38,6 @@ from .ontology import (
     OntologyService,
     load_ontology,
 )
-from .ontology.security import Principal
 from .repository import SnapshotRepository
 from .project_repository import ProjectRepository
 from .pm_assistant import PmAssistantError, PmAssistantService
@@ -70,12 +69,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     sync_service = SyncService(database, source, settings)
     # Project analytics are derived in the ontology; base programs and the assistant read them from there.
-    system_user = {"username": "system", "is_admin": True, "permissions": list(ALL_MENU_PERMISSIONS)}
 
-    def derived_project(project_number: str) -> dict[str, Any] | None:
-        return ontology_service.context(system_user).project_fact(project_number)
-
-    pm_assistant = PmAssistantService(settings, project_repository, repository, project_fact=derived_project)
     auth_service = AuthService(database, session_hours=settings.session_hours)
     investment_service = InvestmentService(database, project_repository, repository, settings.timezone)
     annual_plans = AnnualPlanRepository(database, settings.timezone)
@@ -85,6 +79,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         project_repository,
         repository,
     )
+    # G5: the assistant answers from the ontology, as the asking user.
+    pm_assistant = PmAssistantService(settings, ontology_service, database)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -321,6 +317,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         """Names of active project-manager accounts, the choices for a project's project manager (D10)."""
         return {"data": auth_service.project_manager_names()}
 
+    @app.get("/api/v1/pm-assistant/log", tags=["PM Assistant"])
+    def pm_assistant_log(
+        limit: int = Query(100, ge=1, le=500), _user: dict[str, Any] = Depends(require_admin),
+    ) -> dict[str, Any]:
+        """Requirements baseline D17: who asked what and which tools ran; answers are not kept."""
+        return {"data": pm_assistant.audit_log(limit)}
+
     @app.get("/api/v1/users", tags=["Users"])
     def list_users(
         _user: dict[str, Any] = Depends(require_admin),
@@ -352,9 +355,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def pm_assistant_chat(
         payload: dict[str, Any] = Body(...), user: dict[str, Any] = Depends(require_auth)
     ) -> dict[str, Any]:
-        if Principal.from_user(user).scoped:
-            # The assistant puts every project into its prompt; it opens to project managers with G5.
-            raise HTTPException(status_code=403, detail="PM Assistant 暂未对项目经理开放（需求基线 G5 后按本人项目开放）")
         message = payload.get("message")
         if not isinstance(message, str) or not message.strip():
             raise HTTPException(status_code=422, detail="message is required")
@@ -364,7 +364,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if not isinstance(history, list):
             raise HTTPException(status_code=422, detail="history must be a list")
         try:
-            answer = await pm_assistant.answer(message.strip(), history)
+            answer = await pm_assistant.answer(user, message.strip(), history)
         except PmAssistantError as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
         return {"data": answer}
@@ -377,7 +377,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def project_ai_analysis(project_number: str, user: dict[str, Any] = Depends(require_auth)) -> dict[str, Any]:
         require_in_scope(user, project_number)
         try:
-            analysis = await pm_assistant.analyze_project(project_number)
+            analysis = await pm_assistant.analyze_project(user, project_number)
         except PmAssistantError as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
         return {"data": analysis}

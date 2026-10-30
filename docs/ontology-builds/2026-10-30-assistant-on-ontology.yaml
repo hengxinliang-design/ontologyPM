@@ -1,0 +1,88 @@
+# 本体构建包（发布稿）：PM Assistant 基于本体回答。本体 7.8.0（不改元数据：助手是本体的使用方，提示词与工具由现有元数据生成）。
+# 依据：需求基线 G5、D1、D3、D2（数据范围）；用户 2026-10-30「开始 G5」，G5 的两个问题确认为 D16–D17。
+kind: OntologyBuild
+stage: release
+topic: PM Assistant 的提示词与工具由本体生成，工具是用户可用的函数与对象集查询，按用户身份执行（安全标记、数据范围）；写操作只给经预检的建议；问答留审计
+ontologyVersion: 7.8.0
+date: 2026-10-30
+scope:
+  - CQ-G5a PM Assistant 的回答依据来自哪里？能否说出用了哪个函数、哪些对象？
+  - CQ-G5b 一个项目经理用 PM Assistant 能不能问到别人项目的数据？没有金额权限的人能不能问到金额？
+  - CQ-G5c PM Assistant 能不能改数据？给出的修改建议是否满足系统规则？
+  - CQ-G5d 谁在什么时候问了什么、助手读取了哪些数据？
+
+rules:
+  - id: R1
+    statement: 提示词与工具由本体生成。提示词列出当前用户可读的对象类型（显示名、说明、主键、属性名）和回答规范；工具包括当前用户可执行的每个本体函数（名称、说明和参数取自函数元数据），以及通用工具：按对象集定义查询对象（query_objects）、聚合（aggregate_objects）、读取单个对象（get_object）、沿关系读取（get_linked_objects）、查看对象类型的完整口径（describe_type）、提出建议动作（suggest_action）。新增或修改函数、对象类型后，助手不改代码即可使用。
+    basis: 需求基线 G5「提示词由本体生成，工具为函数和对象集查询」；技能工作流 C（把问题翻译成对象集或函数调用，不靠文本检索）；原实现按关键词检索基础程序数据，与页面口径可能不一致。
+    acceptance: 工具清单等于当前用户可执行的函数加上 6 个通用工具；没有 CRM 查询权限的用户的工具中没有客户年度汇总；提示词只出现用户可读的对象类型；基础程序中原检索函数 assistant_candidate_codes 删除。
+    verifiedBy: [test_prompt_and_tools_come_from_the_ontology]
+    ontology: [Project, Milestone, PaymentNode, PaymentTerm, Customer, projectList, customerAnnualSummary]
+  - id: R2
+    statement: 每次工具调用都以提问用户的身份经本体服务执行（OntologyService 的函数、对象集、对象与关系接口），因此菜单权限、FINANCE 与 PERSONNEL 安全标记、项目经理的数据范围自动生效；无权或找不到时，把中文原因作为工具结果交给模型，而不是中断。项目经理可以使用 PM Assistant（G6 例外表中「G5 后开放」）。项目 AI 研判同样以提问用户的身份读取项目概览函数。
+    basis: 需求基线 D2、G5「遵守安全标记和 D2 数据范围」；技能原则 15：范围只在本体上下文一处实现，助手不另写过滤。
+    acceptance: 项目经理的助手查询项目对象只得到本人项目；查询范围外的项目得到「未找到」；查询客户对象得到无权原因；项目经理调用对话接口返回 200；项目经理对范围外项目做 AI 研判返回 404。
+    verifiedBy: [test_assistant_tools_run_as_the_user]
+    ontology: [Project, Customer, projectOverview]
+  - id: R3
+    statement: 写操作只给建议（D16）。suggest_action 以业务页面渠道对本体动作做预检（validateOnly），返回动作名称、参数、是否通过和未通过的原因；回答附「建议动作」卡片，由用户到业务页面执行。助手的任何调用都不写入业务数据。
+    basis: 需求基线 D16、D3（业务页面是唯一日常维护入口）；技能工作流 C 第 4 步：推断出的结论只能作为建议，由用户通过动作确认后才写入。
+    acceptance: 模型建议编辑一个未完成的里程碑时，卡片显示预检通过；建议编辑已完成的里程碑时，卡片显示「里程碑已确认完成，已锁定」；整个对话前后各数据集版本不变。
+    verifiedBy: [test_write_requests_become_prechecked_suggestions]
+    ontology: [editMilestone, Milestone.status]
+  - id: R4
+    statement: 回答带依据。指令要求按「结论、数据、依据」回答，引用函数结果与对象属性口径，区分「否」与「不知道」（资料不足时说明缺什么，不编造）；返回的 sources 列出本次调用的函数和读取的对象类型。
+    basis: 技能工作流 C 与汇报证据纪律；原实现的来源只写「N 个相关项目」，无法追溯到口径。
+    acceptance: 调用了项目列表函数和项目对象的回答，sources 中有「函数 项目列表（projectList）」和「对象 项目」；指令中包含结论、数据、依据和「不知道」的要求。
+    verifiedBy: [test_prompt_and_tools_come_from_the_ontology, test_assistant_tools_run_as_the_user]
+    ontology: [projectList, Project]
+  - id: R5
+    statement: 问答留审计（D17）。每次对话记录提问人、时间、问题、调用的工具与参数、建议动作、结果状态（成功 / 失败及原因）；不保存完整回答。管理员可通过接口查看最近的记录。
+    basis: 需求基线 D17：可追溯答案依据和数据访问，又不长期保存模型生成的文字。
+    acceptance: 一次对话后日志中有一条记录，包含问题和调用的工具名，不包含回答文本；模型服务失败时记录为失败；非管理员读取日志返回 403。
+    verifiedBy: [test_assistant_conversations_are_audited]
+    ontology: [Project]
+  - id: R6
+    statement: 有界执行。每次对话最多 6 轮工具调用，单个工具结果超过 12000 字符时截断并注明；超出轮次时返回已得到的结论并提示缩小问题范围。
+    basis: 原实现已限制检索规模（经验库：提示词随数据增长）；工具循环需要同样的上限，防止费用和延迟失控。
+    acceptance: 模型一直请求工具时，第 6 轮后停止并返回提示；过长的工具结果被截断。
+    verifiedBy: [test_tool_loop_is_bounded]
+    ontology: [Project]
+
+exceptions:
+  - rule: R1
+    case: 对象类型与属性很多，提示词过长。
+    handling: 提示词只列对象类型、主键和属性名；属性的类型、量纲与来源口径由 describe_type 工具按需读取。
+    basis: 控制每次请求的长度，口径仍可追溯。
+  - rule: R1
+    case: 本体浏览器的动作执行、版本差异、审计日志等治理功能。
+    handling: 不作为助手工具。
+    basis: 需求基线 D3：治理功能给管理员与分析人员在本体浏览器中使用。
+  - rule: R2
+    case: 数据发送给模型服务（OpenAI）。
+    handling: 工具结果会作为上下文发给模型服务，这一点与原实现相同；请求设置 store=false，只发送提问用户本来就有权看到的数据。
+    basis: 安全标记与数据范围在工具执行时生效，助手不会扩大用户的可见范围；是否允许外部模型处理业务数据属于部署决定，沿用现状。
+  - rule: R2
+    case: 对话历史。
+    handling: 由前端提交最近 6 轮，每轮截断到 1200 字符，作为数据而不是指令。
+    basis: 沿用原实现的边界。
+  - rule: R3
+    case: 预检通过后数据发生变化。
+    handling: 卡片注明是预检结果；在业务页面执行时动作会再次校验。
+    basis: 预检不锁定数据。
+  - rule: R3
+    case: 用户没有该动作的权限。
+    handling: 卡片显示不通过及原因「当前用户无权执行」。
+    basis: 建议也按用户身份预检，不给出用户无法执行的操作。
+  - rule: R4
+    case: 不需要系统数据的问题（例如系统怎么用、某个术语是什么意思）。
+    handling: 可以不调用工具直接回答，sources 显示「本次回答没有读取系统数据」，不冒充有数据依据。
+    basis: 依据要求针对数据结论；没有读取数据时如实标明来源为空。
+  - rule: R5
+    case: 回答文本。
+    handling: 不保存；需要复盘时依据日志中的问题与工具调用重新提问。
+    basis: 需求基线 D17。
+  - rule: R6
+    case: 模型服务未配置或不可用。
+    handling: 返回原有的中文提示（未配置、授权不可用、额度不足、稍后重试），并记入审计为失败。
+    basis: 沿用原实现的错误映射。

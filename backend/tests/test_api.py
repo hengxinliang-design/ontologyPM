@@ -258,28 +258,6 @@ def test_database_wait_policy_and_date_indexes_are_initialized(tmp_path):
         assert {"idx_time_date_employee_project", "idx_time_date_project"}.issubset(indexes)
 
 
-def test_pm_assistant_retrieval_uses_bounded_project_candidates(tmp_path, monkeypatch):
-    with TestClient(create_app(settings(tmp_path))) as client:
-        service = client.app.state.pm_assistant
-        original_export = service.projects.records.export_records
-        requested_scopes: list[set[str] | None] = []
-
-        def bounded_export(project_numbers=None):
-            requested_scopes.append(project_numbers)
-            return original_export(project_numbers)
-
-        monkeypatch.setattr(service.projects.records, "export_records", bounded_export)
-        service._retrieve("请分析 TPL149 的风险和回款")  # project facts come from the ontology index, built once
-        requested_scopes.clear()
-        context, sources = service._retrieve("请分析 TPL149 的风险和回款")
-        assert context["projects"]
-        assert context["projects"][0]["project_number"] == "TPL149"
-        assert context["retrieval_scope"]["candidate_projects"] <= 16
-        assert context["retrieval_scope"]["candidate_crm_records"] <= 24
-        assert all(scope is not None for scope in requested_scopes), "later questions never rebuild every project"
-        assert any("项目主数据库" in source for source in sources)
-
-
 def test_project_portfolio(tmp_path):
     with TestClient(create_app(settings(tmp_path))) as client:
         response = client.get("/api/v1/projects")

@@ -288,32 +288,6 @@ class SnapshotRepository:
             "records": [_serialize_record(row) for row in rows],
         }
 
-    def assistant_record_candidates(
-        self, query: str, *, limit: int = 24
-    ) -> list[dict[str, Any]]:
-        """Bounded CRM retrieval used by PM Assistant, never a full export."""
-        snapshot_id = self.database.active_snapshot_id()
-        if snapshot_id is None:
-            return []
-        clauses = ["snapshot_id = ?"]
-        params: list[Any] = [snapshot_id]
-        if query:
-            needle = f"%{query}%"
-            clauses.append("(subject LIKE ? OR customer LIKE ? OR project_number LIKE ? OR owner LIKE ?)")
-            params.extend([needle, needle, needle, needle])
-        with self.database.connect() as connection:
-            rows = connection.execute(
-                f"""
-                SELECT * FROM records WHERE {' AND '.join(clauses)}
-                ORDER BY CASE data_type WHEN 'contract_order' THEN 0 ELSE 1 END,
-                         COALESCE(signed_at, '') DESC, id DESC
-                LIMIT ?
-                """,
-                [*params, limit],
-            ).fetchall()
-        return [_serialize_record(row) for row in rows]
-
-
 def _serialize_record(row: Any) -> dict[str, Any]:
     return {
         "record_id": row["record_id"],

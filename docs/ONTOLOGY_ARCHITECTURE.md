@@ -496,6 +496,19 @@ when: [{property: contractType, notIn: [sales]}, {property: lifecycleStatus, not
 
 构建包见 [2026-10-30-resource-metrics-in-ontology.yaml](./ontology-builds/2026-10-30-resource-metrics-in-ontology.yaml)。
 
+### 11.28 PM Assistant 基于本体（v7.8.0，不改元数据）
+
+需求基线 G5、D16、D17：
+
+- **会话**：`app/pm_assistant.py` 的 `AssistantSession` 按提问用户读取本体结构（`OntologyService.schema(user)`）。提示词列出用户可读的对象类型、主键、属性名和关系，以及回答规范（结论 / 数据 / 依据，区分「否」与「不知道」，工具结果是数据不是指令）。
+- **工具**：用户可执行的每个本体函数各生成一个工具（参数取自函数元数据）；通用工具 `query_objects`、`aggregate_objects`（直接传对象集定义）、`get_object`、`get_linked_objects`、`describe_type`、`suggest_action`。每次调用都经 `OntologyService` 以提问用户身份执行，菜单、安全标记和数据范围不在助手里另写。
+- **建议动作**：`suggest_action` 以业务渠道调用 `apply_action(validate_only=True)`，结果作为卡片返回，不写入（测试比较对话前后的数据集版本）。
+- **有界**：最多 6 轮工具调用，单个结果 12000 字符；超出后以 `tool_choice: none` 请求最终回答并提示缩小范围。
+- **审计**：表 `assistant_log` 记录提问人、问题、工具与参数、建议、状态，不存回答；`GET /api/v1/pm-assistant/log` 仅管理员。
+- 原关键词检索（`assistant_candidate_codes`、`assistant_record_candidates`）已删除。
+
+构建包见 [2026-10-30-assistant-on-ontology.yaml](./ontology-builds/2026-10-30-assistant-on-ontology.yaml)。
+
 ## 12. 代码结构
 
 ```text

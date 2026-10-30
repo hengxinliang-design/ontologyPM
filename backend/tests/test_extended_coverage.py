@@ -51,15 +51,16 @@ def test_pm_assistant_answers_with_retrieved_context(tmp_path, monkeypatch):
         assert response.status_code == 200, response.text
         data = response.json()["data"]
         assert data["answer"] == "TPL149 有两个逾期里程碑。"
-        assert any("项目主数据库" in source for source in data["sources"])
+        assert data["sources"] == ["本次回答没有读取系统数据"] and data["suggestions"] == []
         sent = calls[0]
-        assert sent["model"] == "gpt-5.2" and sent["store"] is False
-        assert "TPL149" in sent["input"]
-        assert '"role": "system"' not in sent["input"], "only user/assistant history is forwarded"
+        assert sent["model"] == "gpt-5.2" and sent["store"] is False and sent["tools"]
+        question = sent["input"][0]["content"]
+        assert "TPL149" in question
+        assert '"role": "system"' not in question, "only user/assistant history is forwarded"
 
         analysis = client.post("/api/v1/projects/TPL149/ai-analysis")
         assert analysis.status_code == 200
-        assert "项目主数据库：TPL149" in analysis.json()["data"]["sources"]
+        assert "函数 项目概览（projectOverview）" in analysis.json()["data"]["sources"]
         assert client.post("/api/v1/projects/NOPE/ai-analysis").status_code == 503
 
 

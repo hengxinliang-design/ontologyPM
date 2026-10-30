@@ -81,6 +81,7 @@ npx tsc -b && npm test && npm run build
 19. **里程碑、回款约定、回款节点是逻辑删除。** 删除只写 `deleted_at`、`deleted_by`（`ProjectRepository._mark_deleted`），行保留。读这三张表的新查询必须带 `app/db.py` 的 `ACTIVE_ROW` 或 `active_filter(table)`（本体的 `ctx.table` 与仓储的 `_rows_grouped`、`_row_by_project_id` 已经带上）；新增唯一约束要写成只约束有效行的部分索引。要追溯删除，查数据库的失效行和审计日志 `ontology_action_log`。
 20. **新对象类型和函数要声明数据范围。** 带项目编号的对象类型写 `projectScope: <项目编号属性>`，否则项目经理看不到它；只由对象计算的函数写 `dataScope: project`，不含项目数据的写 `shared`，直接读原始表或 CRM 记录的函数不要声明（项目经理会被拒绝）。范围过滤只在 `OntologyContext.objects/get`，不要在接口里另写；新增直接读基础程序的接口要调用 `require_in_scope`。业务页面调用动作要带 `X-TSG-Channel: business`（前端 `ontologyAction`，或 `applyAction(..., "business")`），否则只有管理员能执行。
 21. **资源与工时指标只在 `derivations/resources.py`。** 利用率、产能、工时评价、调剂建议、资源健康都在这里；新页面或函数调用 `ResourceMetrics`（规则中用 `_resources(ctx)`），不要在基础程序或接口里另算。内部非项目代码用 `ProjectRepository.internal_codes()`（投入设置维护），不要写死 TSG999。
+22. **PM Assistant 只通过本体取数。** 工具由 `AssistantSession` 从本体结构生成，新增函数会自动成为工具，说明和参数写清楚就是给模型看的说明；不要在 `pm_assistant.py` 里直接查库或另写过滤。写操作只能走 `suggest_action`（预检，不执行）。改了助手的工具或提示词，跑 `tests/test_assistant.py`。
 12. **升主版本后，旧构建包要标注被取代。** 旧发布稿的 `ontologyVersion` 不再等于当前版本，给它加 `supersededBy: <新构建包文件名>`；设计稿实施后也这样处理。
 
 ## 当前规模（v7.5.0）
