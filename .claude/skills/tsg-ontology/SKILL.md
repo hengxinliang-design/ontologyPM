@@ -189,3 +189,9 @@ description: TSG PM 本体（Palantir 式语义层：对象类型、属性、关
 - 说「已验证」时，给出测试名或命令输出；没有跑过的，明确说没有验证。
 - 数字结论注明口径和参数，例如「按预算关注线 80%」。
 - 演示数据得出的结论，注明是演示数据。
+
+## 外部语义词汇的选择性复用
+
+涉及通用实体、人员组织、知识资产或对外交换时，先读 [外部词汇复用规范](references/external-vocabularies.md)。企业内部 Ontology 始终是权威；外部词汇只作为显式启用、经审核的语义映射。不得把参考文件中的映射示例直接写入运行时 YAML，或据此改变权限、动作和业务计算口径。映射登记在 [vocabulary-mappings.yaml](references/vocabulary-mappings.yaml)，改动后运行 `scripts/check_vocabulary_mappings.py`（在 backend 目录，同 lint 的用法）并跑 `tests/test_vocabulary_mappings.py`。
+
+涉及跨系统字段归一、公共实体背景或实体链接时，读 [DBpedia 建模参考](references/dbpedia-modeling.md)：借鉴来源映射与统一语义分层，严格区分类/属性/实例以及类型对齐/实体链接；外部知识只作有来源、经审核的候选。

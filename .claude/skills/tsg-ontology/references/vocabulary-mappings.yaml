@@ -1,0 +1,150 @@
+# 外部语义词汇映射登记（规范见 external-vocabularies.md）。
+# 内部本体是权威：这里只登记「内部元素 → 外部词条」的选择性复用，不改变运行时元数据、权限、动作和计算口径。
+# 校验：在 backend 目录运行 .venv/bin/python ../.claude/skills/tsg-ontology/scripts/check_vocabulary_mappings.py
+kind: VocabularyMappingRegister
+registerVersion: 1.0.0
+date: 2026-10-30
+
+# 固定来源版本。verifiedAt 是对照官方页面核对的日期；没有保存词汇快照，升级时重新核对并升 registerVersion。
+vocabularies:
+  schema:
+    namespace: https://schema.org/
+    version: "30.1"
+    released: 2026-09-16
+    source: https://schema.org/docs/releases.html
+    verifiedAt: 2026-10-30
+  foaf:
+    namespace: http://xmlns.com/foaf/0.1/
+    version: "0.99"
+    released: 2014-01-14
+    source: https://xmlns.com/foaf/spec/20140114.html
+    verifiedAt: 2026-10-30
+  dcterms:
+    namespace: http://purl.org/dc/terms/
+    version: 2020-01-20
+    released: 2020-01-20
+    source: https://www.dublincore.org/specifications/dublin-core/dcmi-terms/2020-01-20/
+    verifiedAt: 2026-10-30
+
+# 允许引用的词条（离线白名单，含类别）。新增词条先对照官方页面核对，再加入这里。
+terms:
+  schema:Person: class
+  schema:Organization: class
+  schema:Order: class
+  schema:name: property
+  foaf:Person: class
+  foaf:Organization: class
+  foaf:Group: class
+  foaf:name: property
+  foaf:member: property
+  dcterms:title: property
+  dcterms:issued: property
+  dcterms:isReplacedBy: property
+  dcterms:hasVersion: property
+
+# 不属于运行时本体、但可以映射的工件字段（构建包，见 build-package.md）。
+artifacts:
+  OntologyBuild: [topic, date, ontologyVersion, supersededBy, stage, scope]
+
+# 内部元素写法：对象类型 Employee；属性 Employee.employeeName；关系 Project@team；工件字段 artifact:OntologyBuild.date。
+# 状态：candidate（候选，不执行）/ approved（须有审核人、审核日期，且 internalVersion 等于当前本体版本）/ rejected（须写原因）。
+mappings:
+  - mappingId: tsg-employee-person
+    internalElement: Employee
+    kind: type
+    externalTerm: foaf:Person
+    direction: internal-to-external
+    relation: broader
+    internalVersion: 7.7.0
+    status: candidate
+    condition: 只导出员工编号与姓名；外部 Person 不反向生成员工或账号
+    loss: 工时、利用率、项目投入等员工统计不随 Person 导出
+  - mappingId: tsg-employee-name
+    internalElement: Employee.employeeName
+    kind: property
+    externalTerm: foaf:name
+    direction: internal-to-external
+    relation: exact
+    internalVersion: 7.7.0
+    status: candidate
+    condition: 姓名是文本，不作为身份依据；同名的两个员工仍是两个内部编号
+    loss: 无
+  - mappingId: tsg-customer-organization
+    internalElement: Customer
+    kind: type
+    externalTerm: schema:Organization
+    direction: internal-to-external
+    relation: broader
+    internalVersion: 7.7.0
+    status: candidate
+    condition: 客户以 CRM 客户名称为主键，不能据名称与外部组织做实体链接
+    loss: 合同额、回款等汇总带 FINANCE 标记，不随 Organization 导出
+  - mappingId: tsg-customer-name
+    internalElement: Customer.customerName
+    kind: property
+    externalTerm: schema:name
+    direction: internal-to-external
+    relation: exact
+    internalVersion: 7.7.0
+    status: candidate
+    condition: 导出文本名称
+    loss: 无
+  - mappingId: tsg-project-team-member
+    internalElement: Project@team
+    kind: link
+    externalTerm: foaf:member
+    direction: internal-to-external
+    relation: reference
+    internalVersion: 7.7.0
+    status: candidate
+    condition: foaf:member 的主体是 Group；导出时为每个项目生成「项目团队」Group 资源，成员方向为 团队 → member → 员工，项目本身不是 Group
+    loss: 成员在项目中的工时与角色不导出；团队成员来自工时记录，没有填工时的人不在团队中（缺失不等于不是成员）
+  - mappingId: tsg-build-title
+    internalElement: artifact:OntologyBuild.topic
+    kind: property
+    externalTerm: dcterms:title
+    direction: internal-to-external
+    relation: exact
+    internalVersion: 7.7.0
+    status: candidate
+    condition: 构建包的主题作为标题，语言为中文
+    loss: 无
+  - mappingId: tsg-build-issued
+    internalElement: artifact:OntologyBuild.date
+    kind: property
+    externalTerm: dcterms:issued
+    direction: internal-to-external
+    relation: exact
+    internalVersion: 7.7.0
+    status: candidate
+    condition: 日期按 ISO 8601 导出，只有日期没有时间，不补造时间
+    loss: 无
+  - mappingId: tsg-build-replaced-by
+    internalElement: artifact:OntologyBuild.supersededBy
+    kind: property
+    externalTerm: dcterms:isReplacedBy
+    direction: internal-to-external
+    relation: exact
+    internalVersion: 7.7.0
+    status: candidate
+    condition: 内部值是构建包文件名，导出时先解析为该构建包资源的标识，不能直接输出文件名字符串
+    loss: 无
+  # 冲突处理示例：同名或相近但含义不同，拒绝精确映射。
+  - mappingId: tsg-contract-order
+    internalElement: Contract
+    kind: type
+    externalTerm: schema:Order
+    direction: internal-to-external
+    relation: exact
+    internalVersion: 7.7.0
+    status: rejected
+    rejectionReason: 合同是含税、多期回款、可开口的框架协议；schema:Order 是一次交易的确认。含义不同，保留内部定义，不登记较宽或精确映射
+  - mappingId: tsg-build-version
+    internalElement: artifact:OntologyBuild.ontologyVersion
+    kind: property
+    externalTerm: dcterms:hasVersion
+    direction: internal-to-external
+    relation: exact
+    internalVersion: 7.7.0
+    status: rejected
+    rejectionReason: dcterms:hasVersion 指向另一个版本资源，内部值是版本号字符串，类别不符
