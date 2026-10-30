@@ -27,7 +27,7 @@ export function displayColumns(type: OntologyObjectType, periodic = false): Onto
 const STATUS_TONE: Record<string, Record<string, string>> = {
   // Lifecycle status of milestones, payment nodes and interventions: finished is green, anything else neutral.
   status: { completed: "healthy", paid: "healthy", closed: "healthy" },
-  healthStatus: { overloaded: "critical", fatigue: "warning", fragmented: "warning", idle: "baseline", healthy: "healthy" },
+  healthStatus: { overloaded: "critical", fatigue: "warning", fragmented: "warning", idle: "baseline", first_month: "baseline", healthy: "healthy" },
 };
 
 /** Suffix from the property's declared dimension; counts and identifiers read best without one. */

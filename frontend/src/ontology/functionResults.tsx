@@ -8,7 +8,7 @@ type Tone = "neutral" | "good" | "warn" | "bad";
 const HEALTH_TONE: Record<string, Tone> = { 健康: "good", 正常: "good", 工作量结算: "good", 额外投入: "bad", 高风险: "bad", 工时充足: "good", 基本达标: "good", 需关注: "warn", 需要关注: "warn", 接近上限: "warn", 已超预算: "bad", 严重不足: "bad", 无基线: "neutral" };
 const RISK_TONE: Record<string, Tone> = { healthy: "good", warning: "warn", critical: "bad" };
 const URGENCY_TONE: Record<string, Tone> = { overdue: "bad", due_today: "warn", due_soon: "warn", upcoming: "neutral", completed: "good" };
-const RESOURCE_TONE: Record<string, Tone> = { overloaded: "bad", fatigue: "warn", fragmented: "warn", idle: "neutral", healthy: "good" };
+const RESOURCE_TONE: Record<string, Tone> = { overloaded: "bad", fatigue: "warn", fragmented: "warn", idle: "neutral", first_month: "neutral", healthy: "good" };
 const PLAN_STATUS: Record<string, [string, Tone]> = { behind: ["落后", "bad"], on_track: ["正常", "good"], no_target: ["无目标", "neutral"], no_data: ["无数据", "neutral"] };
 const PAYMENT_STATUS: Record<string, string> = { planned: "计划中", invoiced: "已开票", partially_paid: "部分到账", paid: "已到账" };
 const MILESTONE_STATUS: Record<string, string> = { planned: "计划中", in_progress: "进行中", completed: "已完成", blocked: "受阻" };
@@ -332,8 +332,9 @@ function Notes({ items }: { items: unknown }) {
 
 function ResourceHealthView({ result }: { result: Json }) {
   const summary = (result.summary as Record<string, number> | undefined) ?? {};
-  const rows = ((result.data as Json[] | undefined) ?? []).filter(row => row.status !== "healthy");
-  const labels: Record<string, string> = { overloaded: "过载风险", fatigue: "疲劳风险", fragmented: "碎片化", idle: "闲置", healthy: "健康" };
+  // A first month is not a finding (D14): counted in the summary, not listed among the people needing attention.
+  const rows = ((result.data as Json[] | undefined) ?? []).filter(row => row.status !== "healthy" && row.status !== "first_month");
+  const labels: Record<string, string> = { overloaded: "持续过载", fatigue: "疲劳风险", fragmented: "碎片化", idle: "闲置", first_month: "首月", healthy: "健康" };
   return <div className="fr">
     <div className="fr-headline"><span>{String(result.month ?? "")} 资源健康</span></div>
     <div className="fr-stats">{Object.keys(labels).map(key => <Stat key={key} label={labels[key]} value={`${summary[key] ?? 0} 人`} tone={RESOURCE_TONE[key]} />)}</div>

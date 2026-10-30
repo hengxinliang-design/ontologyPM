@@ -136,7 +136,7 @@ version: v1
 definition:
   apiName: resourceHealth
   displayName: 资源健康
-  description: 按月评估员工的过载、疲劳、碎片化与闲置风险，并汇总各状态人数。
+  description: 按月评估员工的持续过载（连续 N 个月高于过载线）、疲劳、碎片化与闲置风险，统计窗口内第一个有工时的月份标为首月（不评价闲置），并汇总各状态人数。利用率与资源运营监控、员工工时评价同一份实现。
   parameters:
     - {apiName: month, displayName: 月份, type: string, description: YYYY-MM，缺省为最近有工时的月份}
   outputType: ResourceHealth
@@ -227,4 +227,35 @@ definition:
   permissions: [projects, health]
   implementation: maintenanceWorklist
   dataScope: project
-
+---
+kind: Function
+version: v1
+definition:
+  apiName: employeeWorktimeAssessment
+  displayName: 员工工时评价
+  description: 按月或按年评价每位员工的填报工时、确认工时、确认缺口与利用率（项目工时 ÷ 工作日 × 每日标准小时），分为工时充足、基本达标、需要关注、严重不足。本期有任何工时记录的员工都列出；草稿、驳回与内部代码（投入设置维护）的工时不计入利用率。
+  parameters:
+    - {apiName: period, displayName: 统计周期, type: string, description: month 或 year，缺省为 month}
+    - {apiName: month, displayName: 月份, type: string, description: YYYY-MM，period=month 时使用，缺省为本月}
+    - {apiName: year, displayName: 年度, type: string, description: YYYY，period=year 时使用}
+    - {apiName: employeeName, displayName: 员工姓名, type: string, description: 精确匹配}
+  outputType: EmployeeWorktimeAssessment
+  permissions: [employeeWorktime, resource, department]
+  implementation: employeeWorktimeAssessment
+---
+kind: Function
+version: v1
+definition:
+  apiName: resourceOperations
+  displayName: 资源运营监控
+  description: 按月份或月份区间给出每位员工的利用率、调剂状态（本月负荷过高、负荷较高、可优先调剂、可适度支持、安排基本均衡）、可调剂人天和项目投入；本月负荷过高指单月利用率高于过载线，与资源健康的持续过载不同。内部非项目工时（投入设置维护）不计入负荷，可调剂。
+  parameters:
+    - {apiName: month, displayName: 月份, type: string, description: YYYY-MM，缺省为最近有工时的月份}
+    - {apiName: startMonth, displayName: 开始月份, type: string, description: YYYY-MM，与结束月份一起使用}
+    - {apiName: endMonth, displayName: 结束月份, type: string, description: YYYY-MM}
+    - {apiName: employeeName, displayName: 员工姓名, type: string, description: 模糊匹配}
+    - {apiName: cursor, displayName: 游标, type: string}
+    - {apiName: pageSize, displayName: 每页条数, type: integer}
+  outputType: ResourceOperations
+  permissions: [resource]
+  implementation: resourceOperations

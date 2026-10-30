@@ -1543,7 +1543,7 @@ def test_employee_worktime_assessment_and_baseline_config(tmp_path):
             "/api/v1/resource-operations?month=2026-02&employee_name=查宏斌"
         )
         assert overloaded.status_code == 200
-        assert overloaded.json()["data"][0]["allocation_status"] == "负荷过高"
+        assert overloaded.json()["data"][0]["allocation_status"] == "本月负荷过高"
 
         yearly = client.get(
             "/api/v1/employee-worktime?period=year&year=2026&employee_name=查宏斌"

@@ -2,6 +2,7 @@
 # 依据：需求基线 D1–D3 与 G6；用户 2026-10-30「开始 G6」，G6 的四个问题确认为 D9–D12（角色 5 个且菜单可调、账号姓名对应项目经理、项目经理金额可见个人工时不可见、本体浏览器动作只给管理员）。
 kind: OntologyBuild
 stage: release
+supersededBy: 2026-10-30-resource-metrics-in-ontology.yaml
 topic: 账号有角色与姓名；项目经理只能看到和维护本人项目，范围过滤在本体上下文一处实现；函数声明数据范围；本体浏览器的动作只给管理员
 ontologyVersion: 7.7.0
 date: 2026-10-30

@@ -1078,6 +1078,8 @@ Content-Type: application/json
 
 ### 9.5 查询员工工时数据
 
+本体 7.8.0 起，本接口是本体函数 `employeeWorktimeAssessment` 的包装，资源运营监控（`/api/v1/resource-operations`）是函数 `resourceOperations` 的包装，返回结构不变。调剂状态「负荷过高」改名为「本月负荷过高」；内部非项目代码读取投入设置中的「内部代码」列表，`meta.internal_nonproject_project_code` 为该列表（顿号分隔）。
+
 ```http
 GET /api/v1/employee-worktime
 ```

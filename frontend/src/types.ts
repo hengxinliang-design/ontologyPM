@@ -540,7 +540,7 @@ export interface ResourceOperationProject {
 }
 
 export interface ResourceOperationRow extends EmployeeWorktimeRow {
-  allocation_status: "可优先调剂" | "可适度支持" | "负荷过高" | "负荷较高" | "安排基本均衡";
+  allocation_status: "可优先调剂" | "可适度支持" | "本月负荷过高" | "负荷较高" | "安排基本均衡";
   available_person_days: string;
   internal_nonproject_person_days: string;
   internal_nonproject_entry_count: number;

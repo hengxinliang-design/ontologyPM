@@ -14,6 +14,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Any, Callable
 
 from .derivations.economics import DepartmentAnalysis
+from .derivations.resources import ResourceMetrics
 from .derivations.project import (
     _budget_thresholds,
     derive_project,
@@ -126,6 +127,11 @@ def _investment(ctx: OntologyContext) -> InvestmentService:
 
 def _plans(ctx: OntologyContext) -> AnnualPlanRepository:
     return ctx.dataset("annual_plans", lambda: AnnualPlanRepository(ctx.database, ctx.projects.timezone))
+
+
+def _resources(ctx: OntologyContext) -> ResourceMetrics:
+    """Utilization, capacity and resource health: one implementation (derivations/resources.py, G4)."""
+    return ctx.dataset("resource_metrics", lambda: ResourceMetrics(ctx.projects))
 
 
 def _department(ctx: OntologyContext) -> DepartmentAnalysis:
@@ -1267,7 +1273,7 @@ def fn_project_health(ctx: OntologyContext, params: dict[str, Any]) -> dict[str,
 @RULES.function("employeeUtilization")
 def fn_employee_utilization(ctx: OntologyContext, params: dict[str, Any]) -> dict[str, Any]:
     employee = ctx.get("Employee", params["employee"])
-    result = ctx.projects.employee_worktime_assessment(
+    result = _resources(ctx).worktime_assessment(
         period="month", month=params["month"], employee_name=employee["employeeName"]
     )
     return {
@@ -1391,6 +1397,24 @@ def fn_portfolio_investment(ctx: OntologyContext, params: dict[str, Any]) -> dic
 @RULES.function("resourceHealth")
 def fn_resource_health(ctx: OntologyContext, params: dict[str, Any]) -> dict[str, Any]:
     return _department(ctx).resource_health(params.get("month"))
+
+
+@RULES.function("employeeWorktimeAssessment")
+def fn_employee_worktime_assessment(ctx: OntologyContext, params: dict[str, Any]) -> dict[str, Any]:
+    period = params.get("period") or "month"
+    if period not in ("month", "year"):
+        raise ValueError("period 只能是 month 或 year")
+    return _resources(ctx).worktime_assessment(
+        period=period, month=params.get("month"), year=params.get("year"), employee_name=params.get("employeeName"))
+
+
+@RULES.function("resourceOperations")
+def fn_resource_operations(ctx: OntologyContext, params: dict[str, Any]) -> dict[str, Any]:
+    return _resources(ctx).resource_operations(
+        month=params.get("month"), start_month=params.get("startMonth"), end_month=params.get("endMonth"),
+        employee_name=params.get("employeeName"), cursor=params.get("cursor"), page_size=int(params.get("pageSize") or 50),
+        project_names={p["project_number"]: p["subject"] for p in ctx.project_facts()},
+    )
 
 
 @RULES.function("departmentOperatingReview")

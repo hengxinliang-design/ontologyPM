@@ -734,7 +734,7 @@ function WorktimeReviewSettings(props: {
         <label className="review-notes">配置说明<input value={draft.notes ?? ""} onChange={event => setValue("notes", event.target.value)} disabled={saving} placeholder="例如：2026 年度资源复核口径" /></label>
       </div>
       <div className="review-rule-legend" aria-label="当前资源调剂判定规则">
-        <span>≤ {attention}%：可优先调剂</span><span>{attention}%–{minimum}%：可适度支持</span><span>{minimum}%–{excellent}%：安排基本均衡</span><span>{excellent}%–{overload}%：负荷较高</span><span>&gt; {overload}%：负荷过高</span>
+        <span>≤ {attention}%：可优先调剂</span><span>{attention}%–{minimum}%：可适度支持</span><span>{minimum}%–{excellent}%：安排基本均衡</span><span>{excellent}%–{overload}%：负荷较高</span><span>&gt; {overload}%：本月负荷过高（单月；连续多月为资源健康的「持续过载」）</span>
       </div>
       <div className="review-rule-legend" aria-label="当前项目预算判定规则">
         <span>预算使用率 &lt; {draft.budget_attention_percent ?? "—"}%：正常</span><span>≥ {draft.budget_attention_percent ?? "—"}%：需关注（项目风险同为关注）</span><span>≥ {draft.budget_high_risk_percent ?? "—"}%：高风险</span><span>&gt; 100%：已超预算</span><span>按工作量结算的项目不参与预算规则</span>
@@ -1135,7 +1135,7 @@ function ResourceOperations({ data, loading, month, setMonth, periodMode, setPer
 }
 
 function resourceAllocationClass(status: string) {
-  if (status === "负荷过高") return "critical";
+  if (status === "本月负荷过高") return "critical";
   if (status === "负荷较高") return "warning";
   if (status === "可优先调剂" || status === "可适度支持") return "healthy";
   return "baseline";

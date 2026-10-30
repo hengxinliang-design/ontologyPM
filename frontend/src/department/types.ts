@@ -1,6 +1,6 @@
 // Department review (ontology 4.0.0). Amounts are decimal strings; null means "unknown" or "redacted".
 // Person-day economics is paused, so the review carries no revenue, margin or backlog figures.
-export type ResourceHealthStatus = "overloaded" | "fatigue" | "fragmented" | "idle" | "healthy";
+export type ResourceHealthStatus = "overloaded" | "fatigue" | "fragmented" | "idle" | "first_month" | "healthy";
 export type PlanStatus = "no_data" | "no_target" | "behind" | "on_track";
 export type StrategySignalKey = "push_acceptance" | "control_cost" | "staffing_support" | "win_contracts" | "release_resources" | "hold";
 
@@ -68,10 +68,10 @@ export interface DepartmentReview {
 }
 
 export const HEALTH_STATUS_LABEL: Record<ResourceHealthStatus, string> = {
-  overloaded: "过载风险", fatigue: "疲劳风险", fragmented: "碎片化", idle: "闲置", healthy: "健康",
+  overloaded: "持续过载", fatigue: "疲劳风险", fragmented: "碎片化", idle: "闲置", first_month: "首月（不评价闲置）", healthy: "健康",
 };
 export const HEALTH_STATUS_TONE: Record<ResourceHealthStatus, "critical" | "warning" | "baseline" | "healthy"> = {
-  overloaded: "critical", fatigue: "warning", fragmented: "warning", idle: "baseline", healthy: "healthy",
+  overloaded: "critical", fatigue: "warning", fragmented: "warning", idle: "baseline", first_month: "baseline", healthy: "healthy",
 };
 export const PLAN_STATUS_LABEL: Record<PlanStatus, string> = {
   no_data: "无数据", no_target: "无目标", behind: "落后", on_track: "正常",

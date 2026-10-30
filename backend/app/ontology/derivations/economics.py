@@ -14,6 +14,7 @@ from typing import Any, Callable
 from zoneinfo import ZoneInfo
 
 from ...project_repository import _counts_as_effort
+from .resources import ResourceMetrics
 
 ZERO = Decimal("0")
 HUNDRED = Decimal("100")
@@ -209,46 +210,6 @@ def rollup(items: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-def resource_health(months: dict[str, dict[str, Any]], month: str, capacity_hours: dict[str, Decimal], policy: dict[str, Any]) -> dict[str, Any]:
-    """R12: one employee's health in ``month`` from monthly aggregates (project, internal, overtime hours, projects)."""
-    def utilization(m: str) -> Decimal | None:
-        cap = capacity_hours.get(m)
-        return months[m]["project_hours"] / cap * HUNDRED if m in months and cap else None
-
-    current = months.get(month) or {"project_hours": ZERO, "internal_hours": ZERO, "overtime_hours": ZERO, "projects": set()}
-    util = utilization(month) or ZERO
-    overload_line = d(policy["overload_utilization_percent"])
-    # Consecutive calendar months ending at ``month``: a month without hours breaks the streak.
-    streak, cursor = 0, month
-    while (value := utilization(cursor)) is not None and value > overload_line:
-        streak += 1
-        cursor = _shift(cursor, -1)
-    total_hours = current["project_hours"] + current["internal_hours"]
-    overtime_share = current["overtime_hours"] / total_hours * HUNDRED if total_hours else ZERO
-    concurrent = len(current["projects"])
-    first_month = month == min(months) if months else True
-    reasons, statuses = [], []
-    if streak >= int(d(policy["overload_consecutive_months"])):
-        statuses.append("overloaded"); reasons.append(f"连续 {streak} 个月利用率高于过载线 {overload_line}%")
-    if overtime_share > d(policy["overtime_share_attention_percent"]):
-        statuses.append("fatigue"); reasons.append(f"加班占比 {overtime_share.quantize(Decimal('0.1'))}% 高于关注线 {policy['overtime_share_attention_percent']}%")
-    if concurrent > int(d(policy["max_concurrent_projects"])):
-        statuses.append("fragmented"); reasons.append(f"同期参与 {concurrent} 个项目，超过上限 {int(d(policy['max_concurrent_projects']))} 个")
-    if util <= d(policy["attention_utilization_percent"]) and not first_month and month in months:
-        statuses.append("idle"); reasons.append(f"利用率 {util.quantize(Decimal('0.1'))}% 不高于关注线 {policy['attention_utilization_percent']}%")
-    return {
-        "month": month,
-        "status": statuses[0] if statuses else "healthy",
-        "statuses": statuses or ["healthy"],
-        "reasons": reasons,
-        "utilization_percent": float(util.quantize(Decimal("0.1"))),
-        "consecutive_overload_months": streak,
-        "overtime_share_percent": float(overtime_share.quantize(Decimal("0.1"))),
-        "concurrent_project_count": concurrent,
-        "first_month": first_month,
-    }
-
-
 def plan_completion(actual: Decimal | None, target: Decimal | None, month: int, tolerance_points: Decimal, cumulative: bool = True) -> dict[str, Any]:
     """R14: year-to-date completion against time progress (cumulative KPIs) or against the target (rates)."""
     time_progress = Decimal(month) / Decimal(12) * HUNDRED
@@ -346,60 +307,22 @@ class DepartmentAnalysis:
         return datetime.now(ZoneInfo(self.timezone)).isoformat(timespec="seconds")
 
     # -------------------------------------------------------------- resources
-    def _monthly_hours(self, months: list[str]) -> dict[str, dict[str, dict[str, Any]]]:
-        with self.database.connect() as connection:
-            rows = connection.execute(
-                "SELECT * FROM time_entries WHERE work_date >= ? AND work_date <= ?",
-                (f"{months[0]}-01", _month_end(months[-1])),
-            ).fetchall()
-        internal = {code.upper() for code in self._internal_codes()}
-        people: dict[str, dict[str, Any]] = {}
-        for row in rows:
-            if not _counts_as_effort(dict(row)):
-                continue
-            key = str(row["employee_id"] or row["employee_name"])
-            person = people.setdefault(key, {"employee_id": row["employee_id"], "employee_name": row["employee_name"], "months": {}})
-            bucket = person["months"].setdefault(row["work_date"][:7], {"project_hours": ZERO, "internal_hours": ZERO,
-                                                                       "overtime_hours": ZERO, "projects": set()})
-            hours = Decimal(row["hours"]) + Decimal(row["overtime_hours"] or "0")
-            bucket["overtime_hours"] += Decimal(row["overtime_hours"] or "0")
-            if row["project_number"].upper() in internal:
-                bucket["internal_hours"] += hours
-            else:
-                bucket["project_hours"] += hours
-                bucket["projects"].add(row["project_number"])
-        return people
+    # Utilization, capacity and resource health have one implementation: derivations/resources.py (G4).
+    @property
+    def resources(self) -> ResourceMetrics:
+        return ResourceMetrics(self.projects)
 
-    def _internal_codes(self) -> list[str]:
-        with self.database.connect() as connection:
-            row = connection.execute("SELECT internal_codes_json FROM investment_settings WHERE config_id='default'").fetchone()
-        return json.loads(row["internal_codes_json"]) if row else [INTERNAL_CODE]
+    def _monthly_hours(self, months: list[str]) -> dict[str, dict[str, Any]]:
+        return self.resources.monthly_hours(months)
 
     def _capacity(self, months: list[str], hours_per_day: Decimal) -> dict[str, Decimal]:
-        return {m: Decimal(self.projects.workday_summary(f"{m}-01", _month_end(m))["working_days"]) * hours_per_day for m in months}
+        return self.resources.monthly_capacity(months, {"standard_hours_per_day": hours_per_day})
 
     def latest_work_month(self) -> str:
-        with self.database.connect() as connection:
-            row = connection.execute("SELECT MAX(work_date) AS latest FROM time_entries").fetchone()
-        return row["latest"][:7] if row and row["latest"] else self._today().isoformat()[:7]
+        return self.resources.latest_work_month() or self._today().isoformat()[:7]
 
     def resource_health(self, month: str | None = None) -> dict[str, Any]:
-        policy = self.projects.get_worktime_baseline()
-        month = month or self.latest_work_month()
-        window = [_shift(month, -offset) for offset in range(11, -1, -1)]
-        capacity = self._capacity(window, Decimal(policy["standard_hours_per_day"]))
-        people = self._monthly_hours(window)
-        rows = []
-        for person in people.values():
-            if month not in person["months"]:  # only people who reported hours in the month (R12)
-                continue
-            health = resource_health(person["months"], month, capacity, policy)
-            rows.append({"employee_id": person["employee_id"], "employee_name": person["employee_name"], **health})
-        rows.sort(key=lambda r: (["overloaded", "fatigue", "fragmented", "idle", "healthy"].index(r["status"]), r["employee_name"]))
-        counts = defaultdict(int)
-        for r in rows:
-            counts[r["status"]] += 1
-        return {"month": month, "data": rows, "summary": dict(counts)}
+        return self.resources.resource_health(month or self.latest_work_month())
 
     # -------------------------------------------------------------- department review
     def department_review(self, year: int | None = None, month: str | None = None) -> dict[str, Any]:

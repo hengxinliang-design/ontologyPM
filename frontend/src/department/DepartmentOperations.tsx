@@ -14,7 +14,7 @@ const PLAN_LABEL: Record<PlanField, string> = {
   new_contract_target: "新签合同额（元）", collection_target: "回款（元）", capacity_person_days_target: "项目投入人天",
   headcount_target: "人员编制（人）", utilization_target_percent: "利用率（%）",
 };
-const HEALTH_ORDER: ResourceHealthStatus[] = ["overloaded", "fatigue", "fragmented", "idle", "healthy"];
+const HEALTH_ORDER: ResourceHealthStatus[] = ["overloaded", "fatigue", "fragmented", "idle", "first_month", "healthy"];
 
 export function money(value: string | null | undefined): string {
   if (value == null) return "—";

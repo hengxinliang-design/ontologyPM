@@ -6,7 +6,7 @@ version: v1
 definition:
   apiName: tsg-pm
   displayName: TSG PM 项目运营本体
-  version: 7.7.0
+  version: 7.8.0
   description: 把 CRM、工时与人工维护数据统一为项目运营语义模型：对象、关系、动作、函数与安全策略。
 ---
 kind: Marking
@@ -188,8 +188,9 @@ definition:
   apiName: ResourceHealthStatus
   displayName: 资源健康状态
   values:
-    - {value: overloaded, label: 过载风险}
+    - {value: overloaded, label: 持续过载}
     - {value: fatigue, label: 疲劳风险}
     - {value: fragmented, label: 碎片化}
     - {value: idle, label: 闲置}
+    - {value: first_month, label: 首月（不评价闲置）}
     - {value: healthy, label: 健康}

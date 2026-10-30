@@ -72,9 +72,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # Project analytics are derived in the ontology; base programs and the assistant read them from there.
     system_user = {"username": "system", "is_admin": True, "permissions": list(ALL_MENU_PERMISSIONS)}
 
-    def derived_projects() -> list[dict[str, Any]]:
-        return ontology_service.context(system_user).project_facts()
-
     def derived_project(project_number: str) -> dict[str, Any] | None:
         return ontology_service.context(system_user).project_fact(project_number)
 
@@ -737,16 +734,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         month: str | None = Query(None, pattern=r"^\d{4}-\d{2}$"),
         year: str | None = Query(None, pattern=r"^\d{4}$"),
         employee_name: str | None = None,
+        user: dict[str, Any] = Depends(require_auth),
     ) -> dict[str, Any]:
-        try:
-            return project_repository.employee_worktime_assessment(
-                period=period,
-                month=month,
-                year=year,
-                employee_name=employee_name,
-            )
-        except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        """Compatibility wrapper: the worktime assessment is derived in the ontology (function employeeWorktimeAssessment)."""
+        return ontology_page(user, "employeeWorktimeAssessment",
+                             {"period": period, "month": month, "year": year, "employeeName": employee_name})
 
     @app.get(
         "/api/v1/resource-operations", dependencies=[auth], tags=["Time Entries"]
@@ -758,19 +750,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         employee_name: str | None = Query(None, max_length=100),
         cursor: str | None = Query(None, min_length=8, max_length=1000),
         page_size: int = Query(50, ge=1, le=200),
+        user: dict[str, Any] = Depends(require_auth),
     ) -> dict[str, Any]:
-        try:
-            return project_repository.resource_operations(
-                month=month,
-                start_month=start_month,
-                end_month=end_month,
-                employee_name=employee_name,
-                cursor=cursor,
-                page_size=page_size,
-                projects=derived_projects(),
-            )
-        except (ValueError, CursorError) as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        """Compatibility wrapper: resource operations are derived in the ontology (function resourceOperations)."""
+        return ontology_page(user, "resourceOperations", {
+            "month": month, "startMonth": start_month, "endMonth": end_month,
+            "employeeName": employee_name, "cursor": cursor, "pageSize": page_size})
 
     def _finance_visible(user: dict[str, Any]) -> bool:
         return bool(user.get("is_admin")) or bool({"projects", "crm"} & set(user.get("permissions") or []))

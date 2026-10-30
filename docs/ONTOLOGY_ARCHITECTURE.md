@@ -485,6 +485,17 @@ when: [{property: contractType, notIn: [sales]}, {property: lifecycleStatus, not
 
 构建包见 [2026-10-30-roles-and-data-scope.yaml](./ontology-builds/2026-10-30-roles-and-data-scope.yaml)。
 
+### 11.27 资源指标迁入本体（v7.8.0）
+
+需求基线第 7 节、G4、D13–D15（第二阶段迁移）：
+
+- **一份实现**：`app/ontology/derivations/resources.py`。纯函数 `project_effort`、`utilization_percent`、`worktime_status`、`allocation`、`worktime_rows`、`monthly_buckets`、`resource_health` 给出口径；`ResourceMetrics` 读取工时、运营口径参数、工作日历和内部代码后套用它们。基础程序中的 `employee_worktime_assessment`、`resource_operations` 及辅助函数已删除；`DepartmentAnalysis` 的资源方法委托给 `ResourceMetrics`。
+- **函数**：新增 `employeeWorktimeAssessment`（按月 / 按年）、`resourceOperations`（按月 / 月份区间、游标分页），`/api/v1/employee-worktime`、`/api/v1/resource-operations` 改为 `ontology_page` 包装，返回结构不变。两个函数不声明 `dataScope`，项目经理不可执行。
+- **口径调整**：调剂状态「负荷过高」改名「本月负荷过高」，资源健康 `overloaded` 显示名改为「持续过载」（D13）；资源健康新增 `first_month`（D14）；内部代码统一由 `ProjectRepository.internal_codes()` 从投入设置读取，项目清单也按它排除（D15）。
+- **验证**：`test_one_utilization_for_every_view` 断言资源运营监控、员工工时评价、员工对象与资源健康对每个员工给出相同的利用率。
+
+构建包见 [2026-10-30-resource-metrics-in-ontology.yaml](./ontology-builds/2026-10-30-resource-metrics-in-ontology.yaml)。
+
 ## 12. 代码结构
 
 ```text

@@ -1,0 +1,73 @@
+# 本体构建包（发布稿）：资源运营监控、员工工时评价迁入本体（第二阶段迁移）。本体 7.8.0（新增两个函数、资源健康状态新增「首月」、改显示名，非破坏性）。
+# 依据：需求基线第 7 节与 G4；用户 2026-10-30「开始 G4」，G4 的三个问题确认为 D13–D15。
+kind: OntologyBuild
+stage: release
+topic: 员工利用率、产能、工时评价、调剂建议与资源健康只有一份实现（本体推导模块）；两个页面接口改为本体函数的包装；过载两种含义改名区分；首月单独标注；内部代码统一读投入设置
+ontologyVersion: 7.8.0
+date: 2026-10-30
+scope:
+  - CQ-W3 某个月哪些员工填报了工时，各自填报、确认多少，投在哪些项目上、各占多少？
+  - CQ-W4 哪些员工过载、长期加班、同时参与项目过多或闲置？
+  - CQ-G4a 同一个员工同一个月的利用率，在资源运营监控、员工工时数据、员工对象和资源健康中是否一致？
+  - CQ-G4b 「负荷过高」和「过载」分别是什么意思？
+  - CQ-G4c 哪些项目代码算内部非项目工时？在哪里维护？
+
+rules:
+  - id: R1
+    statement: 员工利用率（项目工时 ÷ 产能）、产能（工作日 × 每日标准小时）、工时评价（工时充足 / 基本达标 / 需要关注 / 严重不足）、调剂建议（本月负荷过高 / 负荷较高 / 可优先调剂 / 可适度支持 / 安排基本均衡，以及可调剂人天）和资源健康，只在本体推导模块 app/ontology/derivations/resources.py 实现一次。新增本体函数 employeeWorktimeAssessment（员工工时评价，按月或按年）和 resourceOperations（资源运营监控，按月或月份区间）；页面接口 /employee-worktime、/resource-operations 改为调用这两个函数，返回结构不变；基础程序中的 employee_worktime_assessment、resource_operations 及其辅助函数删除；员工对象的月度属性、资源健康函数、部门经营复盘与员工利用率函数都调用同一模块。
+    basis: 需求基线第 7 节：资源运营监控与员工工时数据两个页面不经本体，利用率有本体推导与基础程序两份实现；G4「一个指标只有一份实现」；技能原则 15。
+    acceptance: 同一个月，资源运营监控、员工工时评价、员工对象的「本月利用率」、资源健康函数对每个员工给出相同的利用率；基础程序中不再有 employee_worktime_assessment、resource_operations；两个页面接口的返回字段与迁移前相同（原有接口测试通过）；两个新函数在本体结构中可见，项目经理执行时返回 403。
+    verifiedBy: [test_one_utilization_for_every_view, test_resource_pages_run_ontology_functions]
+    ontology: [employeeWorktimeAssessment, resourceOperations, resourceHealth, employeeUtilization, departmentOperatingReview, Employee.monthUtilizationPercent, Employee.healthStatus]
+  - id: R2
+    statement: 「过载」的两种含义改名区分（D13）：资源运营监控中单月利用率高于过载线的调剂状态改名为「本月负荷过高」；资源健康中连续 N 个月高于过载线的状态（overloaded）显示名改为「持续过载」。两者用同一条过载线（运营口径参数 overloadUtilizationPercent）和同一个利用率。
+    basis: 需求基线 D13；用户确认的例子：周航 2026-09 利用率 106.8%，资源页为负荷过高，资源健康却不算过载（只超 1 个月），同名不同义。
+    acceptance: 某员工只有本月高于过载线时，资源运营监控为「本月负荷过高」，资源健康不是「持续过载」；连续两个月（连续月数参数为 2）高于过载线时两者都成立；资源健康状态 overloaded 的显示名为「持续过载」。
+    verifiedBy: [test_overload_has_two_named_meanings]
+    ontology: [resourceOperations, resourceHealth, Employee.healthStatus, OperatingPolicy.overloadUtilizationPercent]
+  - id: R3
+    statement: 新员工首月（D14）：员工在资源健康统计窗口（截至所选月份的 12 个月）内第一次有有效工时的月份，不判「闲置」；若没有其他状态，资源健康状态为 first_month「首月（不评价闲置）」，不再显示「健康」。疲劳、碎片化等其他状态照常判定；员工工时评价照常判定。
+    basis: 需求基线 D14；用户确认的例子：王磊（E202）2026-09 为首月，利用率 22.7%，工时评价严重不足，资源健康却显示健康，会误导。
+    acceptance: 首月且利用率低于关注线的员工资源健康状态为 first_month，工时评价仍为「严重不足」；第二个月同样低利用率时为「闲置」；首月同时加班占比超线时状态为「疲劳风险」。
+    verifiedBy: [test_first_month_is_marked_not_healthy]
+    ontology: [Employee.healthStatus, resourceHealth]
+  - id: R4
+    statement: 内部非项目工时代码统一读取投入设置中的「内部代码」列表（D15，运营口径参数 internalCodes），资源运营监控、员工工时评价、资源健康、部门经营复盘和项目清单都用它；代码按大写比较。内部工时不计入利用率和项目负荷；在资源运营监控中作为「内部非项目工时（可调剂）」显示，并计入可调剂人天。
+    basis: 需求基线 D15：原来资源页与工时评价写死 TSG999，资源健康与投入分析读投入设置，两处可能不一致。
+    acceptance: 在投入设置的内部代码中加入一个项目代码后，该代码的工时从资源运营监控、员工工时评价和资源健康的利用率中移出，并在资源运营监控中显示为内部工时；该代码不再出现在项目清单中。
+    verifiedBy: [test_internal_codes_come_from_investment_settings]
+    ontology: [OperatingPolicy.internalCodes, resourceOperations, employeeWorktimeAssessment, resourceHealth]
+
+exceptions:
+  - rule: R1
+    case: 统计的人群。
+    handling: 工时评价与资源运营监控包括本期有任何工时记录的员工（含只有草稿、驳回或内部工时的人，利用率按 0 计，用于发现未填报）；资源健康只包括本月有有效工时的员工。保持迁移前的口径。
+    basis: 两者回答的问题不同：前者查填报与调剂，后者查健康；一份实现指同一个利用率和同一组阈值，不要求人群相同。
+  - rule: R1
+    case: 月份区间。
+    handling: 资源运营监控可选月份区间，产能按区间内工作日合计；员工对象只按单个月份查看（7.4.0 例外：按月指标不能简单相加）。
+    basis: 区间利用率 = 区间工时 ÷ 区间产能，是同一公式，不是按月相加。
+  - rule: R1
+    case: 投入成本分析页面（/investment）。
+    handling: 不在本次范围，仍由投入服务计算；本体已有同口径函数 portfolioInvestmentAnalysis。
+    basis: 需求基线第 7 节把它列为「本体有同口径函数」，G4 只迁移资源运营监控与员工工时评价。
+  - rule: R1
+    case: 节假日日历不可用。
+    handling: 按周一至周五计算产能，并在结果中标明日历不可用，与迁移前相同。
+    basis: 产能口径不变，只是计算位置变化。
+  - rule: R2
+    case: 「负荷较高」（高于优秀线、不高于过载线）。
+    handling: 保持原名。
+    basis: 不涉及「过载」的歧义。
+  - rule: R3
+    case: 离开超过 12 个月后重新有工时的员工。
+    handling: 统计窗口只看 12 个月，回来的第一个月同样按首月处理。
+    basis: 窗口外的历史不参与资源健康计算；回归员工的第一个月同样常常不满月。
+  - rule: R4
+    case: 投入设置中的内部代码列表为空。
+    handling: 没有内部代码，所有工时都按项目工时计算；投入设置的校验仍要求代码非空字符串。
+    basis: 列表是可维护参数，空列表是合法取值，不另设默认值。
+  - rule: R4
+    case: 内部代码在 CRM 中也有合同或商机。
+    handling: 仍按内部代码处理，不出现在项目清单中；维护内部代码时应避免与真实项目冲突。
+    basis: 内部代码是管理人员显式维护的口径参数，优先于导入数据。

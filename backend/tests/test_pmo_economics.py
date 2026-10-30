@@ -16,11 +16,11 @@ from app.ontology.derivations.economics import (
     backlog_coverage,
     compute_project_economics,
     plan_completion,
-    resource_health,
     rollup,
     strategy_signals,
 )
 from app.main import create_app
+from app.ontology.derivations.resources import resource_health
 
 from test_api import settings
 
@@ -244,7 +244,7 @@ def test_resource_health_statuses():
     idle = resource_health({"2026-08": month("150"), "2026-09": month("80")}, "2026-09", CAPACITY, POLICY)
     assert idle["status"] == "idle" and idle["utilization_percent"] == 50.0
     first = resource_health({"2026-09": month("80")}, "2026-09", CAPACITY, POLICY)
-    assert first["status"] == "healthy" and first["first_month"], "the first month is never idle"
+    assert first["status"] == "first_month" and first["first_month"], "the first month is never idle, nor called healthy (D14)"
     internal_only = resource_health({"2026-08": month("150"), "2026-09": month("0", internal="160", projects=0)},
                                     "2026-09", CAPACITY, POLICY)
     assert internal_only["status"] == "idle", "TSG999 hours do not count as project utilisation"
@@ -265,7 +265,7 @@ def test_release_signal_for_burnt_out_projects(tmp_path):
         health = client.get("/api/v1/department/resource-health", params={"month": "2026-09"}).json()["data"]
         assert {row["employee_name"] for row in health["data"]} == {"Zhang San"}
         employee = client.get("/api/v1/ontology/objects/Employee/E001").json()["data"]["properties"]
-        assert employee["healthStatus"] in {"idle", "healthy"} and employee["concurrentProjectCount"] == 1
+        assert employee["healthStatus"] == "first_month" and employee["concurrentProjectCount"] == 1, "only September hours: a first month (D14)"
 
 
 # ------------------------------------------------------------------ department review (R14–R16)
