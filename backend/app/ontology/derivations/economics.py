@@ -210,8 +210,27 @@ def rollup(items: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-def plan_completion(actual: Decimal | None, target: Decimal | None, month: int, tolerance_points: Decimal, cumulative: bool = True) -> dict[str, Any]:
-    """R14: year-to-date completion against time progress (cumulative KPIs) or against the target (rates)."""
+def after_tax(amount: Decimal | None, tax_rate_percent: Decimal) -> Decimal | None:
+    """D22: operating revenue after tax = receipts ÷ (1 + VAT rate)."""
+    return None if amount is None else amount / (Decimal(1) + tax_rate_percent / HUNDRED)
+
+
+def plan_targets(revenue_target: Any, cost_target: Any, tax_rate_percent: Decimal) -> dict[str, Any]:
+    """D26: the after-tax revenue, gross profit and gross margin targets follow from the entered ones."""
+    revenue = after_tax(d(revenue_target), tax_rate_percent)
+    cost = d(cost_target)
+    profit = revenue - cost if revenue is not None and cost is not None else None
+    margin = profit / revenue * HUNDRED if profit is not None and revenue else None
+    return {"revenueTargetAfterTax": money(revenue), "grossProfitTarget": money(profit),
+            "grossMarginTargetPercent": money(margin)}
+
+
+def plan_completion(actual: Decimal | None, target: Decimal | None, month: int, tolerance_points: Decimal, cumulative: bool = True,
+                    lower_is_better: bool = False) -> dict[str, Any]:
+    """R14: year-to-date completion against time progress (cumulative KPIs) or against the target (rates).
+
+    A cost (``lower_is_better``) is over budget when it runs ahead of time progress by more than the tolerance.
+    """
     time_progress = Decimal(month) / Decimal(12) * HUNDRED
     if actual is None:
         return {"actual": None, "target": money(target), "completion_percent": None,
@@ -219,7 +238,11 @@ def plan_completion(actual: Decimal | None, target: Decimal | None, month: int, 
     if target is None or target <= 0:
         return {"actual": money(actual), "target": None, "completion_percent": None,
                 "time_progress_percent": float(time_progress.quantize(Decimal("0.01"))), "status": "no_target"}
-    if cumulative:
+    if cumulative and lower_is_better:
+        completion = actual / target * HUNDRED
+        lag = completion - time_progress
+        status = "over_budget" if lag > tolerance_points else "on_track"
+    elif cumulative:
         completion = actual / target * HUNDRED
         lag = time_progress - completion
         status = "behind" if lag > tolerance_points else "on_track"
@@ -324,6 +347,30 @@ class DepartmentAnalysis:
     def resource_health(self, month: str | None = None) -> dict[str, Any]:
         return self.resources.resource_health(month or self.latest_work_month())
 
+    # -------------------------------------------------------------- operating result (D22–D25)
+    def _operating_result(self, year: int, month: str, revenue_by_month: dict[str, Decimal], tax_rate: Decimal) -> dict[str, Any]:
+        """Revenue and cost up to the latest month with costs entered (D25); no costs means "not entered", not zero."""
+        categories = ("labor_cost", "bonus_cost", "travel_cost", "outsourcing_cost", "training_cost", "other_cost")
+        entries = [{"month": c["month"], **{f: c[f] for f in categories}, "total": money(sum((d(c[f]) or ZERO for f in categories), ZERO)),
+                    "notes": c["notes"], "updated_by": c["updated_by"]} for c in self.plans.list_costs(year)]
+        costs = [c for c in self.plans.list_costs(year) if c["month"] <= month]
+        if not costs:
+            return {"tax_rate_percent": money(tax_rate), "cost_entries": entries, "cost_cutoff_month": None, "missing_cost_months": [],
+                    "revenue_after_tax_to_cutoff": None, "operating_cost": None, "gross_profit": None,
+                    "gross_margin_percent": None, "cost_by_category": None}
+        cutoff = max(c["month"] for c in costs)
+        entered = {c["month"] for c in costs}
+        missing = [m for m in (f"{year}-{n:02d}" for n in range(1, int(cutoff[5:7]) + 1)) if m not in entered]
+        cost = sum((d(c[f]) or ZERO for c in costs for f in categories), ZERO)
+        revenue = after_tax(sum((v for m, v in revenue_by_month.items() if m <= cutoff), ZERO), tax_rate)
+        profit = revenue - cost
+        return {
+            "tax_rate_percent": money(tax_rate), "cost_entries": entries, "cost_cutoff_month": cutoff, "missing_cost_months": missing,
+            "revenue_after_tax_to_cutoff": money(revenue), "operating_cost": money(cost), "gross_profit": money(profit),
+            "gross_margin_percent": money(profit / revenue * HUNDRED) if revenue else None,
+            "cost_by_category": {f: money(sum((d(c[f]) or ZERO for c in costs), ZERO)) for f in categories},
+        }
+
     # -------------------------------------------------------------- department review
     def department_review(self, year: int | None = None, month: str | None = None) -> dict[str, Any]:
         policy = self.projects.get_worktime_baseline()
@@ -344,12 +391,16 @@ class DepartmentAnalysis:
             signed = record.get("signed_at") or ""
             if record.get("data_type") == "contract_order" and signed[:4] == str(year) and signed <= period_end:
                 new_contracts += d(record.get("total_amount")) or ZERO
+        # Operating revenue (D22): receipts confirmed in the year, by month, whatever year the contract was signed.
         collections_ytd = ZERO
+        revenue_by_month: dict[str, Decimal] = defaultdict(lambda: ZERO)
         for project in projects:
             for payment in project.get("payment_nodes", []):
                 actual_date = payment.get("actual_date") or ""
                 if payment.get("status") in PAID_STATUSES and actual_date[:4] == str(year) and actual_date <= period_end:
-                    collections_ytd += d(payment.get("actual_amount")) or ZERO
+                    amount = d(payment.get("actual_amount")) or ZERO
+                    collections_ytd += amount
+                    revenue_by_month[actual_date[:7]] += amount
 
         # Capacity and utilisation by month.
         months = [f"{year}-{m:02d}" for m in range(1, month_no + 1)]
@@ -372,9 +423,21 @@ class DepartmentAnalysis:
         plan = self.plans.get_plan(year)
         tolerance = Decimal(policy["plan_lag_tolerance_points"])
         target = lambda f: d(plan.get(f)) if plan else None
+        operating = self._operating_result(year, month, revenue_by_month, Decimal(policy["default_tax_rate_percent"]))
+        cutoff_no = int(operating["cost_cutoff_month"][5:7]) if operating["cost_cutoff_month"] else month_no
+        targets = plan_targets(plan.get("collection_target") if plan else None, plan.get("operating_cost_target") if plan else None,
+                               Decimal(policy["default_tax_rate_percent"]))
         kpis = {
-            "new_contracts": {"label": "新签合同额", **plan_completion(new_contracts, target("new_contract_target"), month_no, tolerance)},
-            "collections": {"label": "回款", **plan_completion(collections_ytd, target("collection_target"), month_no, tolerance)},
+            "new_contracts": {"label": "合同额", **plan_completion(new_contracts, target("new_contract_target"), month_no, tolerance)},
+            "collections": {"label": "经营收入（税前）", **plan_completion(collections_ytd, target("collection_target"), month_no, tolerance)},
+            "revenue_after_tax": {"label": "经营收入（税后）", **plan_completion(
+                after_tax(collections_ytd, Decimal(policy["default_tax_rate_percent"])), d(targets["revenueTargetAfterTax"]), month_no, tolerance)},
+            "operating_cost": {"label": "经营成本", "as_of": operating["cost_cutoff_month"], **plan_completion(
+                d(operating["operating_cost"]), target("operating_cost_target"), cutoff_no, tolerance, lower_is_better=True)},
+            "gross_profit": {"label": "毛利润", "as_of": operating["cost_cutoff_month"], **plan_completion(
+                d(operating["gross_profit"]), d(targets["grossProfitTarget"]), cutoff_no, tolerance)},
+            "gross_margin": {"label": "毛利率", "as_of": operating["cost_cutoff_month"], **plan_completion(
+                d(operating["gross_margin_percent"]), d(targets["grossMarginTargetPercent"]), cutoff_no, tolerance, cumulative=False)},
             "capacity_used": {"label": "项目投入人天", **plan_completion(used_days_ytd, target("capacity_person_days_target"), month_no, tolerance)},
             "utilization": {"label": "产能利用率", **plan_completion(Decimal(str(ytd_utilization)) if ytd_utilization is not None else None,
                                                                  target("utilization_target_percent"), month_no, tolerance, cumulative=False)},
@@ -411,7 +474,7 @@ class DepartmentAnalysis:
             "release_projects": release,
         }
         return {
-            "year": year, "month": month, "plan": plan, "kpis": kpis,
+            "year": year, "month": month, "plan": plan and {**plan, **targets}, "kpis": kpis, "operating": operating,
             "utilization_by_month": utilization_by_month,
             "signals": strategy_signals(facts, policy),
             "headcount": headcount,

@@ -1,7 +1,7 @@
 // Department review (ontology 4.0.0). Amounts are decimal strings; null means "unknown" or "redacted".
 // Person-day economics is paused, so the review carries no revenue, margin or backlog figures.
 export type ResourceHealthStatus = "overloaded" | "fatigue" | "fragmented" | "idle" | "first_month" | "healthy";
-export type PlanStatus = "no_data" | "no_target" | "behind" | "on_track";
+export type PlanStatus = "no_data" | "no_target" | "behind" | "on_track" | "over_budget";
 export type StrategySignalKey = "push_acceptance" | "control_cost" | "staffing_support" | "win_contracts" | "release_resources" | "hold";
 
 export interface ResourceHealthRow {
@@ -32,10 +32,12 @@ export interface PlanCompletion {
   time_progress_percent: number;
   lag_points?: number;
   status: PlanStatus;
+  // Cost, gross profit and margin run up to the latest month with costs entered (requirements baseline D25).
+  as_of?: string | null;
 }
 
 export const PLAN_FIELDS = [
-  "new_contract_target", "collection_target", "capacity_person_days_target", "headcount_target", "utilization_target_percent",
+  "new_contract_target", "collection_target", "operating_cost_target", "capacity_person_days_target", "headcount_target", "utilization_target_percent",
 ] as const;
 export type PlanField = typeof PLAN_FIELDS[number];
 
@@ -46,7 +48,29 @@ export type AnnualPlan = Record<PlanField, string | null> & {
   notes: string | null;
   updated_by: string | null;
   updated_at: string;
+  // Derived targets (D26): after-tax revenue, gross profit and margin follow from the entered ones.
+  revenueTargetAfterTax?: string | null;
+  grossProfitTarget?: string | null;
+  grossMarginTargetPercent?: string | null;
 };
+
+export const COST_FIELDS = ["labor_cost", "bonus_cost", "travel_cost", "outsourcing_cost", "training_cost", "other_cost"] as const;
+export type CostField = typeof COST_FIELDS[number];
+export const COST_LABEL: Record<CostField, string> = {
+  labor_cost: "人工成本", bonus_cost: "绩效奖金", travel_cost: "差旅费", outsourcing_cost: "外包成本", training_cost: "培训成本", other_cost: "其他",
+};
+export type CostEntry = Record<CostField, string> & { month: string; total: string; notes: string | null; updated_by: string | null };
+
+export interface OperatingResult {
+  tax_rate_percent: string;
+  cost_entries: CostEntry[];
+  cost_cutoff_month: string | null;
+  missing_cost_months: string[];
+  revenue_after_tax_to_cutoff: string | null;
+  operating_cost: string | null;
+  gross_profit: string | null;
+  gross_margin_percent: string | null;
+}
 
 export interface StrategySignal {
   signal: StrategySignalKey;
@@ -55,13 +79,15 @@ export interface StrategySignal {
   evidence: string[];
 }
 
-export type KpiKey = "new_contracts" | "collections" | "capacity_used" | "utilization" | "headcount";
+export type KpiKey = "new_contracts" | "collections" | "revenue_after_tax" | "operating_cost" | "gross_profit" | "gross_margin"
+  | "capacity_used" | "utilization" | "headcount";
 
 export interface DepartmentReview {
   year: number;
   month: string;
   plan: AnnualPlan | null;
   kpis: Record<KpiKey, PlanCompletion>;
+  operating: OperatingResult;
   utilization_by_month: Array<{ month: string; utilization_percent: number; active_employees: number }>;
   signals: StrategySignal[];
   headcount: number;
@@ -74,5 +100,5 @@ export const HEALTH_STATUS_TONE: Record<ResourceHealthStatus, "critical" | "warn
   overloaded: "critical", fatigue: "warning", fragmented: "warning", idle: "baseline", first_month: "baseline", healthy: "healthy",
 };
 export const PLAN_STATUS_LABEL: Record<PlanStatus, string> = {
-  no_data: "无数据", no_target: "无目标", behind: "落后", on_track: "正常",
+  no_data: "无数据", no_target: "无目标", behind: "落后", on_track: "正常", over_budget: "超支",
 };

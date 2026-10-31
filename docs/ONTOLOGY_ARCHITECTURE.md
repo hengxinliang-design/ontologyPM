@@ -520,6 +520,16 @@ when: [{property: contractType, notIn: [sales]}, {property: lifecycleStatus, not
 
 构建包见 [2026-10-30-resource-forecast.yaml](./ontology-builds/2026-10-30-resource-forecast.yaml)。
 
+### 11.30 年度经营计划口径（v7.10.0）
+
+需求基线 D22–D29：
+
+- **对象与动作**：新增 `OperatingCost`（按月份与部门一条，六类成本与合计，表 `operating_costs`）和动作 `recordOperatingCost`（业务渠道，同月再次录入即修改，提交条件 `operatingCostValid` 与基础程序共用 `maintenance_rules.cost_month` / `non_negative`）。`AnnualOperatingPlan` 新增 `operatingCostTarget` 与推算属性 `revenueTargetAfterTax`、`grossProfitTarget`、`grossMarginTargetPercent`；`collectionTarget`、`newContractTarget` 只改显示名（非破坏性）。`OperatingPolicy` 新增 `defaultTaxRatePercent`。
+- **计算一处**：`derivations/economics.py` 的 `after_tax`、`plan_targets` 供年度计划对象与部门经营复盘共用；`DepartmentAnalysis._operating_result` 计算截止月份（最近已录成本的月份）、缺失月份、截至该月的税后收入、成本、毛利润、毛利率；`plan_completion(lower_is_better=True)` 给出成本的「超支」。
+- **页面**：部门经营页的指标卡显示截止月份与「未录入经营成本」，新增经营成本录入面板。
+
+构建包见 [2026-10-31-annual-plan-metrics.yaml](./ontology-builds/2026-10-31-annual-plan-metrics.yaml)。
+
 ## 12. 代码结构
 
 ```text

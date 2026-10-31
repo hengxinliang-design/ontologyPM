@@ -148,7 +148,7 @@ version: v1
 definition:
   apiName: departmentOperatingReview
   displayName: 部门经营复盘
-  description: 按年度经营计划和时间进度对照新签、回款、投入人天、利用率与人数，给出带证据的策略信号（推动验收回款、争取新合同、释放资源）。依赖人天经营口径的指标与信号随经营口径暂停。
+  description: 按年度经营计划和时间进度对照合同额、经营收入（税前 / 税后）、经营成本、毛利润、毛利率，以及投入人天、利用率与人数，给出带证据的策略信号（推动验收回款、争取新合同、释放资源）。经营收入为当年到账回款，毛利截至最近已录成本的月份（需求基线 D22–D25）。
   parameters:
     - {apiName: year, displayName: 年度, type: integer}
     - {apiName: month, displayName: 截至月份, type: string, description: YYYY-MM，缺省为本月与最近工时月份中较早者}

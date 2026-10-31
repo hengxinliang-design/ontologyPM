@@ -1,0 +1,89 @@
+# 本体构建包（发布稿）：年度经营计划口径——经营收入（税前 / 税后）、合同额、经营成本、毛利润、毛利率。本体 7.10.0（新增对象「经营成本」与录入动作、年度计划新增经营成本目标与推算目标、运营口径参数新增增值税率，非破坏性）。
+# 依据：用户 2026-10-31「明确年度经营计划的口径」；八个问题确认为需求基线 D22–D29。
+kind: OntologyBuild
+stage: release
+topic: 年度经营计划的五项经营指标有统一口径；经营成本按月按类人工录入；部门经营复盘按时间进度跟踪全年完成情况
+ontologyVersion: 7.10.0
+date: 2026-10-31
+scope:
+  - CQ-P1 今年截至目前的经营收入（税前、税后）是多少？完成年度目标的多少？
+  - CQ-P2 今年签约的合同额是多少？
+  - CQ-P3 今年截至最近录入月份的经营成本是多少？各类成本分别多少？
+  - CQ-P4 今年的毛利润和毛利率是多少？截至哪个月？与目标相比如何？
+  - CQ-P5 年初下达的目标是什么？税后收入、毛利润、毛利率目标怎么来的？
+
+rules:
+  - id: R1
+    statement: 经营收入（D22）= 当年到账的回款：回款节点状态为已到账、到账日期在当年且不晚于统计月份末，按到账金额求和，含往年签约合同的回款；税前收入即该金额，税后收入 = 税前收入 ÷ (1 + 增值税率 / 100)。增值税率为运营口径参数 defaultTaxRatePercent（默认 6%，可通过「调整运营口径」修改）。
+    basis: 需求基线 D22、D5（年度回款以回款节点到账日期为准）；技能原则 7（数值做成参数）。
+    acceptance: 当年到账 106,000 元、增值税率 6% 时，税前收入 106,000.00、税后收入 100,000.00；往年签约、今年到账的回款计入；今年签约、尚未到账的回款不计入；增值税率改为 9% 后税后收入随之改变。
+    verifiedBy: [test_revenue_contract_value_and_tax]
+    ontology: [departmentOperatingReview, OperatingPolicy.defaultTaxRatePercent, PaymentNode.actualAmount, PaymentNode.actualDate, updateOperatingPolicy]
+  - id: R2
+    statement: 合同额（D7、需求基线年度计划口径）= 当年签约的全部合同金额（CRM 合同的总金额，含税），按签约日期归年，不区分税前税后。
+    basis: 用户口径「当年签约所有合同的金额，不用区分税前和税后」；需求基线 D7（合同金额按含税理解）。
+    acceptance: 今年签约的两份合同合计即合同额；往年签约的合同不计入；商机不计入。
+    verifiedBy: [test_revenue_contract_value_and_tax]
+    ontology: [departmentOperatingReview, Contract.totalAmount, Contract.signedAt]
+  - id: R3
+    statement: 经营成本（D24）由财务线下提供、人工按月录入，新增对象「经营成本」OperatingCost（每月每部门一条）与动作「录入经营成本」recordOperatingCost：人工成本、绩效奖金、差旅费、外包成本、培训成本、其他六类金额和备注；合计 = 六类之和。同一月份再次录入即修改，留审计。金额不能为负；不能录入当前月份之后的月份。
+    basis: 需求基线 D24；用户说明「经营成本实时数据暂时获取不到，只能从线下找财务人员补充」。
+    acceptance: 录入 2026-09 六类成本后对象可查，合计正确；再次录入同月覆盖原值且审计日志有两条；负数金额、未来月份被拒绝并给出中文原因；录入只写经营成本数据表。
+    verifiedBy: [test_operating_cost_entry]
+    ontology: [OperatingCost, recordOperatingCost]
+  - id: R4
+    statement: 毛利润与毛利率（D23、D25）：截止月份 = 统计月份与最近一个已录成本月份中较早者；毛利润 = 截至该月的税后收入 − 截至该月的经营成本，毛利率 = 毛利润 ÷ 税后收入；结果标明截止月份。当年没有录入任何成本时，经营成本、毛利润、毛利率均为未录入（不按 0 计）。截止月份之前有未录入的月份时，在结果中列出这些月份。
+    basis: 需求基线 D23、D25；技能原则：区分「否」与「不知道」，缺数据不能当作 0。
+    acceptance: 成本录到 8 月、统计到 10 月时，毛利用 1–8 月的税后收入与成本计算并标「截至 2026-08」；没有成本时三项为未录入；只录了 1 月和 3 月时列出缺 2 月。
+    verifiedBy: [test_gross_profit_uses_the_cost_cutoff]
+    ontology: [departmentOperatingReview, OperatingCost]
+  - id: R5
+    statement: 年度目标（D26、D29）：年度经营计划录入经营收入目标（税前，即原回款目标 collectionTarget，显示名改为「经营收入目标（税前）」）、合同额目标（newContractTarget，显示名改为「合同额目标」）和新增的经营成本目标 operatingCostTarget；推算税后收入目标 = 税前目标 ÷ (1 + 增值税率)、毛利润目标 = 税后收入目标 − 经营成本目标、毛利率目标 = 毛利润目标 ÷ 税后收入目标。项目投入人天、人员编制、利用率目标保留。
+    basis: 需求基线 D26、D29。
+    acceptance: 收入目标 1,060,000、成本目标 600,000、税率 6% 时，税后收入目标 1,000,000.00、毛利润目标 400,000.00、毛利率目标 40.00%；只录收入目标时毛利目标为空。
+    verifiedBy: [test_plan_targets_are_derived]
+    ontology: [AnnualOperatingPlan, AnnualOperatingPlan.collectionTarget, AnnualOperatingPlan.newContractTarget, AnnualOperatingPlan.operatingCostTarget, setAnnualOperatingPlan]
+  - id: R6
+    statement: 全年跟踪：部门经营复盘的指标为合同额、经营收入（税前）、经营收入（税后）、经营成本、毛利润、毛利率，以及保留的项目投入人天、产能利用率、在岗人数。累计指标按时间进度对照目标（截至统计月份；成本和毛利润按截止月份的时间进度）；经营成本是越低越好的指标，超过时间进度加容差为「超支」；毛利率与目标值直接比较。
+    basis: 用户「公司在每财年初给各部门下达指标……全年跟踪这个数据」；需求基线 D28（自然年）。
+    acceptance: 成本目标 1,200,000、截至 6 月成本 700,000（完成 58.33%，时间进度 50%，容差 5 点）为「超支」；成本 550,000 为「正常」；毛利率 35% 对目标 40% 为「落后」。
+    verifiedBy: [test_annual_plan_tracking_statuses]
+    ontology: [departmentOperatingReview, AnnualOperatingPlan]
+
+exceptions:
+  - rule: R1
+    case: CRM 中已回款但系统里没有确认到账的回款节点。
+    handling: 不计入经营收入；经营收入完全取决于回款节点的到账确认，需要按时在系统中确认。
+    basis: CRM 回款没有到账日期，无法归年（D5、D22）。
+  - rule: R1
+    case: 部分到账。
+    handling: 只有状态为已到账的回款节点计入，按实际到账金额；部分到账状态暂不计入。
+    basis: 系统的确认到账动作一次记录实际金额并置为已到账；部分到账状态目前不由动作产生。
+  - rule: R2
+    case: 签约后合同金额变更、作废的合同。
+    handling: 按最新一次 CRM 导入的合同金额计；作废合同以 CRM 状态为准不另行判断。
+    basis: 合同金额以 CRM 为唯一来源。
+  - rule: R3
+    case: 财务成本口径与项目工时成本不同。
+    handling: 经营成本只取财务录入数，不与项目人天或工时换算的成本相加或比较。
+    basis: 人天经营口径已暂停（本体 4.0.0）；两套口径混用会重复计算。
+  - rule: R3
+    case: 某月没有发生某类成本。
+    handling: 该类填 0；整月未录入与录入为 0 是两回事，前者在毛利中列为缺失月份。
+    basis: 区分「否」与「不知道」。
+  - rule: R4
+    case: 截止月份的税后收入为 0。
+    handling: 毛利润照算（为负或 0），毛利率为空。
+    basis: 除数为 0 时比率无意义。
+  - rule: R5
+    case: 年中调整目标。
+    handling: 直接修改年度计划，审计日志保留修改前后的值；推算目标随之变化。
+    basis: 目标是可维护的参数（技能原则 7）。
+  - rule: R5
+    case: 多个部门。
+    handling: 本次只有一个部门（D27），年度计划仍以「年度-部门」为主键，便于以后扩展。
+    basis: 合同、项目、员工尚无部门归属。
+  - rule: R6
+    case: 统计月份早于全年第一个已录成本月份。
+    handling: 经营成本、毛利润、毛利率显示为未录入。
+    basis: 同 R4，不把缺数据当作 0。

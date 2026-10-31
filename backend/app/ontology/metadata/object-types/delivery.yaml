@@ -158,6 +158,7 @@ definition:
     - {apiName: overloadConsecutiveMonths, displayName: 连续过载月数, type: integer, sourceKind: manual, source: 默认 2；连续高于过载线达到该月数即过载风险, unit: month}
     - {apiName: maxConcurrentProjects, displayName: 同期项目数上限, type: integer, sourceKind: manual, source: 默认 4；超过即碎片化, unit: count}
     - {apiName: planLagTolerancePoints, displayName: 年度计划落后容差, type: decimal, sourceKind: manual, source: 默认 5 个百分点, unit: percentagePoint}
+    - {apiName: defaultTaxRatePercent, displayName: 增值税率, type: percent, sourceKind: manual, source: worktime_baseline_config.default_tax_rate_percent；默认 6%；经营收入（税后）= 回款 ÷ (1 + 增值税率)（需求基线 D22）, unit: percent}
     - {apiName: notes, displayName: 备注, type: string, sourceKind: manual, source: worktime_baseline_config.notes}
     - {apiName: updatedAt, displayName: 更新时间, type: datetime, sourceKind: manual, source: worktime_baseline_config.updated_at}
 ---
@@ -180,10 +181,45 @@ definition:
     - {apiName: planId, displayName: 计划编号, type: string, sourceKind: manual, source: 年度-部门}
     - {apiName: year, displayName: 年度, type: integer, sourceKind: manual, source: annual_operating_plans.year, unit: none}
     - {apiName: department, displayName: 部门, type: string, sourceKind: manual, source: annual_operating_plans.department；员工有部门字段之前只有一个部门}
-    - {apiName: newContractTarget, displayName: 新签合同额目标, type: money, sourceKind: manual, source: annual_operating_plans.new_contract_target, marking: FINANCE, unit: yuan}
-    - {apiName: collectionTarget, displayName: 回款目标, type: money, sourceKind: manual, source: annual_operating_plans.collection_target, marking: FINANCE, unit: yuan}
+    - {apiName: newContractTarget, displayName: 合同额目标, type: money, sourceKind: manual, source: annual_operating_plans.new_contract_target；当年签约全部合同金额（含税）的目标, marking: FINANCE, unit: yuan}
+    - {apiName: collectionTarget, displayName: 经营收入目标（税前）, type: money, sourceKind: manual, source: annual_operating_plans.collection_target；原「回款目标」，经营收入 = 当年到账回款（需求基线 D22、D29）, marking: FINANCE, unit: yuan}
+    - {apiName: operatingCostTarget, displayName: 经营成本目标, type: money, sourceKind: manual, source: annual_operating_plans.operating_cost_target；财务口径人工、绩效、差旅、外包、培训、其他成本合计的目标, marking: FINANCE, unit: yuan}
+    - {apiName: revenueTargetAfterTax, displayName: 经营收入目标（税后）, type: money, sourceKind: derived, source: 经营收入目标（税前）÷ (1 + 运营口径增值税率 / 100)（D26）, marking: FINANCE, unit: yuan}
+    - {apiName: grossProfitTarget, displayName: 毛利润目标, type: money, sourceKind: derived, source: 经营收入目标（税后）− 经营成本目标；任一为空则为空（D26）, marking: FINANCE, unit: yuan}
+    - {apiName: grossMarginTargetPercent, displayName: 毛利率目标, type: percent, sourceKind: derived, source: 毛利润目标 ÷ 经营收入目标（税后）× 100%（D23、D26）, marking: FINANCE, unit: percent}
     - {apiName: capacityPersonDaysTarget, displayName: 项目投入人天目标, type: decimal, sourceKind: manual, source: annual_operating_plans.capacity_person_days_target, unit: personDay}
     - {apiName: headcountTarget, displayName: 人员编制, type: decimal, sourceKind: manual, source: annual_operating_plans.headcount_target, unit: person}
     - {apiName: utilizationTargetPercent, displayName: 利用率目标, type: percent, sourceKind: manual, source: annual_operating_plans.utilization_target_percent, unit: percent}
     - {apiName: notes, displayName: 备注, type: string, sourceKind: manual, source: annual_operating_plans.notes}
     - {apiName: updatedAt, displayName: 更新时间, type: datetime, sourceKind: manual, source: annual_operating_plans.updated_at}
+---
+kind: ObjectType
+version: v1
+definition:
+  apiName: OperatingCost
+  displayName: 经营成本
+  pluralDisplayName: 经营成本
+  description: 独立对象：财务线下提供、按月人工录入的部门经营成本（需求基线 D24），由部门经营复盘按月汇总后计算毛利。某月没有记录表示未录入，不等于成本为 0。
+  primaryKey: costId
+  titleProperty: month
+  datasource: operatingCosts
+  backingDatasets: [operating_costs]
+  readPermissions: [department, settings]
+  icon: wallet
+  displayOrder: 13
+  defaultOrder: -month
+  listProperties: [month, totalCost, laborCost, outsourcingCost, updatedBy]
+  properties:
+    - {apiName: costId, displayName: 成本编号, type: string, sourceKind: manual, source: 月份-部门}
+    - {apiName: month, displayName: 月份, type: string, sourceKind: manual, source: operating_costs.month（YYYY-MM）, searchable: true}
+    - {apiName: department, displayName: 部门, type: string, sourceKind: manual, source: operating_costs.department；本期只有一个部门（D27）}
+    - {apiName: laborCost, displayName: 人工成本, type: money, sourceKind: manual, source: operating_costs.labor_cost, marking: FINANCE, unit: yuan}
+    - {apiName: bonusCost, displayName: 绩效奖金, type: money, sourceKind: manual, source: operating_costs.bonus_cost, marking: FINANCE, unit: yuan}
+    - {apiName: travelCost, displayName: 差旅费, type: money, sourceKind: manual, source: operating_costs.travel_cost, marking: FINANCE, unit: yuan}
+    - {apiName: outsourcingCost, displayName: 外包成本, type: money, sourceKind: manual, source: operating_costs.outsourcing_cost, marking: FINANCE, unit: yuan}
+    - {apiName: trainingCost, displayName: 培训成本, type: money, sourceKind: manual, source: operating_costs.training_cost, marking: FINANCE, unit: yuan}
+    - {apiName: otherCost, displayName: 其他成本, type: money, sourceKind: manual, source: operating_costs.other_cost, marking: FINANCE, unit: yuan}
+    - {apiName: totalCost, displayName: 经营成本合计, type: money, sourceKind: derived, source: 人工成本 + 绩效奖金 + 差旅费 + 外包成本 + 培训成本 + 其他成本, marking: FINANCE, unit: yuan}
+    - {apiName: notes, displayName: 备注, type: string, sourceKind: manual, source: operating_costs.notes}
+    - {apiName: updatedBy, displayName: 录入人, type: string, sourceKind: manual, source: operating_costs.updated_by}
+    - {apiName: updatedAt, displayName: 更新时间, type: datetime, sourceKind: manual, source: operating_costs.updated_at}

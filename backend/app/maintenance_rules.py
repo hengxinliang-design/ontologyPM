@@ -80,6 +80,16 @@ def node_not_milestone_managed(linked_milestone_id: Any) -> str | None:
     return "该回款节点由里程碑管理，请通过编辑里程碑维护" if linked_milestone_id else None
 
 
+def cost_month(month: Any, current_month: str) -> str | None:
+    """Operating costs (D24) are entered per past or current month: YYYY-MM, not after the current month."""
+    text = str(month or "")
+    if len(text) != 7 or text[4] != "-" or not (text[:4] + text[5:]).isdigit() or not 1 <= int(text[5:]) <= 12:
+        return "月份必须是 YYYY-MM 格式"
+    if text > current_month:
+        return f"不能录入 {current_month} 之后的月份"
+    return None
+
+
 def ensure(reason: str | None) -> None:
     """Base-program guard: raise the rule's reason (the REST layer turns ValueError into a 422)."""
     if reason:

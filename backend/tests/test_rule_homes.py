@@ -124,6 +124,7 @@ def test_actions_write_only_declared_datasets(tmp_path):
         run("reopenOpportunity", {"costObject": "WDR101", "reason": "客户重新启动"})
         run("updateOperatingPolicy", {"policy": "default", "budgetAttentionPercent": "80"})
         run("setAnnualOperatingPlan", {"policy": "default", "year": 2026})
+        run("recordOperatingCost", {"policy": "default", "month": "2026-01", "laborCost": "1000"})
 
     assert set(exercised) == {a.api_name for a in ontology.action_types}, "every action is exercised"
     for action in ontology.action_types:

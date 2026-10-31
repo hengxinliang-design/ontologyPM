@@ -4,6 +4,7 @@
 
 | 产品版本 | 本体版本 | 日期 | 构建包 |
 | --- | --- | --- | --- |
+| v1.27.0 | 7.10.0 | 2026-10-31 | [2026-10-31-annual-plan-metrics](docs/ontology-builds/2026-10-31-annual-plan-metrics.yaml) |
 | v1.26.1 | 7.9.0 | 2026-10-31 | —（只改界面） |
 | v1.26.0 | 7.9.0 | 2026-10-30 | [2026-10-30-resource-forecast](docs/ontology-builds/2026-10-30-resource-forecast.yaml) |
 | v1.25.0 | 7.8.0 | 2026-10-30 | [2026-10-30-assistant-on-ontology](docs/ontology-builds/2026-10-30-assistant-on-ontology.yaml) |
@@ -12,6 +13,12 @@
 | v1.22.0 | 7.6.0 | 2026-10-30 | [2026-10-29-logical-delete](docs/ontology-builds/2026-10-29-logical-delete.yaml) |
 | v1.21.0 | 7.5.0 | 2026-10-29 | [2026-10-29-rule-homes-and-linkages](docs/ontology-builds/2026-10-29-rule-homes-and-linkages.yaml) |
 | v1.20.0 | 7.4.0 | 2026-10-29 | [2026-10-29-milestone-span-period](docs/ontology-builds/2026-10-29-milestone-span-period.yaml) |
+
+## v1.27.0 — 年度经营计划口径（本体 7.10.0）
+
+- 年度指标改为：合同额（当年签约，含税）、经营收入（当年到账回款，税前与税后，增值税率为运营口径参数，默认 6%）、经营成本（财务按月按六类录入）、毛利润与毛利率（按税后收入，截至最近已录成本的月份）；投入人天、利用率、人数保留（需求基线 D22–D29）。
+- 新增对象「经营成本」与动作「录入经营成本」；年度计划新增经营成本目标，税后收入、毛利润、毛利率目标自动推算；成本超出时间进度标为「超支」。
+- 部门经营页新增经营成本录入面板，指标卡标明截止月份，缺少月份时提示成本偏低、毛利偏高。
 
 ## v1.26.1 — 界面检查与修复（本体 7.9.0）
 

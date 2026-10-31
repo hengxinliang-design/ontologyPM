@@ -359,7 +359,9 @@ def test_person_day_economics_is_paused(tmp_path):
         row = client.get("/api/v1/project-health", params={"month": "2026-09"}).json()["data"][0]
         assert "economics" not in row
         review = client.get("/api/v1/department/review", params={"year": 2026, "month": "2026-09"}).json()["data"]
-        assert set(review["kpis"]) == {"new_contracts", "collections", "capacity_used", "utilization", "headcount"}
+        # 7.10.0 adds the annual-plan operating metrics (finance-entered costs, D22–D25); person-day economics stays paused.
+        assert set(review["kpis"]) == {"new_contracts", "collections", "revenue_after_tax", "operating_cost", "gross_profit",
+                                       "gross_margin", "capacity_used", "utilization", "headcount"}
         assert not {"portfolio", "backlog", "demand", "forecast_gross_margin_percent"} & set(review)
         assert not {"control_cost", "staffing_support"} & {s["signal"] for s in review["signals"]}
         assert client.get("/api/v1/department/customers").status_code == 404

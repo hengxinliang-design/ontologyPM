@@ -92,9 +92,10 @@ definition:
     - {apiName: overloadConsecutiveMonths, displayName: 连续过载月数, type: integer}
     - {apiName: maxConcurrentProjects, displayName: 同期项目数上限, type: integer}
     - {apiName: planLagTolerancePoints, displayName: 年度计划落后容差, type: decimal}
+    - {apiName: defaultTaxRatePercent, displayName: 增值税率, type: decimal, description: 经营收入税后换算用，默认 6}
     - {apiName: notes, displayName: 备注, type: string}
   permissions: [settings, employeeWorktime]
-  edits: [OperatingPolicy.standardHoursPerDay, OperatingPolicy.standardWorkDaysPerYear, OperatingPolicy.lostStatuses, OperatingPolicy.internalCodes, OperatingPolicy.attentionUtilizationPercent, OperatingPolicy.minimumUtilizationPercent, OperatingPolicy.excellentUtilizationPercent, OperatingPolicy.overloadUtilizationPercent, OperatingPolicy.budgetAttentionPercent, OperatingPolicy.budgetHighRiskPercent, OperatingPolicy.stallDays, OperatingPolicy.overtimeShareAttentionPercent, OperatingPolicy.overloadConsecutiveMonths, OperatingPolicy.maxConcurrentProjects, OperatingPolicy.planLagTolerancePoints, OperatingPolicy.notes]
+  edits: [OperatingPolicy.standardHoursPerDay, OperatingPolicy.standardWorkDaysPerYear, OperatingPolicy.lostStatuses, OperatingPolicy.internalCodes, OperatingPolicy.attentionUtilizationPercent, OperatingPolicy.minimumUtilizationPercent, OperatingPolicy.excellentUtilizationPercent, OperatingPolicy.overloadUtilizationPercent, OperatingPolicy.budgetAttentionPercent, OperatingPolicy.budgetHighRiskPercent, OperatingPolicy.stallDays, OperatingPolicy.overtimeShareAttentionPercent, OperatingPolicy.overloadConsecutiveMonths, OperatingPolicy.maxConcurrentProjects, OperatingPolicy.planLagTolerancePoints, OperatingPolicy.defaultTaxRatePercent, OperatingPolicy.notes]
   writeback: [worktime_baseline_config, investment_settings]
   handler: updateOperatingPolicy
   submissionCriteria:
@@ -114,15 +115,16 @@ version: v1
 definition:
   apiName: setAnnualOperatingPlan
   displayName: 设定年度经营计划
-  description: 新建或修改部门某一年的经营目标（新签、回款、投入人天、人员编制、利用率）。部门经营复盘按时间进度对照这些目标，并据此给出策略信号。
+  description: 新建或修改部门某一年的经营目标：合同额、经营收入（税前）、经营成本（税后收入、毛利润、毛利率目标由系统推算），以及项目投入人天、人员编制、利用率。部门经营复盘按时间进度对照这些目标，并据此给出策略信号。
   objectType: OperatingPolicy
   targetParameter: policy
   parameters:
     - {apiName: policy, displayName: 运营口径, type: object_ref, objectType: OperatingPolicy, required: true}
     - {apiName: year, displayName: 年度, type: integer, required: true}
     - {apiName: department, displayName: 部门, type: string, description: 缺省为实施交付部}
-    - {apiName: newContractTarget, displayName: 新签合同额目标, type: money}
-    - {apiName: collectionTarget, displayName: 回款目标, type: money}
+    - {apiName: newContractTarget, displayName: 合同额目标, type: money}
+    - {apiName: collectionTarget, displayName: 经营收入目标（税前）, type: money}
+    - {apiName: operatingCostTarget, displayName: 经营成本目标, type: money}
     - {apiName: capacityPersonDaysTarget, displayName: 项目投入人天目标, type: decimal}
     - {apiName: headcountTarget, displayName: 人员编制, type: decimal}
     - {apiName: utilizationTargetPercent, displayName: 利用率目标, type: decimal}
@@ -133,3 +135,28 @@ definition:
   handler: setAnnualOperatingPlan
   submissionCriteria:
     - {description: 年度在 2000–2100 之间，目标不为负数，百分比不超过 100%, rule: annualPlanValuesValid}
+---
+kind: ActionType
+version: v1
+definition:
+  apiName: recordOperatingCost
+  displayName: 录入经营成本
+  description: 按月录入财务线下提供的经营成本（人工成本、绩效奖金、差旅费、外包成本、培训成本、其他）；同一月份再次录入即修改，审计日志保留每次录入（需求基线 D24）。
+  objectType: OperatingPolicy
+  targetParameter: policy
+  parameters:
+    - {apiName: policy, displayName: 运营口径, type: object_ref, objectType: OperatingPolicy, required: true}
+    - {apiName: month, displayName: 月份, type: string, required: true, description: YYYY-MM，不能晚于当前月份}
+    - {apiName: laborCost, displayName: 人工成本, type: money}
+    - {apiName: bonusCost, displayName: 绩效奖金, type: money}
+    - {apiName: travelCost, displayName: 差旅费, type: money}
+    - {apiName: outsourcingCost, displayName: 外包成本, type: money}
+    - {apiName: trainingCost, displayName: 培训成本, type: money}
+    - {apiName: otherCost, displayName: 其他成本, type: money}
+    - {apiName: notes, displayName: 备注, type: string}
+  permissions: [department, settings]
+  edits: [OperatingCost.*]
+  writeback: [operating_costs]
+  handler: recordOperatingCost
+  submissionCriteria:
+    - {description: 月份为 YYYY-MM 且不晚于当前月份，金额不为负数, rule: operatingCostValid}

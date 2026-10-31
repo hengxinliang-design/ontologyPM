@@ -114,6 +114,24 @@ CREATE TABLE IF NOT EXISTS project_settings (
     updated_at TEXT NOT NULL
 );
 
+-- Operating costs (requirements baseline D24): provided offline by finance, entered per month and department in six
+-- categories. A month without a row is "not entered", which is not the same as zero.
+CREATE TABLE IF NOT EXISTS operating_costs (
+    cost_id TEXT PRIMARY KEY,
+    month TEXT NOT NULL,
+    department TEXT NOT NULL,
+    labor_cost TEXT NOT NULL DEFAULT '0.00',
+    bonus_cost TEXT NOT NULL DEFAULT '0.00',
+    travel_cost TEXT NOT NULL DEFAULT '0.00',
+    outsourcing_cost TEXT NOT NULL DEFAULT '0.00',
+    training_cost TEXT NOT NULL DEFAULT '0.00',
+    other_cost TEXT NOT NULL DEFAULT '0.00',
+    notes TEXT,
+    updated_by TEXT,
+    updated_at TEXT NOT NULL,
+    UNIQUE(month, department)
+);
+
 CREATE TABLE IF NOT EXISTS annual_operating_plans (
     plan_id TEXT PRIMARY KEY,
     year INTEGER NOT NULL,
@@ -426,6 +444,7 @@ OBJECT_DATASETS = (
     "payment_terms",
     "worktime_baseline_config",
     "annual_operating_plans",
+    "operating_costs",
 )
 
 
@@ -589,6 +608,10 @@ class Database:
         }
         if "payment_term_id" not in payment_columns:
             connection.execute("ALTER TABLE payment_nodes ADD COLUMN payment_term_id TEXT")
+        # Annual plan metrics (7.10.0, D26): the operating cost target.
+        plan_columns = {row["name"] for row in connection.execute("PRAGMA table_info(annual_operating_plans)").fetchall()}
+        if "operating_cost_target" not in plan_columns:
+            connection.execute("ALTER TABLE annual_operating_plans ADD COLUMN operating_cost_target TEXT")
         # Roles and data scope (7.7.0): every account has a role and, for a project manager, the name that
         # matches Project.projectManager. Accounts created before have no role ("未设角色", all projects).
         user_columns = {row["name"] for row in connection.execute("PRAGMA table_info(users)").fetchall()}

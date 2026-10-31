@@ -1,18 +1,23 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
-import { fetchDepartmentReview, fetchResourceHealth, saveAnnualPlan } from "./api";
+import { fetchDepartmentReview, fetchResourceHealth, recordOperatingCost, saveAnnualPlan } from "./api";
 import "./department.css";
-import { HEALTH_STATUS_LABEL, HEALTH_STATUS_TONE, PLAN_FIELDS, PLAN_STATUS_LABEL } from "./types";
-import type { DepartmentReview, KpiKey, PlanCompletion, PlanField, ResourceHealthResponse, ResourceHealthStatus } from "./types";
+import { COST_FIELDS, COST_LABEL, HEALTH_STATUS_LABEL, HEALTH_STATUS_TONE, PLAN_FIELDS, PLAN_STATUS_LABEL } from "./types";
+import type { CostField, DepartmentReview, KpiKey, PlanCompletion, PlanField, ResourceHealthResponse, ResourceHealthStatus } from "./types";
 
-const KPI_ORDER: KpiKey[] = ["new_contracts", "collections", "capacity_used", "utilization", "headcount"];
+// Annual plan metrics (requirements baseline D22–D29): operating metrics first, then the resource metrics that stay.
+const KPI_ORDER: KpiKey[] = ["new_contracts", "collections", "revenue_after_tax", "operating_cost", "gross_profit", "gross_margin",
+  "capacity_used", "utilization", "headcount"];
 const KPI_UNIT: Record<KpiKey, "money" | "days" | "percent" | "people"> = {
-  new_contracts: "money", collections: "money", capacity_used: "days", utilization: "percent", headcount: "people",
+  new_contracts: "money", collections: "money", revenue_after_tax: "money", operating_cost: "money", gross_profit: "money",
+  gross_margin: "percent", capacity_used: "days", utilization: "percent", headcount: "people",
 };
-const CUMULATIVE = new Set<KpiKey>(["new_contracts", "collections", "capacity_used"]);
+const CUMULATIVE = new Set<KpiKey>(["new_contracts", "collections", "revenue_after_tax", "operating_cost", "gross_profit", "capacity_used"]);
+// Cost, gross profit and margin run up to the latest month with costs entered (D25).
+const COST_BASED = new Set<KpiKey>(["operating_cost", "gross_profit", "gross_margin"]);
 const PLAN_LABEL: Record<PlanField, string> = {
-  new_contract_target: "新签合同额（元）", collection_target: "回款（元）", capacity_person_days_target: "项目投入人天",
-  headcount_target: "人员编制（人）", utilization_target_percent: "利用率（%）",
+  new_contract_target: "合同额（元）", collection_target: "经营收入·税前（元）", operating_cost_target: "经营成本（元）",
+  capacity_person_days_target: "项目投入人天", headcount_target: "人员编制（人）", utilization_target_percent: "利用率（%）",
 };
 const HEALTH_ORDER: ResourceHealthStatus[] = ["overloaded", "fatigue", "fragmented", "idle", "first_month", "healthy"];
 
@@ -74,7 +79,7 @@ export function DepartmentOperationsPage({ canEditPlan }: { canEditPlan: boolean
       <div className="panel-head">
         <div>
           <h2>部门年度经营</h2>
-          <p>按年度经营计划和时间进度对照新签、回款、项目投入人天、产能利用率和在岗人数，并给出带依据的策略信号（只作建议）。人天经营口径（暂估收入、可用成本、毛利率）暂停，财务数据能对应到项目后再启用。</p>
+          <p>按年度经营计划和时间进度对照合同额（当年签约，含税）、经营收入（当年到账回款，税前与税后）、经营成本（财务按月录入）、毛利润与毛利率（按税后收入，截至最近已录成本的月份），以及项目投入人天、产能利用率和在岗人数，并给出带依据的策略信号（只作建议）。</p>
         </div>
         <div className="department-period">
           <select value={year} aria-label="选择年度" onChange={e => { setYear(Number(e.target.value)); setMonth(""); }}>
@@ -90,6 +95,7 @@ export function DepartmentOperationsPage({ canEditPlan }: { canEditPlan: boolean
     {error && <div className="error-banner">{error}</div>}
     {loading && !review ? <section className="panel"><div className="resource-loading">正在汇总部门经营数据…</div></section> : review && <>
       <KpiGrid review={review} />
+      <OperatingCostPanel review={review} canEdit={canEditPlan} onSaved={() => void load()} reportError={setError} />
       <div className="department-columns">
         <SignalPanel review={review} />
         <UtilizationPanel review={review} />
@@ -123,6 +129,7 @@ function AnnualPlanForm({ year, review, onSaved, reportError }: { year: number; 
       <input type="number" min="0" max={field.endsWith("_percent") ? 100 : undefined} step="0.01" value={values[field]}
         onChange={e => setValues({ ...values, [field]: e.target.value })} placeholder="未设定" />
     </label>)}
+    {review.plan && <p className="span-all plan-derived">推算目标（增值税率 {Number(review.operating.tax_rate_percent)}%）：经营收入·税后 {money(review.plan.revenueTargetAfterTax ?? null)}　毛利润 {money(review.plan.grossProfitTarget ?? null)}　毛利率 {review.plan.grossMarginTargetPercent != null ? `${Number(review.plan.grossMarginTargetPercent)}%` : "—"}</p>}
     <label className="span-2">备注<input value={notes} onChange={e => setNotes(e.target.value)} placeholder="例如：年初经营会确定" /></label>
     <div className="form-actions"><button className="button primary" disabled={saving}>保存 {year} 年计划</button>
       {review.plan && <small>上次由 {review.plan.updated_by ?? "—"} 于 {review.plan.updated_at.slice(0, 10)} 更新</small>}</div>
@@ -131,24 +138,76 @@ function AnnualPlanForm({ year, review, onSaved, reportError }: { year: number; 
 
 function KpiGrid({ review }: { review: DepartmentReview }) {
   return <section className="department-kpis" aria-label="年度指标">
-    {KPI_ORDER.map(key => <KpiTile key={key} kpiKey={key} kpi={review.kpis[key]} />)}
+    {KPI_ORDER.map(key => <KpiTile key={key} kpiKey={key} kpi={review.kpis[key]} missingCostMonths={review.operating.missing_cost_months} />)}
   </section>;
 }
 
-function KpiTile({ kpiKey, kpi }: { kpiKey: KpiKey; kpi: PlanCompletion }) {
+function KpiTile({ kpiKey, kpi, missingCostMonths }: { kpiKey: KpiKey; kpi: PlanCompletion; missingCostMonths: string[] }) {
   const cumulative = CUMULATIVE.has(kpiKey);
-  const tone = kpi.status === "behind" ? "bad" : kpi.status === "on_track" ? "good" : "neutral";
+  const tone = kpi.status === "behind" || kpi.status === "over_budget" ? "bad" : kpi.status === "on_track" ? "good" : "neutral";
   const fill = kpi.completion_percent == null ? 0 : cumulative ? kpi.completion_percent : (Number(kpi.actual) / Math.max(Number(kpi.target), 1)) * 100;
   return <article className={`department-kpi ${tone}`}>
     <div className="department-kpi-head"><span>{kpi.label}</span><em className={`plan-status ${kpi.status}`}>{PLAN_STATUS_LABEL[kpi.status]}</em></div>
     <strong>{formatKpi(kpiKey, kpi.actual)}</strong>
     <small>目标 {formatKpi(kpiKey, kpi.target)}{cumulative && kpi.completion_percent != null ? ` · 完成 ${kpi.completion_percent}%` : ""}</small>
+    {COST_BASED.has(kpiKey) && <small className="kpi-asof">{kpi.as_of ? `截至 ${kpi.as_of}（最近已录成本的月份）` : "未录入经营成本"}</small>}
+    {COST_BASED.has(kpiKey) && kpi.as_of && missingCostMonths.length > 0 && <small className="kpi-warn">缺 {missingCostMonths.length} 个月成本，{kpiKey === "operating_cost" ? "成本偏低" : "毛利偏高"}，仅供参考</small>}
     {kpi.target != null && <div className="kpi-meter" role="img" aria-label={cumulative ? `完成 ${kpi.completion_percent ?? 0}%，时间进度 ${kpi.time_progress_percent}%` : `实际 ${kpi.actual ?? "—"}，目标 ${kpi.target}`}>
       <i style={{ width: `${Math.min(100, Math.max(0, fill))}%` }} />
       {cumulative && <b style={{ left: `${Math.min(100, kpi.time_progress_percent)}%` }} title={`时间进度 ${kpi.time_progress_percent}%`} />}
     </div>}
-    {cumulative && kpi.target != null && <small className="kpi-foot">时间进度 {kpi.time_progress_percent}%{kpi.lag_points != null && kpi.lag_points > 0 ? `，落后 ${kpi.lag_points} 个百分点` : ""}</small>}
+    {cumulative && kpi.target != null && <small className="kpi-foot">时间进度 {kpi.time_progress_percent}%{kpi.lag_points != null && kpi.lag_points > 0 ? (kpi.status === "over_budget" ? `，超出 ${kpi.lag_points} 个百分点` : `，落后 ${kpi.lag_points} 个百分点`) : ""}</small>}
   </article>;
+}
+
+// Operating costs (D24): finance provides them offline; enter or correct a month, months without an entry are listed.
+function OperatingCostPanel({ review, canEdit, onSaved, reportError }: { review: DepartmentReview; canEdit: boolean; onSaved: () => void; reportError: (message: string | null) => void }) {
+  const operating = review.operating;
+  const thisMonth = new Date().toISOString().slice(0, 7);
+  const latestMonth = review.year === Number(thisMonth.slice(0, 4)) ? thisMonth : `${review.year}-12`;
+  const [month, setMonth] = useState(latestMonth);
+  const existing = operating.cost_entries.find(entry => entry.month === month);
+  const [values, setValues] = useState<Record<CostField, string>>(() => Object.fromEntries(COST_FIELDS.map(f => [f, ""])) as Record<CostField, string>);
+  const [notes, setNotes] = useState("");
+  const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    setValues(Object.fromEntries(COST_FIELDS.map(f => [f, existing ? existing[f] : ""])) as Record<CostField, string>);
+    setNotes(existing?.notes ?? "");
+  }, [month, existing]);
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    setSaving(true); reportError(null);
+    try {
+      await recordOperatingCost(month, Object.fromEntries(COST_FIELDS.map(f => [f, values[f] === "" ? "0" : values[f]])), notes || null);
+      onSaved();
+    } catch (err) {
+      reportError(errorMessage(err, "经营成本保存失败"));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return <section className="panel department-costs">
+    <div className="panel-head"><div><h2>经营成本（财务录入）</h2>
+      <p>财务线下提供，按月录入人工成本、绩效奖金、差旅费、外包成本、培训成本、其他。毛利润 = 经营收入（税后）− 经营成本，与收入同样截至最近已录成本的月份。{operating.cost_cutoff_month ? `当前截至 ${operating.cost_cutoff_month}。` : "本年度还没有录入。"}</p>
+      {operating.missing_cost_months.length > 0 && <p className="cost-missing">未录入的月份：{operating.missing_cost_months.join("、")}（毛利计算中按缺失处理，不按 0 计）</p>}
+    </div></div>
+    {operating.cost_entries.length > 0 && <div className="table-wrap"><table>
+      <thead><tr><th>月份</th>{COST_FIELDS.map(f => <th key={f}>{COST_LABEL[f]}</th>)}<th>合计</th><th>录入人</th></tr></thead>
+      <tbody>{operating.cost_entries.map(entry => <tr key={entry.month}><td>{entry.month}</td>
+        {COST_FIELDS.map(f => <td key={f}>{money(entry[f])}</td>)}<td><strong>{money(entry.total)}</strong></td><td>{entry.updated_by ?? "—"}</td></tr>)}</tbody>
+    </table></div>}
+    {canEdit && <form className="department-plan-form" onSubmit={submit}>
+      <label>月份<input type="month" value={month} min={`${review.year}-01`} max={latestMonth} required onChange={e => setMonth(e.target.value)} /></label>
+      {COST_FIELDS.map(f => <label key={f}>{COST_LABEL[f]}（元）
+        <input type="number" min="0" step="0.01" value={values[f]} placeholder="0" onChange={e => setValues({ ...values, [f]: e.target.value })} />
+      </label>)}
+      <label className="span-2">备注<input value={notes} onChange={e => setNotes(e.target.value)} placeholder="例如：财务 9 月成本报表" /></label>
+      <div className="form-actions"><button className="button primary" disabled={saving}>{existing ? `修改 ${month} 成本` : `录入 ${month} 成本`}</button>
+        {existing && <small>已由 {existing.updated_by ?? "—"} 录入；再次保存将覆盖，审计日志保留每次录入</small>}</div>
+    </form>}
+  </section>;
 }
 
 function SignalPanel({ review }: { review: DepartmentReview }) {

@@ -2,6 +2,7 @@
 # 依据：需求基线 D8 与 G8（CQ-W5–W7）；用户 2026-10-30「开始 G8」，G8 的四个问题确认为 D18–D21。
 kind: OntologyBuild
 stage: release
+supersededBy: 2026-10-31-annual-plan-metrics.yaml
 topic: 本月起三个自然月，按在岗人员与最低利用率目标给出每人每月可用人天，按预算剩余或近期月均给出在建项目每月需求，按月汇总缺口并列出拉动需求的项目与数据缺口
 ontologyVersion: 7.9.0
 date: 2026-10-30

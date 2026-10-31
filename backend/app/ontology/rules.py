@@ -13,7 +13,7 @@ import re
 from decimal import Decimal, InvalidOperation
 from typing import Any, Callable
 
-from .derivations.economics import DepartmentAnalysis
+from .derivations.economics import DepartmentAnalysis, plan_targets
 from .derivations.resources import ResourceMetrics
 from .derivations.project import (
     _budget_thresholds,
@@ -660,6 +660,7 @@ OPERATING_POLICY_FIELDS = {
     "overloadConsecutiveMonths": "overload_consecutive_months",
     "maxConcurrentProjects": "max_concurrent_projects",
     "planLagTolerancePoints": "plan_lag_tolerance_points",
+    "defaultTaxRatePercent": "default_tax_rate_percent",
     "notes": "notes",
 }
 
@@ -690,6 +691,7 @@ ANNUAL_PLAN_FIELDS = {
     "department": "department",
     "newContractTarget": "new_contract_target",
     "collectionTarget": "collection_target",
+    "operatingCostTarget": "operating_cost_target",
     "capacityPersonDaysTarget": "capacity_person_days_target",
     "headcountTarget": "headcount_target",
     "utilizationTargetPercent": "utilization_target_percent",
@@ -699,14 +701,33 @@ ANNUAL_PLAN_FIELDS = {
 
 @RULES.datasource("annualOperatingPlans")
 def load_annual_operating_plans(ctx: OntologyContext) -> list[dict[str, Any]]:
+    tax_rate = Decimal(ctx.projects.get_worktime_baseline()["default_tax_rate_percent"])
     return [
         {
             "planId": row["plan_id"],
             "year": row["year"],
             **{api: row.get(column) for api, column in ANNUAL_PLAN_FIELDS.items()},
+            **plan_targets(row.get("collection_target"), row.get("operating_cost_target"), tax_rate),
             "updatedAt": row["updated_at"],
         }
         for row in ctx.table("annual_operating_plans", "year DESC, department")
+    ]
+
+
+COST_FIELDS_API = {"laborCost": "labor_cost", "bonusCost": "bonus_cost", "travelCost": "travel_cost",
+                   "outsourcingCost": "outsourcing_cost", "trainingCost": "training_cost", "otherCost": "other_cost"}
+
+
+@RULES.datasource("operatingCosts")
+def load_operating_costs(ctx: OntologyContext) -> list[dict[str, Any]]:
+    return [
+        {
+            "costId": row["cost_id"], "month": row["month"], "department": row["department"],
+            **{api: row[column] for api, column in COST_FIELDS_API.items()},
+            "totalCost": _money_sum(row[column] for column in COST_FIELDS_API.values()),
+            "notes": row["notes"], "updatedBy": row["updated_by"], "updatedAt": row["updated_at"],
+        }
+        for row in ctx.table("operating_costs", "month DESC, department")
     ]
 
 
@@ -919,6 +940,15 @@ def policy_ranges_valid(ctx, values, target) -> str | None:
             kind = "整数" if integer else "数字"
             return f"{label}必须是 {low.normalize():f} 到 {high.normalize():f} 之间的{kind}"
     return None
+
+
+@RULES.criterion("operatingCostValid")
+def operating_cost_valid(ctx, values, target) -> str | None:
+    """D24: the same checks as the base program (maintenance_rules), visible in a dry run."""
+    reason = maintenance_rules.cost_month(values.get("month"), _plans(ctx).current_month())
+    for api in COST_FIELDS_API:
+        reason = reason or maintenance_rules.non_negative(values.get(api))
+    return reason
 
 
 @RULES.criterion("annualPlanValuesValid")
@@ -1148,6 +1178,16 @@ def set_annual_operating_plan(ctx, values, target, actor):
     existed = service.get_plan(year, department or "实施交付部") is not None
     plan = service.upsert_plan(year, _snake(values, ANNUAL_PLAN_FIELDS, frozenset(ANNUAL_PLAN_FIELDS) - {"department"}), actor)
     return {"edits": [_edit("AnnualOperatingPlan", plan["plan_id"], "update" if existed else "create")], "record": plan}
+
+
+@RULES.handler("recordOperatingCost")
+def record_operating_cost(ctx, values, target, actor):
+    service = _plans(ctx)
+    month = str(values["month"])
+    existed = any(c["month"] == month for c in service.list_costs(int(month[:4])))
+    row = service.upsert_cost(month, {**{column: values.get(api) for api, column in COST_FIELDS_API.items()},
+                                      "notes": values.get("notes")}, actor)
+    return {"edits": [_edit("OperatingCost", row["cost_id"], "update" if existed else "create")], "record": row}
 
 
 @RULES.handler("openIntervention")
