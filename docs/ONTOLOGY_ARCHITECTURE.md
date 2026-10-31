@@ -530,6 +530,12 @@ when: [{property: contractType, notIn: [sales]}, {property: lifecycleStatus, not
 
 构建包见 [2026-10-31-annual-plan-metrics.yaml](./ontology-builds/2026-10-31-annual-plan-metrics.yaml)。
 
+### 11.31 年度经营计划的关系（v7.11.0）
+
+需求基线 D30：`AnnualOperatingPlan` 按年度连接三类对象：`operatingCosts`（`OperatingCost.year`）、`signedContracts`（`Contract.signedYear`）、`receivedPayments`（新增派生属性 `PaymentNode.receivedYear`，只有已到账才有值）。年度不是年度计划的主键（主键为年度-部门），按诊断 CON-CARDINALITY 声明为多对多；三条关系都声明「允许悬空」（没有年度计划的年份）。年度计划与经营成本去掉「独立对象」声明，运营口径参数仍独立。同版本修复：提交条件只检查已给出的值，可用动作列表不再因缺参数报错；新增逐类型走查测试 `test_object_sweep.py`。
+
+构建包见 [2026-10-31-annual-plan-links.yaml](./ontology-builds/2026-10-31-annual-plan-links.yaml)。
+
 ## 12. 代码结构
 
 ```text

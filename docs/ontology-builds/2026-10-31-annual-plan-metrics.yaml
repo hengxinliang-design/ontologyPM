@@ -2,6 +2,7 @@
 # 依据：用户 2026-10-31「明确年度经营计划的口径」；八个问题确认为需求基线 D22–D29。
 kind: OntologyBuild
 stage: release
+supersededBy: 2026-10-31-annual-plan-links.yaml
 topic: 年度经营计划的五项经营指标有统一口径；经营成本按月按类人工录入；部门经营复盘按时间进度跟踪全年完成情况
 ontologyVersion: 7.10.0
 date: 2026-10-31

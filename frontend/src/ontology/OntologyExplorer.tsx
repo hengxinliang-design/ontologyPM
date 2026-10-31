@@ -218,7 +218,9 @@ function OntologyGraph({ schema, selected, select }: { schema: OntologySchema; s
           onClick={() => select(type.apiName)} role="button" tabIndex={0} onKeyDown={event => { if (event.key === "Enter") select(type.apiName); }}>
           <rect width={nodeW} height={nodeH} rx={10} />
           <text x={nodeW / 2} y={20} className="graph-node-title">{type.displayName}</text>
-          <text x={nodeW / 2} y={36} className="graph-node-api">{type.apiName}</text>
+          {/* Long API names (e.g. AnnualOperatingPlan) are condensed to stay inside the box. */}
+          <text x={nodeW / 2} y={36} className="graph-node-api"
+            {...(type.apiName.length > 16 ? { textLength: nodeW - 14, lengthAdjust: "spacingAndGlyphs" } : {})}>{type.apiName}</text>
         </g>;
       })}
     </svg>

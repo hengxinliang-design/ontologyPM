@@ -1,0 +1,58 @@
+# 本体构建包（发布稿）：年度经营计划与合同、回款节点、经营成本的关系。本体 7.11.0（新增 3 种关系与 2 个派生属性，非破坏性）。
+# 依据：用户 2026-10-31「年度经营计划、经营成本和其他对象之间缺少关系的问题修复」；需求基线 D30。同时修复 v1.27.1 待发布的对象详情报错（annualPlanValuesValid 缺参数）。
+kind: OntologyBuild
+stage: release
+topic: 年度经营计划按年度关联本年经营成本、本年签约合同、本年到账回款节点，指标的来源在本体中可追溯；对象详情的可用动作不再因缺少参数报错
+ontologyVersion: 7.11.0
+date: 2026-10-31
+scope:
+  - CQ-P6 今年的合同额由哪些合同构成？
+  - CQ-P7 今年的经营收入来自哪些回款？
+  - CQ-P8 今年录入了哪些月份的经营成本？
+  - CQ-P9 一份合同、一笔回款或一个月的成本计入哪一年的年度计划？
+
+rules:
+  - id: R1
+    statement: 新增派生属性：经营成本 OperatingCost.year（月份的年份）；回款节点 PaymentNode.receivedYear（状态为已到账时到账日期的年份，否则为空）。
+    basis: 关系用键值连接（join）声明，比在代码里写解析函数更易读、可诊断；年度计划以年度为键，三类对象需要可比较的年度键。合同已有签约年度 Contract.signedYear（5.4.0）。
+    acceptance: 2026-09 的经营成本 year 为 2026；到账日期 2026-03-10 的已到账回款节点 receivedYear 为 2026；未到账的回款节点 receivedYear 为空。
+    verifiedBy: [test_annual_plan_links_to_its_sources]
+    ontology: [OperatingCost.year, PaymentNode.receivedYear]
+  - id: R2
+    statement: 新增三种关系（多对多：按年度连接，年度不是年度计划的主键，同一年份可有多个部门的计划；年度计划为源）：operatingCosts「本年经营成本」（AnnualOperatingPlan.year = OperatingCost.year，反向 annualPlan「所属年度计划」）；signedContracts「本年签约合同」（= Contract.signedYear，反向 annualPlan「计入年度计划」）；receivedPayments「本年到账回款」（= PaymentNode.receivedYear，反向 annualPlan「计入年度计划」）。年度计划与经营成本去掉「独立对象」声明；运营口径参数仍为独立对象。
+    basis: 需求基线 D30；经验库 L18（口径只在代码中、本体看不到来源）。年度计划的合同额、经营收入、经营成本分别由这三类对象计算（D22–D25）。
+    acceptance: 2026 年度计划的本年签约合同等于 2026 年签约的合同，本年到账回款等于 2026 年已到账的回款节点，本年经营成本等于 2026 年各月成本记录；从这三类对象反向可到 2026 年度计划；关系图中年度计划与三者相连。
+    verifiedBy: [test_annual_plan_links_to_its_sources]
+    ontology: [AnnualOperatingPlan, OperatingCost, Contract, PaymentNode, Contract.signedYear]
+  - id: R3
+    statement: 修复：对象详情的可用动作只带目标参数评估提交条件，提交条件只检查已给出的值（annualPlanValuesValid 读取年度、operatingCostValid 检查月份前先判断是否给出）；缺必填参数仍由参数校验在执行时报告。新增逐类型走查测试：每个对象类型打开详情、全部关系与可用动作都成功。
+    basis: 用户 2026-10-31 截图：打开「运营口径参数」详情报 Internal Server Error；经验库 L41。
+    acceptance: 运营口径参数详情返回 200 并列出三个动作，且两个动作没有因缺参数而判为不满足；14 个对象类型的详情、关系、可用动作全部返回 200。
+    verifiedBy: [test_every_object_type_opens_with_links_and_actions, test_action_list_does_not_invent_missing_parameter_errors]
+    ontology: [setAnnualOperatingPlan, recordOperatingCost, OperatingPolicy]
+
+exceptions:
+  - rule: R2
+    case: 某一年有合同、回款或成本，但没有设定年度计划。
+    handling: 这些对象的反向关系为空；关系声明「允许悬空」。
+    basis: 年度计划由人工在年初录入，往年或未来的数据不一定有计划。
+  - rule: R2
+    case: 多个部门。
+    handling: 本期只有一个部门（D27），关系只按年度连接，因此声明为多对多（诊断 CON-CARDINALITY：一的一侧必须是主键）；有多个部门后，按年度与部门连接即可在同一份关系声明下区分。
+    basis: 合同、回款、成本尚无部门归属，按部门连接没有依据。
+  - rule: R2
+    case: 关系与年度指标的统计截止。
+    handling: 关系列出全年的对象；部门经营复盘的指标按统计月份截止（经营收入、合同额到统计月份末，毛利到最近已录成本的月份）。
+    basis: 关系回答「构成」，指标回答「截至某月的进度」，两者不必相同。
+  - rule: R2
+    case: 商机、未签约的合同记录。
+    handling: 没有签约年度，不在本年签约合同中。
+    basis: 合同额只算已签约合同（D7）。
+  - rule: R1
+    case: 部分到账、未到账的回款节点。
+    handling: 到账年度为空，不进入本年到账回款。
+    basis: 经营收入只计已到账（构建包 2026-10-31-annual-plan-metrics 例外表）。
+  - rule: R3
+    case: 正式执行动作时缺少必填参数。
+    handling: 仍由参数校验拒绝（例如缺年度、缺月份），校验没有放松。
+    basis: 提交条件与参数校验分工：前者判业务规则，后者判参数是否齐全。

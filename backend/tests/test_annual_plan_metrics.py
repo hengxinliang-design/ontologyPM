@@ -117,3 +117,36 @@ def test_annual_plan_tracking_statuses():
     assert plan_completion(Decimal("550000"), Decimal("1200000"), 6, tolerance, lower_is_better=True)["status"] == "on_track"
     assert plan_completion(Decimal("35"), Decimal("40"), 10, tolerance, cumulative=False)["status"] == "behind"
     assert plan_completion(Decimal("42"), Decimal("40"), 10, tolerance, cumulative=False)["status"] == "on_track"
+
+
+def test_annual_plan_links_to_its_sources(tmp_path):
+    """D30: the plan reaches the contracts, receipts and costs its metrics come from, and back."""
+    with TestClient(create_app(settings(tmp_path))) as client:
+        receive(client, "首期款", "106000", "2026-03-10")
+        assert cost(client, "2026-09", laborCost="1000").status_code == 200
+        assert apply(client, "setAnnualOperatingPlan", {"policy": "default", "year": 2026, "collectionTarget": "1"}).status_code == 200
+        plan = "/api/v1/ontology/objects/AnnualOperatingPlan/2026-实施交付部"
+
+        def linked(link):
+            response = client.get(f"{plan}/links/{link}?pageSize=200")
+            assert response.status_code == 200, response.text
+            return {o["primaryKey"]: o["properties"] for o in response.json()["data"]}
+
+        contracts = client.get("/api/v1/ontology/objects/Contract?pageSize=200").json()["data"]
+        signed_2026 = {o["primaryKey"] for o in contracts if o["properties"]["signedYear"] == 2026}
+        assert set(linked("signedContracts")) == signed_2026
+
+        nodes = {o["primaryKey"]: o["properties"] for o in client.get("/api/v1/ontology/objects/PaymentNode?pageSize=200").json()["data"]}
+        received = linked("receivedPayments")
+        assert received and all(p["status"] == "paid" and p["receivedYear"] == 2026 for p in received.values())
+        assert all(p["receivedYear"] is None for key, p in nodes.items() if p["status"] != "paid"), "unpaid nodes have no received year"
+
+        costs = linked("operatingCosts")
+        assert set(costs) == {"2026-09-实施交付部"} and costs["2026-09-实施交付部"]["year"] == 2026
+        back = client.get("/api/v1/ontology/objects/OperatingCost/2026-09-实施交付部/links/annualPlan").json()["data"]
+        assert [o["primaryKey"] for o in back] == ["2026-实施交付部"]
+
+        schema = client.get("/api/v1/ontology/schema").json()["data"]
+        types = {t["apiName"]: t for t in schema["objectTypes"]}
+        assert "独立对象" not in types["AnnualOperatingPlan"]["description"] and "独立对象" not in types["OperatingCost"]["description"]
+        assert "独立对象" in types["OperatingPolicy"]["description"], "the operating policy stays standalone"

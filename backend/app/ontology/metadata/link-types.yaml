@@ -123,3 +123,24 @@ definition:
   {apiName: paymentNode, reverseApiName: paymentTerm, displayName: 回款节点, reverseDisplayName: 回款约定,
    source: PaymentTerm, target: PaymentNode, cardinality: one_to_one, description: 回款约定生成的回款节点,
    join: {sourceKey: paymentNodeId, targetKey: paymentNodeId}}
+---
+kind: LinkType
+version: v1
+definition:
+  {apiName: operatingCosts, reverseApiName: annualPlan, displayName: 本年经营成本, reverseDisplayName: 所属年度计划,
+   source: AnnualOperatingPlan, target: OperatingCost, cardinality: many_to_many, description: 年度计划所属年度各月录入的经营成本（D30）。允许悬空：没有设定年度计划的年份也可以录入成本,
+   join: {sourceKey: year, targetKey: year}}
+---
+kind: LinkType
+version: v1
+definition:
+  {apiName: signedContracts, reverseApiName: annualPlan, displayName: 本年签约合同, reverseDisplayName: 计入年度计划,
+   source: AnnualOperatingPlan, target: Contract, cardinality: many_to_many, description: 年度计划所属年度签约的合同，即合同额的来源（D22、D30）。允许悬空：没有设定年度计划的年份签约的合同、没有签约日期的合同,
+   join: {sourceKey: year, targetKey: signedYear}}
+---
+kind: LinkType
+version: v1
+definition:
+  {apiName: receivedPayments, reverseApiName: annualPlan, displayName: 本年到账回款, reverseDisplayName: 计入年度计划,
+   source: AnnualOperatingPlan, target: PaymentNode, cardinality: many_to_many, description: 年度计划所属年度已到账的回款节点，即经营收入的来源（D22、D30）。允许悬空：未到账的回款节点、没有设定年度计划的年份的回款,
+   join: {sourceKey: year, targetKey: receivedYear}}

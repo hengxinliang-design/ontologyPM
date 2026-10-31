@@ -4,6 +4,7 @@
 
 | 产品版本 | 本体版本 | 日期 | 构建包 |
 | --- | --- | --- | --- |
+| v1.28.0 | 7.11.0 | 2026-10-31 | [2026-10-31-annual-plan-links](docs/ontology-builds/2026-10-31-annual-plan-links.yaml) |
 | v1.27.0 | 7.10.0 | 2026-10-31 | [2026-10-31-annual-plan-metrics](docs/ontology-builds/2026-10-31-annual-plan-metrics.yaml) |
 | v1.26.1 | 7.9.0 | 2026-10-31 | —（只改界面） |
 | v1.26.0 | 7.9.0 | 2026-10-30 | [2026-10-30-resource-forecast](docs/ontology-builds/2026-10-30-resource-forecast.yaml) |
@@ -13,6 +14,13 @@
 | v1.22.0 | 7.6.0 | 2026-10-30 | [2026-10-29-logical-delete](docs/ontology-builds/2026-10-29-logical-delete.yaml) |
 | v1.21.0 | 7.5.0 | 2026-10-29 | [2026-10-29-rule-homes-and-linkages](docs/ontology-builds/2026-10-29-rule-homes-and-linkages.yaml) |
 | v1.20.0 | 7.4.0 | 2026-10-29 | [2026-10-29-milestone-span-period](docs/ontology-builds/2026-10-29-milestone-span-period.yaml) |
+
+## v1.28.0 — 年度经营计划的关系（本体 7.11.0）
+
+- 年度经营计划按年度关联本年签约合同、本年到账回款节点、本年经营成本（需求基线 D30）；关系图中不再孤立，可从计划追到指标来源，也可反查所属年度计划。
+- 回款节点新增「到账年度」，经营成本新增「年度」；运营口径参数仍是独立对象。
+- 修复：本体浏览器打开「运营口径参数」详情报 500（提交条件读取缺失的年度参数，自 3.0.0 起存在）；新增逐类型走查测试，14 类对象的详情、关系与可用动作都要能打开。
+- 关系图中较长的英文名（如 AnnualOperatingPlan）不再超出方框。
 
 ## v1.27.0 — 年度经营计划口径（本体 7.10.0）
 

@@ -57,6 +57,7 @@ definition:
     - {apiName: plannedDate, displayName: 计划回款日, type: date, sourceKind: manual, source: payment_nodes.planned_date}
     - {apiName: plannedAmount, displayName: 计划金额, type: money, sourceKind: manual, source: payment_nodes.planned_amount, marking: FINANCE, unit: yuan}
     - {apiName: actualDate, displayName: 到账日期, type: date, sourceKind: manual, source: payment_nodes.actual_date}
+    - {apiName: receivedYear, displayName: 到账年度, type: integer, sourceKind: derived, source: 状态为已到账时到账日期的年份，否则为空；年度计划按它归集本年到账回款（D30）, unit: none}
     - {apiName: actualAmount, displayName: 到账金额, type: money, sourceKind: manual, source: payment_nodes.actual_amount, marking: FINANCE, unit: yuan}
     - {apiName: status, displayName: 状态, type: enum, valueType: PaymentStatus, sourceKind: manual, source: payment_nodes.status}
     - {apiName: linkedMilestoneId, displayName: 关联里程碑, type: string, sourceKind: derived, source: milestones.payment_node_id 反查}
@@ -168,7 +169,7 @@ definition:
   apiName: AnnualOperatingPlan
   displayName: 年度经营计划
   pluralDisplayName: 年度经营计划
-  description: 独立对象：部门年度目标，由部门经营复盘函数汇总全部项目后对照。部门某一年的经营目标：新签合同额、回款、项目投入人天、人员编制与利用率（确认收入与毛利率目标随经营口径暂停）。
+  description: 部门年度目标，按年度关联本年签约合同、本年到账回款与本年经营成本（D30），由部门经营复盘函数按时间进度对照。部门某一年的经营目标：新签合同额、回款、项目投入人天、人员编制与利用率（确认收入与毛利率目标随经营口径暂停）。
   primaryKey: planId
   titleProperty: planId
   datasource: annualOperatingPlans
@@ -199,7 +200,7 @@ definition:
   apiName: OperatingCost
   displayName: 经营成本
   pluralDisplayName: 经营成本
-  description: 独立对象：财务线下提供、按月人工录入的部门经营成本（需求基线 D24），由部门经营复盘按月汇总后计算毛利。某月没有记录表示未录入，不等于成本为 0。
+  description: 财务线下提供、按月人工录入的部门经营成本（需求基线 D24），按年度计入年度经营计划，由部门经营复盘按月汇总后计算毛利。某月没有记录表示未录入，不等于成本为 0。
   primaryKey: costId
   titleProperty: month
   datasource: operatingCosts
@@ -212,6 +213,7 @@ definition:
   properties:
     - {apiName: costId, displayName: 成本编号, type: string, sourceKind: manual, source: 月份-部门}
     - {apiName: month, displayName: 月份, type: string, sourceKind: manual, source: operating_costs.month（YYYY-MM）, searchable: true}
+    - {apiName: year, displayName: 年度, type: integer, sourceKind: derived, source: 月份的年份；年度计划按它归集本年经营成本（D30）, unit: none}
     - {apiName: department, displayName: 部门, type: string, sourceKind: manual, source: operating_costs.department；本期只有一个部门（D27）}
     - {apiName: laborCost, displayName: 人工成本, type: money, sourceKind: manual, source: operating_costs.labor_cost, marking: FINANCE, unit: yuan}
     - {apiName: bonusCost, displayName: 绩效奖金, type: money, sourceKind: manual, source: operating_costs.bonus_cost, marking: FINANCE, unit: yuan}

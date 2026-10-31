@@ -601,6 +601,8 @@ def load_payment_nodes(ctx: OntologyContext) -> list[dict[str, Any]]:
             "plannedDate": row["planned_date"],
             "plannedAmount": row["planned_amount"],
             "actualDate": row.get("actual_date"),
+            # D30: the year the receipt counts towards (only received nodes).
+            "receivedYear": int(row["actual_date"][:4]) if row["status"] == "paid" and row.get("actual_date") else None,
             "actualAmount": row.get("actual_amount") or "0.00",
             "status": row["status"],
             "linkedMilestoneId": milestone_by_payment.get(row["payment_node_id"]),
@@ -722,7 +724,7 @@ COST_FIELDS_API = {"laborCost": "labor_cost", "bonusCost": "bonus_cost", "travel
 def load_operating_costs(ctx: OntologyContext) -> list[dict[str, Any]]:
     return [
         {
-            "costId": row["cost_id"], "month": row["month"], "department": row["department"],
+            "costId": row["cost_id"], "month": row["month"], "year": int(row["month"][:4]), "department": row["department"],
             **{api: row[column] for api, column in COST_FIELDS_API.items()},
             "totalCost": _money_sum(row[column] for column in COST_FIELDS_API.values()),
             "notes": row["notes"], "updatedBy": row["updated_by"], "updatedAt": row["updated_at"],
@@ -944,8 +946,12 @@ def policy_ranges_valid(ctx, values, target) -> str | None:
 
 @RULES.criterion("operatingCostValid")
 def operating_cost_valid(ctx, values, target) -> str | None:
-    """D24: the same checks as the base program (maintenance_rules), visible in a dry run."""
-    reason = maintenance_rules.cost_month(values.get("month"), _plans(ctx).current_month())
+    """D24: the same checks as the base program (maintenance_rules), visible in a dry run.
+
+    Only given values are checked (the action list evaluates criteria with the target parameter alone).
+    """
+    month = values.get("month")
+    reason = maintenance_rules.cost_month(month, _plans(ctx).current_month()) if month not in (None, "") else None
     for api in COST_FIELDS_API:
         reason = reason or maintenance_rules.non_negative(values.get(api))
     return reason
@@ -953,7 +959,9 @@ def operating_cost_valid(ctx, values, target) -> str | None:
 
 @RULES.criterion("annualPlanValuesValid")
 def annual_plan_values_valid(ctx, values, target) -> str | None:
-    if not 2000 <= int(values["year"]) <= 2100:
+    # Criteria also run for the action list of an object with only the target parameter: check what is given;
+    # a missing required parameter is reported by parameter validation when the action is applied.
+    if values.get("year") not in (None, "") and not 2000 <= int(values["year"]) <= 2100:
         return "年度必须在 2000 到 2100 之间"
     for api, column in ANNUAL_PLAN_FIELDS.items():
         if column not in AnnualPlanRepository.PLAN_FIELDS or values.get(api) in (None, ""):
