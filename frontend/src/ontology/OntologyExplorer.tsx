@@ -307,7 +307,8 @@ function ObjectsView({ schema, objectType, setObjectType, focus, openObject, rev
             {loading && !result ? <tr><td colSpan={columns.length + 1} className="empty-cell">加载中…</td></tr>
               : result?.data.length ? result.data.map(obj => <tr key={obj.primaryKey}
                 className={`clickable ${focus?.primaryKey === obj.primaryKey && focus.objectType === obj.objectType ? "selected-row" : ""}`}
-                onClick={() => openObject(obj.objectType, obj.primaryKey)}>
+                onClick={() => openObject(obj.objectType, obj.primaryKey)} tabIndex={0}
+                onKeyDown={event => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); openObject(obj.objectType, obj.primaryKey); } }}>
                 <td><strong className="ontology-title">{obj.title}</strong><small>{obj.primaryKey}</small></td>
                 {columns.map(c => <td key={c.apiName}><PropertyValue property={c} value={obj.properties[c.apiName]} redacted={obj.redactedProperties.includes(c.apiName)} /></td>)}
               </tr>)

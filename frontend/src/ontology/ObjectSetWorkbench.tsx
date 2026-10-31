@@ -170,7 +170,8 @@ function ResultTable({ page, type, openObject }: { page: ObjectSetPage; type: On
   const columns = displayColumns(type);
   return <div className="table-wrap"><table>
     <thead><tr><th>{type.properties.find(p => p.apiName === type.titleProperty)?.displayName ?? "标题"}</th>{columns.map(c => <th key={c.apiName}>{c.displayName}</th>)}</tr></thead>
-    <tbody>{page.data.length ? page.data.map(obj => <tr key={obj.primaryKey} className="clickable" onClick={() => openObject(obj.objectType, obj.primaryKey)}>
+    <tbody>{page.data.length ? page.data.map(obj => <tr key={obj.primaryKey} className="clickable" tabIndex={0} onClick={() => openObject(obj.objectType, obj.primaryKey)}
+      onKeyDown={event => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); openObject(obj.objectType, obj.primaryKey); } }}>
       <td><strong className="ontology-title">{obj.title}</strong><small>{obj.primaryKey}</small></td>
       {columns.map(c => <td key={c.apiName}><PropertyValue property={c} value={obj.properties[c.apiName]} redacted={obj.redactedProperties.includes(c.apiName)} /></td>)}
     </tr>) : <tr><td colSpan={columns.length + 1} className="empty-cell">没有匹配的对象</td></tr>}</tbody>

@@ -4,6 +4,7 @@
 
 | 产品版本 | 本体版本 | 日期 | 构建包 |
 | --- | --- | --- | --- |
+| v1.26.1 | 7.9.0 | 2026-10-31 | —（只改界面） |
 | v1.26.0 | 7.9.0 | 2026-10-30 | [2026-10-30-resource-forecast](docs/ontology-builds/2026-10-30-resource-forecast.yaml) |
 | v1.25.0 | 7.8.0 | 2026-10-30 | [2026-10-30-assistant-on-ontology](docs/ontology-builds/2026-10-30-assistant-on-ontology.yaml) |
 | v1.24.0 | 7.8.0 | 2026-10-30 | [2026-10-30-resource-metrics-in-ontology](docs/ontology-builds/2026-10-30-resource-metrics-in-ontology.yaml) |
@@ -11,6 +12,13 @@
 | v1.22.0 | 7.6.0 | 2026-10-30 | [2026-10-29-logical-delete](docs/ontology-builds/2026-10-29-logical-delete.yaml) |
 | v1.21.0 | 7.5.0 | 2026-10-29 | [2026-10-29-rule-homes-and-linkages](docs/ontology-builds/2026-10-29-rule-homes-and-linkages.yaml) |
 | v1.20.0 | 7.4.0 | 2026-10-29 | [2026-10-29-milestone-span-period](docs/ontology-builds/2026-10-29-milestone-span-period.yaml) |
+
+## v1.26.1 — 界面检查与修复（本体 7.9.0）
+
+- 字号统一为 8 档（`--fs-xs` 12px … `--fs-3xl` 28px），原 23 种字号、60 多条 10–11.5px 规则全部归入；没有指定字号的 `<small>` 统一为 12px；新增测试 `typography.test.ts` 守住规范。
+- 布局：系统设置页 1024px 下不再溢出；手机上菜单改为一行可滑动（高度约 750px → 177px），「系统」组不再隐藏；部门经营利用率图、本体关系图在手机上可横向滚动；资源页阈值说明可换行。
+- 可访问性：键盘焦点框始终可见；项目列表、对象列表、对象集结果的行可用回车或空格打开。
+- 验证：桌面 1024px 与手机 375px 下逐页检查，无数据异常、无溢出、无低于 12px 的文字。
 
 ## v1.26.0 — 资源测算（本体 7.9.0）
 
