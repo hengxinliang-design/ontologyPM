@@ -5,6 +5,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
+# Default model per PM Assistant provider when TSG_PM_ASSISTANT_MODEL is not set.
+DEFAULT_ASSISTANT_MODELS = {"openai": "gpt-5.2", "cloudflare": "@cf/ibm-granite/granite-4.0-h-micro"}
+
+
 @dataclass(frozen=True)
 class Settings:
     base_dir: Path
@@ -32,12 +36,19 @@ class Settings:
     china_holiday_rest_ics_url: str = "https://ical.muhan.org/rest.ics"
     china_holiday_work_ics_url: str = "https://ical.muhan.org/work.ics"
     china_holiday_cache_hours: int = 12
+    # PM Assistant model service: "openai" (Responses API) or "cloudflare" (Workers AI, OpenAI-compatible chat completions).
+    pm_assistant_provider: str = "openai"
+    cloudflare_account_id: str | None = None
+    cloudflare_api_token: str | None = None
+    pm_assistant_timeout_seconds: float = 35.0
+    pm_assistant_max_retries: int = 1
 
     @classmethod
     def from_env(cls) -> "Settings":
         base_dir = Path(__file__).resolve().parents[1]
         _load_local_env(base_dir)
         data_dir = base_dir / "data"
+        provider = os.getenv("TSG_PM_ASSISTANT_PROVIDER", "openai").strip().lower()
         origins = os.getenv(
             "XTCRM_CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173"
         )
@@ -60,7 +71,12 @@ class Settings:
             sync_hour=int(os.getenv("XTCRM_SYNC_HOUR", "3")),
             timezone=os.getenv("XTCRM_TIMEZONE", "America/Detroit"),
             openai_api_key=os.getenv("OPENAI_API_KEY"),
-            pm_assistant_model=os.getenv("TSG_PM_ASSISTANT_MODEL", "gpt-5.2"),
+            pm_assistant_model=os.getenv("TSG_PM_ASSISTANT_MODEL") or DEFAULT_ASSISTANT_MODELS.get(provider, "gpt-5.2"),
+            pm_assistant_provider=provider,
+            cloudflare_account_id=os.getenv("CLOUDFLARE_ACCOUNT_ID") or None,
+            cloudflare_api_token=os.getenv("CLOUDFLARE_API_TOKEN") or None,
+            pm_assistant_timeout_seconds=float(os.getenv("TSG_PM_ASSISTANT_TIMEOUT_SECONDS", "35")),
+            pm_assistant_max_retries=max(0, min(int(os.getenv("TSG_PM_ASSISTANT_MAX_RETRIES", "1")), 3)),
             auth_enabled=os.getenv("TSG_PM_AUTH_ENABLED", "true").lower()
             in {"1", "true", "yes"},
             initial_admin_username=os.getenv("TSG_PM_INITIAL_ADMIN_USERNAME", "admin"),

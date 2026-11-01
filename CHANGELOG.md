@@ -4,6 +4,7 @@
 
 | 产品版本 | 本体版本 | 日期 | 构建包 |
 | --- | --- | --- | --- |
+| v1.29.0 | 7.11.0 | 2026-11-01 | —（本体不变） |
 | v1.28.0 | 7.11.0 | 2026-10-31 | [2026-10-31-annual-plan-links](docs/ontology-builds/2026-10-31-annual-plan-links.yaml) |
 | v1.27.0 | 7.10.0 | 2026-10-31 | [2026-10-31-annual-plan-metrics](docs/ontology-builds/2026-10-31-annual-plan-metrics.yaml) |
 | v1.26.1 | 7.9.0 | 2026-10-31 | —（只改界面） |
@@ -14,6 +15,12 @@
 | v1.22.0 | 7.6.0 | 2026-10-30 | [2026-10-29-logical-delete](docs/ontology-builds/2026-10-29-logical-delete.yaml) |
 | v1.21.0 | 7.5.0 | 2026-10-29 | [2026-10-29-rule-homes-and-linkages](docs/ontology-builds/2026-10-29-rule-homes-and-linkages.yaml) |
 | v1.20.0 | 7.4.0 | 2026-10-29 | [2026-10-29-milestone-span-period](docs/ontology-builds/2026-10-29-milestone-span-period.yaml) |
+
+## v1.29.0 — PM Assistant 可切换模型服务（本体 7.11.0 不变）
+
+- PM Assistant 支持 Cloudflare Workers AI（`TSG_PM_ASSISTANT_PROVIDER=cloudflare`，默认模型 `@cf/ibm-granite/granite-4.0-h-micro`），走 OpenAI 兼容的 chat completions 接口；OpenAI 方式保留为默认，两者互不回退。项目问答与项目研判都适配；超时与重试次数可配置。本体不变。
+- 建议动作的动作类型不存在时，工具结果列出可用动作，便于模型更正。
+- PM Assistant 的回答和项目「AI 分析」按 Markdown 显示（标题、列表、表格、加粗、代码）；只渲染为文本元素，不会执行模型输出中的 HTML；宽表格在面板内横向滚动。
 
 ## v1.28.0 — 年度经营计划的关系（本体 7.11.0）
 

@@ -127,6 +127,10 @@ def test_write_requests_become_prechecked_suggestions(tmp_path, monkeypatch):
         assert (ok["actionType"], ok["displayName"], ok["valid"], ok["reason"]) == ("editMilestone", "编辑里程碑", True, "客户要求延后")
         assert locked["valid"] is False and "里程碑已确认完成，已锁定" in locked["reasons"]
 
+        session = AssistantSession(client.app.state.ontology_service, {"username": "a", "is_admin": True, "permissions": []})
+        unknown = json.loads(session.run("suggest_action", json.dumps({"actionType": "createIntervention", "parameters": {}})))
+        assert unknown["precheck"] == "未通过" and "openIntervention（发起管理干预）" in unknown["availableActions"]
+
 
 def test_assistant_conversations_are_audited(tmp_path, monkeypatch):
     scripted_model(monkeypatch, [[call("query_objects", {"objectSet": {"type": "base", "objectType": "Project"}}, "q")], "共有 3 个项目。"])

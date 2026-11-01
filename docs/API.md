@@ -186,7 +186,7 @@ POST /api/v1/pm-assistant/chat
 Content-Type: application/json
 ```
 
-服务端以提问用户的身份运行（本体 7.8.0 起，需求基线 G5）：模型通过工具调用本体函数和对象集查询（`query_objects`、`aggregate_objects`、`get_object`、`get_linked_objects`、`describe_type`），菜单权限、安全标记和项目经理的数据范围都按该用户生效；项目经理可以使用。最多 6 轮工具调用。写操作只能通过 `suggest_action` 提出，服务端做预检、不执行。密钥仅保存在服务端环境变量 `OPENAI_API_KEY`，不会发送到浏览器。
+服务端以提问用户的身份运行（本体 7.8.0 起，需求基线 G5）：模型通过工具调用本体函数和对象集查询（`query_objects`、`aggregate_objects`、`get_object`、`get_linked_objects`、`describe_type`），菜单权限、安全标记和项目经理的数据范围都按该用户生效；项目经理可以使用。最多 6 轮工具调用。写操作只能通过 `suggest_action` 提出，服务端做预检、不执行。模型服务的密钥只保存在服务端，不会发送到浏览器，配置见下方「模型服务」。
 
 请求：
 
@@ -202,7 +202,19 @@ Content-Type: application/json
 
 - `message` 必填，最长 2000 个字符。
 - `history` 可选；最多取最近 6 条对话作为上下文。
-- 模型为服务端配置的 `TSG_PM_ASSISTANT_MODEL`，默认 `gpt-5.2`。
+- 模型为服务端配置的 `TSG_PM_ASSISTANT_MODEL`。
+
+模型服务（`TSG_PM_ASSISTANT_PROVIDER`，两种方式互不回退：所选服务未配置时返回 503「尚未配置模型服务」，不会改用另一种）：
+
+| 配置 | `openai`（默认） | `cloudflare` |
+| --- | --- | --- |
+| 接口 | OpenAI Responses API `https://api.openai.com/v1/responses` | Workers AI 的 OpenAI 兼容接口 `https://api.cloudflare.com/client/v4/accounts/{CLOUDFLARE_ACCOUNT_ID}/ai/v1/chat/completions` |
+| 凭据 | `OPENAI_API_KEY` | `CLOUDFLARE_ACCOUNT_ID`、`CLOUDFLARE_API_TOKEN`（不需要 `OPENAI_API_KEY`） |
+| 默认模型 | `gpt-5.2` | `@cf/ibm-granite/granite-4.0-h-micro` |
+| 协议 | instructions + input，工具调用为 `function_call` 输出项 | system / user / assistant / tool 消息；工具为 `{"type":"function","function":{…}}`；解析 `choices[0].message.tool_calls`，结果以 `role=tool` 消息按 `tool_call_id` 返回；不发送 `text.verbosity`、`reasoning.effort`、`store`，输出上限映射为 `max_tokens`（1200）；达到 6 轮后最后一次请求不带工具 |
+
+- 超时 `TSG_PM_ASSISTANT_TIMEOUT_SECONDS`（默认 35 秒，按每次请求计）；连接失败和 5xx 重试 `TSG_PM_ASSISTANT_MAX_RETRIES` 次（默认 1，最多 3），4xx 不重试。
+- 密钥和令牌放在服务端环境变量或 `backend/.env.local`（已被 Git 忽略），不要写进代码或提交。
 
 响应：
 
@@ -215,7 +227,8 @@ Content-Type: application/json
       {"actionType": "editMilestone", "displayName": "编辑里程碑", "parameters": {"milestone": "ms_…", "plannedEnd": "2026-12-31"},
        "reason": "客户要求延后", "valid": true, "reasons": []}
     ],
-    "model": "gpt-5.2"
+    "model": "gpt-5.2",
+    "provider": "openai"
   }
 }
 ```

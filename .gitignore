@@ -17,3 +17,5 @@ frontend/vite.config.d.ts
 .coverage
 htmlcov/
 .ontology-diagnostics/
+.env.local
+*.env.local
