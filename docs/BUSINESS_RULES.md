@@ -137,6 +137,15 @@
 
 里程碑或回款到期当天及未来 7 天显示临近提示；逾期按自然日计算。工作量结算的项目不参与两条预算规则。本体位置：`Project.riskLevel`、`Project.riskReasons`、`projectRiskAssessment()`。
 
+### 6.1a 管理干预（本体 8.0.0，D31–D34）
+
+- 在项目详情中发起和更新，权限沿用项目维护：PMO、管理员、项目经理（只限本人项目）。
+- 发起时截止日期必填；负责人不填时取项目经理；类型为进度、资源、回款、客户、质量、其他（`management`，缺省）。
+- **已逾期**：状态不是已关闭，且截止日期早于今天（当天不算）。没有截止日期的存量干预不算逾期。
+- 每条逾期干预在项目「待处理事项」中提醒一次（关注级）；**不计入风险等级和风险原因**（D33）。
+- 关闭后锁定，不能重新打开或删除；关错了重新发起。
+- 本体位置：`Intervention.overdue`、`Project.openInterventions`、`Project.overdueInterventions`、动作 `openIntervention`、`updateInterventionStatus`；构建包 [2026-11-01-intervention-loop](ontology-builds/2026-11-01-intervention-loop.yaml)。
+
 ### 6.2 运营监控预警
 
 | 预警 | 条件 |

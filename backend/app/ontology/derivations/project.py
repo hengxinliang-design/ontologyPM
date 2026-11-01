@@ -126,6 +126,11 @@ def derive_project(
     overdue_payments = sum(
         row["planned_date"] < today and row["status"] != "paid" for row in payments
     )
+    # D32/D33: an open intervention past its due date is a to-do reminder, not a risk reason.
+    overdue_interventions = [
+        row for row in interventions
+        if row["status"] != "closed" and row.get("due_date") and row["due_date"] < today
+    ]
     contract_type = settings.get("contract_type", "unknown")
     # 开口合同按已确认工作量结算，CRM 的“总金额”只是框架额，不能作为
     # 回款完成率的分母。历史数据未被人工标为开口合同，但开票或回款已
@@ -350,6 +355,15 @@ def derive_project(
                 ),
             }
         )
+    for row in overdue_interventions:
+        anomaly_alerts.append(
+            {
+                "code": "INTERVENTION_OVERDUE",
+                "severity": "warning",
+                "title": f"管理干预逾期 · {row['title']}",
+                "detail": f"截止 {row['due_date']}，负责人 {row.get('owner') or '未指定'}，尚未关闭",
+            }
+        )
     if maintenance_reasons:
         anomaly_alerts.append(
             {
@@ -413,6 +427,7 @@ def derive_project(
         "payment_summary": payment_summary,
         "payment_term_summary": payment_term_summary,
         "open_interventions": sum(row["status"] != "closed" for row in interventions),
+        "overdue_interventions": len(overdue_interventions),
         "maintenance_complete": not maintenance_reasons,
         "maintenance_reasons": maintenance_reasons,
         "pending_todos": sum(not event["completed"] for event in todo_events),
@@ -434,7 +449,9 @@ def derive_project(
                 "milestones": enriched_milestones,
                 "payment_nodes": payments,
                 "payment_terms": payment_terms,
-                "interventions": interventions,
+                "interventions": [
+                    {**row, "overdue": any(row is late for late in overdue_interventions)} for row in interventions
+                ],
                 "settings": settings,
                 "todo_events": todo_events,
                 "monthly_time_entries": monthly_time_entries,

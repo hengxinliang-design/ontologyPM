@@ -2,6 +2,7 @@
 # 依据：用户 2026-10-31「年度经营计划、经营成本和其他对象之间缺少关系的问题修复」；需求基线 D30。同时修复 v1.27.1 待发布的对象详情报错（annualPlanValuesValid 缺参数）。
 kind: OntologyBuild
 stage: release
+supersededBy: 2026-11-01-intervention-loop.yaml
 topic: 年度经营计划按年度关联本年经营成本、本年签约合同、本年到账回款节点，指标的来源在本体中可追溯；对象详情的可用动作不再因缺少参数报错
 ontologyVersion: 7.11.0
 date: 2026-10-31

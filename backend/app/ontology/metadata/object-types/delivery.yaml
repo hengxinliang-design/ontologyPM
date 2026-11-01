@@ -70,7 +70,7 @@ definition:
   apiName: Intervention
   displayName: 管理干预
   pluralDisplayName: 管理干预
-  description: 管理者针对项目风险发起的干预事项，需跟踪至关闭。
+  description: 管理者针对项目风险发起的干预事项，需跟踪至关闭。在项目详情中发起和更新（D31）；截止日期必填，未关闭且过了截止日期即逾期，进入项目待处理事项但不影响风险等级（D32–D34）。
   primaryKey: interventionId
   titleProperty: title
   datasource: interventions
@@ -84,10 +84,11 @@ definition:
     - {apiName: interventionId, displayName: 干预 ID, type: string, sourceKind: manual, source: interventions.intervention_id}
     - {apiName: projectNumber, displayName: 项目编号, type: string, sourceKind: manual, source: interventions.project_number, searchable: true}
     - {apiName: title, displayName: 事项, type: string, sourceKind: manual, source: interventions.title, searchable: true}
-    - {apiName: interventionType, displayName: 类型, type: string, sourceKind: manual, source: interventions.intervention_type}
+    - {apiName: interventionType, displayName: 类型, type: enum, valueType: InterventionType, sourceKind: manual, source: interventions.intervention_type（缺省为其他 management）}
     - {apiName: status, displayName: 状态, type: enum, valueType: InterventionStatus, sourceKind: manual, source: interventions.status}
-    - {apiName: owner, displayName: 负责人, type: string, sourceKind: manual, source: interventions.owner, searchable: true}
+    - {apiName: owner, displayName: 负责人, type: string, sourceKind: manual, source: interventions.owner（发起时不填则取项目经理）, searchable: true}
     - {apiName: dueDate, displayName: 截止日期, type: date, sourceKind: manual, source: interventions.due_date}
+    - {apiName: overdue, displayName: 已逾期, type: boolean, sourceKind: derived, source: 状态不是已关闭，且截止日期早于今天（没有截止日期的存量干预不算逾期）}
     - {apiName: notes, displayName: 备注, type: string, sourceKind: manual, source: interventions.notes}
     - {apiName: updatedAt, displayName: 更新时间, type: datetime, sourceKind: manual, source: interventions.updated_at}
 ---

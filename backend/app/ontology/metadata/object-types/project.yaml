@@ -60,6 +60,7 @@ definition:
     - {apiName: unlinkedPaymentTermCount, displayName: 待关联回款约定, type: integer, sourceKind: derived, source: 尚未关联里程碑的回款约定数（关联后才生成回款节点）, derivedFrom: projectFacts, unit: count}
     - {apiName: overduePaymentNodes, displayName: 逾期回款节点, type: integer, sourceKind: derived, source: 计划日期已过且未到账, derivedFrom: projectFacts, unit: count}
     - {apiName: openInterventions, displayName: 未关闭干预, type: integer, sourceKind: derived, source: count(interventions where status != closed), derivedFrom: projectFacts, unit: count}
+    - {apiName: overdueInterventions, displayName: 逾期干预, type: integer, sourceKind: derived, source: count(interventions where status != closed and dueDate < 今天)；每条逾期干预在待处理事项中提醒（关注级），不计入风险等级, derivedFrom: projectFacts, unit: count}
     - {apiName: maintenanceComplete, displayName: 人工维护完整, type: boolean, sourceKind: derived, source: 对象类型声明的维护要求全部满足（项目类型、预算人天、项目经理、计划起止、里程碑；项目经理与计划起止不适用于售前阶段和已结束、已关闭的项目；见 maintenanceRequirements）, derivedFrom: maintenanceStatus}
     - {apiName: maintenanceGapCount, displayName: 待维护项数, type: integer, sourceKind: derived, source: 未满足的维护要求数, derivedFrom: maintenanceStatus, unit: count}
     - {apiName: maintenanceChecklist, displayName: 维护清单, type: json, sourceKind: derived, source: 每条适用的维护要求及是否已维护、由哪个动作维护, derivedFrom: maintenanceStatus}

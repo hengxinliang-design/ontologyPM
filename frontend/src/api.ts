@@ -389,6 +389,26 @@ export async function deletePaymentNode(_projectNumber: string, paymentNodeId: s
   await ontologyAction("deletePaymentNode", { paymentNode: paymentNodeId });
 }
 
+export interface InterventionInput {
+  title: string;
+  intervention_type: string;
+  owner: string;
+  due_date: string;
+  notes: string;
+}
+
+/** D31: raised from the project drawer; the owner defaults to the project manager on the server when left empty. */
+export async function openIntervention(projectNumber: string, payload: InterventionInput): Promise<void> {
+  await ontologyAction("openIntervention", {
+    project: projectNumber, title: payload.title, interventionType: payload.intervention_type,
+    owner: payload.owner || undefined, dueDate: payload.due_date, notes: payload.notes || undefined
+  });
+}
+
+export async function updateInterventionStatus(interventionId: string, status: "in_progress" | "closed", notes?: string): Promise<void> {
+  await ontologyAction("updateInterventionStatus", { intervention: interventionId, status, notes: notes || undefined });
+}
+
 export async function confirmMilestone(_projectNumber: string, milestoneId: string, confirmedBy: string): Promise<void> {
   await ontologyAction("confirmMilestoneCompletion", { milestone: milestoneId, confirmedBy });
 }

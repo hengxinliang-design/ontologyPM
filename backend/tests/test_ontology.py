@@ -167,7 +167,7 @@ def test_actions_validate_write_back_and_audit(tmp_path):
 
         intervention = client.post(
             "/api/v1/ontology/actions/openIntervention/apply",
-            json={"parameters": {"project": "TPL149", "title": "补充资源"}},
+            json={"parameters": {"project": "TPL149", "title": "补充资源", "dueDate": "2026-12-31"}},
         ).json()["data"]["edits"][0]["primaryKey"]
         closed = client.post(
             "/api/v1/ontology/actions/updateInterventionStatus/apply",

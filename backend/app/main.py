@@ -667,6 +667,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         params = action_parameters("openIntervention", payload, INTERVENTION_PARAMS, project=project_number)
         return {"data": maintain(user, "openIntervention", params, project_number=project_number)}
 
+    @app.post("/api/v1/projects/{project_number}/interventions/{intervention_id}/status", tags=["Projects"])
+    def update_intervention_status(
+        project_number: str, intervention_id: str, payload: dict[str, Any] = Body(...),
+        user: dict[str, Any] = Depends(require_auth),
+    ) -> dict[str, Any]:
+        """D31: the project drawer moves an intervention forward or closes it (closed ones are locked)."""
+        params = action_parameters("updateInterventionStatus", payload, {"status": "status", "notes": "notes"},
+                                   intervention=intervention_id)
+        return {"data": maintain(user, "updateInterventionStatus", params, project_number=project_number,
+                                 target=("Intervention", intervention_id), missing="intervention not found")}
+
     @app.post(
         "/api/v1/time-entries/import",
         dependencies=[auth],

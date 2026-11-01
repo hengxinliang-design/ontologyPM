@@ -19,6 +19,8 @@ import {
   analyzeProjectWithPmAssistant,
   createMilestone,
   createPaymentTerm,
+  openIntervention,
+  updateInterventionStatus,
   deleteMilestone,
   deletePaymentNode,
   deletePaymentTerm,
@@ -1203,7 +1205,7 @@ function EmployeeWorktime(props: {
     </div>
     <div className="employee-worktime-settings-note">工时基线、利用率标准和资源调剂复核规则已统一迁移至 <b>系统设置</b> 维护。</div>
     <div className="table-wrap"><table><thead><tr><th>姓名</th><th>填报人天</th><th>加班人天</th><th>确认人天</th><th>确认缺口(人天)</th><th>基线(人天)</th><th>工时利用率</th><th>项目数</th><th>记录数</th><th>工时利用率评价</th></tr></thead><tbody>
-      {props.loading ? <LoadingRows colSpan={10} /> : props.assessment?.data.map(row => <EmployeeWorktimeRowView key={row.employee_name} row={row} />)}
+      {props.loading ? <LoadingRows colSpan={10} /> : props.assessment?.data.map(row => <EmployeeWorktimeRowView key={row.employee_id || row.employee_name} row={row} />)}
       {!props.loading && props.assessment?.data.length === 0 && <tr><td className="empty" colSpan={10}>暂无员工工时数据</td></tr>}
     </tbody></table></div>
   </section>;
@@ -1260,6 +1262,10 @@ function PmoResourceTable({ project }: { project: ProjectDetail }) {
   </section>;
 }
 
+// Labels of the ontology value types InterventionType and InterventionStatus (ontology.yaml, D34).
+const INTERVENTION_TYPE_LABELS: Record<string, string> = { schedule: "进度", resource: "资源", payment: "回款", customer: "客户", quality: "质量", management: "其他" };
+const INTERVENTION_STATUS_LABELS: Record<string, string> = { open: "待处理", in_progress: "处理中", closed: "已关闭" };
+
 function ProjectDrawer({ project, close, refresh }: { project: ProjectDetail; close: () => void; refresh: () => Promise<void> }) {
   const [saving, setSaving] = useState(false);
   // Project-manager accounts' names (D10); an empty list just means no suggestions.
@@ -1283,6 +1289,9 @@ function ProjectDrawer({ project, close, refresh }: { project: ProjectDetail; cl
   const [paymentTerm, setPaymentTerm] = useState({ name: "", payment_ratio: "", planned_amount: "", notes: "" });
   const [editingPaymentTermId, setEditingPaymentTermId] = useState<string | null>(null);
   const [paymentTermFormOpen, setPaymentTermFormOpen] = useState(false);
+  const emptyIntervention = { title: "", intervention_type: "management", owner: "", due_date: "", notes: "" };
+  const [intervention, setIntervention] = useState(emptyIntervention);
+  const [interventionFormOpen, setInterventionFormOpen] = useState(false);
   const [expandedMonth, setExpandedMonth] = useState(project.monthly_time_entries[0]?.month ?? "");
   const [configEditing, setConfigEditing] = useState(false);
   const [aiAnalysis, setAiAnalysis] = useState<{ answer: string; sources: string[] } | null>(null);
@@ -1297,6 +1306,7 @@ function ProjectDrawer({ project, close, refresh }: { project: ProjectDetail; cl
     setEditingMilestoneId(null);
     setPaymentTermFormOpen(false);
     setEditingPaymentTermId(null);
+    setInterventionFormOpen(false);
     setAiAnalysis(null);
     setAnalysisError(null);
   }, [project]);
@@ -1415,6 +1425,27 @@ function ProjectDrawer({ project, close, refresh }: { project: ProjectDetail; cl
       else await createPaymentTerm(project.project_number, paymentTerm);
       resetPaymentTermForm();
     }, editingPaymentTermId ? "回款约定已更新" : "合同回款约定已添加");
+  }
+
+  function saveIntervention(event: FormEvent) {
+    event.preventDefault();
+    if (!intervention.due_date) { setMessage("请选择截止日期"); return; }
+    void run(async () => {
+      await openIntervention(project.project_number, intervention);
+      setIntervention(emptyIntervention);
+      setInterventionFormOpen(false);
+    }, "管理干预已发起");
+  }
+
+  function moveIntervention(item: ProjectDetail["interventions"][number], status: "in_progress" | "closed") {
+    let notes: string | undefined;
+    if (status === "closed") {
+      const answer = window.prompt(`关闭「${item.title}」：填写处理结论（可留空）。关闭后不能重新打开。`, item.notes ?? "");
+      if (answer === null) return;
+      notes = answer.trim();
+    }
+    void run(async () => { await updateInterventionStatus(item.intervention_id, status, notes); },
+      status === "closed" ? "管理干预已关闭" : "管理干预已转为处理中");
   }
 
   function removePaymentTerm(item: ProjectDetail["payment_terms"][number]) {
@@ -1552,6 +1583,25 @@ function ProjectDrawer({ project, close, refresh }: { project: ProjectDetail; cl
         {showsLegacyPaymentNote(milestone, editingTermId) && <p className="legacy-payment-note span-2">这是历史回款事件，仍按原有回款日期和金额维护；新建回款请先添加合同回款约定。</p>}
         <div className="form-actions span-2"><button className="button primary" disabled={saving}>{editingMilestoneId ? "保存修改" : "添加里程碑"}</button><button type="button" className="button secondary" disabled={saving} onClick={resetMilestoneForm}>取消</button></div>
       </form></>}
+    </section>
+
+    <section className="detail-section"><div className="section-title"><div><h3>管理干预 <span className="manual-tag">人工维护</span></h3><small>针对项目风险需要跟踪到关闭的事项；过了截止日期仍未关闭会进入待处理事项提醒，不影响风险等级。</small></div>{!interventionFormOpen && <button type="button" className="button secondary add-action" disabled={saving} onClick={() => { setIntervention({ ...emptyIntervention, owner: settings.project_manager }); setInterventionFormOpen(true); }}>＋ 发起干预</button>}</div>
+      <div className="payment-term-list intervention-list">{project.interventions.map(item => <article key={item.intervention_id} className={`payment-term-item intervention-item ${item.status} ${item.overdue ? "overdue" : ""}`}>
+        <div className="payment-term-copy"><strong>{item.title}</strong>
+          <small>{INTERVENTION_TYPE_LABELS[item.intervention_type] ?? item.intervention_type} · 负责人 {item.owner || "未指定"} · {item.due_date ? `截止 ${item.due_date}` : "未设截止日期"}{item.overdue ? " · 已逾期" : ""}</small>
+          {item.notes && <small>备注：{item.notes}</small>}</div>
+        <div className="payment-term-actions"><span className={`mini-state ${item.status === "closed" ? "completed" : item.overdue ? "overdue" : ""}`}>{INTERVENTION_STATUS_LABELS[item.status] ?? item.status}</span>
+          {item.status !== "closed" && <div className="row-action-buttons">{item.status === "open" && <button type="button" className="row-action" disabled={saving} onClick={() => moveIntervention(item, "in_progress")}>开始处理</button>}<button type="button" className="row-action" disabled={saving} onClick={() => moveIntervention(item, "closed")}>关闭</button></div>}</div>
+      </article>)}</div>
+      {project.interventions.length === 0 && !interventionFormOpen && <p className="detail-empty">暂无管理干预。项目出现需要管理者介入的风险时，在这里发起并跟踪到关闭。</p>}
+      {interventionFormOpen && <form className="milestone-form" onSubmit={saveIntervention}>
+        <label className="span-2">事项<input required value={intervention.title} placeholder="如：协调测试资源、与客户确认验收范围" onChange={e => setIntervention({ ...intervention, title: e.target.value })} /></label>
+        <label>类型<select value={intervention.intervention_type} onChange={e => setIntervention({ ...intervention, intervention_type: e.target.value })}>{Object.entries(INTERVENTION_TYPE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+        <label>负责人<input value={intervention.owner} placeholder="不填则为项目经理" list="project-manager-names" onChange={e => setIntervention({ ...intervention, owner: e.target.value })} /></label>
+        <label>截止日期<CalendarDatePicker value={intervention.due_date} onChange={due_date => setIntervention({ ...intervention, due_date })} label="选择干预截止日期" /></label>
+        <label>备注<input value={intervention.notes} placeholder="背景、期望结果" onChange={e => setIntervention({ ...intervention, notes: e.target.value })} /></label>
+        <div className="form-actions span-2"><button className="button primary" disabled={saving}>发起干预</button><button type="button" className="button secondary" disabled={saving} onClick={() => { setIntervention(emptyIntervention); setInterventionFormOpen(false); }}>取消</button></div>
+      </form>}
     </section>
   </aside></div>;
 }

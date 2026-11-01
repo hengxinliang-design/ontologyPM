@@ -312,7 +312,9 @@ function ObjectsView({ schema, objectType, setObjectType, focus, openObject, rev
                 onClick={() => openObject(obj.objectType, obj.primaryKey)} tabIndex={0}
                 onKeyDown={event => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); openObject(obj.objectType, obj.primaryKey); } }}>
                 <td><strong className="ontology-title">{obj.title}</strong><small>{obj.primaryKey}</small></td>
-                {columns.map(c => <td key={c.apiName}><PropertyValue property={c} value={obj.properties[c.apiName]} redacted={obj.redactedProperties.includes(c.apiName)} /></td>)}
+                {columns.map(c => <td key={c.apiName}>{obj.references?.[c.apiName] && !obj.redactedProperties.includes(c.apiName)
+                  ? <span className="reference-cell"><strong>{obj.references[c.apiName].title || obj.references[c.apiName].primaryKey}</strong><small>{obj.references[c.apiName].primaryKey}</small></span>
+                  : <PropertyValue property={c} value={obj.properties[c.apiName]} redacted={obj.redactedProperties.includes(c.apiName)} />}</td>)}
               </tr>)
               : <tr><td colSpan={columns.length + 1} className="empty-cell">没有匹配的对象</td></tr>}
           </tbody>

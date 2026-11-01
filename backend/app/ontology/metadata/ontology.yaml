@@ -6,7 +6,7 @@ version: v1
 definition:
   apiName: tsg-pm
   displayName: TSG PM 项目运营本体
-  version: 7.11.0
+  version: 8.0.0
   description: 把 CRM、工时与人工维护数据统一为项目运营语义模型：对象、关系、动作、函数与安全策略。
 ---
 kind: Marking
@@ -90,6 +90,19 @@ definition:
     - {value: open, label: 待处理}
     - {value: in_progress, label: 处理中}
     - {value: closed, label: 已关闭}
+---
+kind: ValueType
+version: v1
+definition:
+  apiName: InterventionType
+  displayName: 干预类型
+  values:
+    - {value: schedule, label: 进度}
+    - {value: resource, label: 资源}
+    - {value: payment, label: 回款}
+    - {value: customer, label: 客户}
+    - {value: quality, label: 质量}
+    - {value: management, label: 其他}
 ---
 kind: ValueType
 version: v1

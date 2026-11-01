@@ -155,6 +155,7 @@ export interface OntologyObject {
   title: string;
   properties: Record<string, unknown>;
   redactedProperties: string[];
+  references?: Record<string, ObjectReference>;
 }
 
 export interface ObjectLinkSummary {
@@ -166,7 +167,7 @@ export interface ObjectLinkSummary {
   count: number;
 }
 
-export interface OntologyObjectDetail extends OntologyObject { links: ObjectLinkSummary[]; period?: PeriodMeta | null; references?: Record<string, ObjectReference> }
+export interface OntologyObjectDetail extends OntologyObject { links: ObjectLinkSummary[]; period?: PeriodMeta | null }
 
 export interface ObjectPage {
   data: OntologyObject[];

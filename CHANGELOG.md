@@ -4,6 +4,7 @@
 
 | 产品版本 | 本体版本 | 日期 | 构建包 |
 | --- | --- | --- | --- |
+| v1.30.0 | 8.0.0 | 2026-11-01 | [2026-11-01-intervention-loop](docs/ontology-builds/2026-11-01-intervention-loop.yaml) |
 | v1.29.0 | 7.11.0 | 2026-11-01 | —（本体不变） |
 | v1.28.0 | 7.11.0 | 2026-10-31 | [2026-10-31-annual-plan-links](docs/ontology-builds/2026-10-31-annual-plan-links.yaml) |
 | v1.27.0 | 7.10.0 | 2026-10-31 | [2026-10-31-annual-plan-metrics](docs/ontology-builds/2026-10-31-annual-plan-metrics.yaml) |
@@ -15,6 +16,14 @@
 | v1.22.0 | 7.6.0 | 2026-10-30 | [2026-10-29-logical-delete](docs/ontology-builds/2026-10-29-logical-delete.yaml) |
 | v1.21.0 | 7.5.0 | 2026-10-29 | [2026-10-29-rule-homes-and-linkages](docs/ontology-builds/2026-10-29-rule-homes-and-linkages.yaml) |
 | v1.20.0 | 7.4.0 | 2026-10-29 | [2026-10-29-milestone-span-period](docs/ontology-builds/2026-10-29-milestone-span-period.yaml) |
+
+## v1.30.0 — 管理干预闭环（本体 8.0.0）
+
+- 管理干预可以用了（本体 8.0.0，需求基线 D31–D34）：项目详情新增「管理干预」区块，PMO、管理员、项目经理（本人项目）可发起、开始处理、关闭；截止日期必填，负责人缺省为项目经理，类型为进度、资源、回款、客户、质量、其他；过了截止日期未关闭的干预在待处理事项中提醒（关注级），不影响风险等级。干预类型改为枚举、截止日期改为必填属破坏性变更。
+- 本体浏览器的对象列表中，存放其他对象编号的列显示该对象的名称（如回款约定的「关联里程碑」）。
+- 员工工时表按员工编号区分行，两名同名员工不再冲突。
+- PM Assistant：工具错误标明是否为权限问题，跨项目问题提示改用不需要项目参数的工具。
+- 演示数据可重建：`backend/scripts/seed_demo.py` 加载项目与 40 名演示员工（每人一个测试场景，清单见 `docs/test-data/people-scenarios.md`，`--reset-people` 只换工时并逐人核对）；本地预览数据库移到 `backend/data/`（不再随重启丢失）。
 
 ## v1.29.0 — PM Assistant 可切换模型服务（本体 7.11.0 不变）
 

@@ -168,3 +168,25 @@ def test_tool_loop_is_bounded(tmp_path, monkeypatch):
         session = AssistantSession(client.app.state.ontology_service, {"username": "a", "is_admin": True, "permissions": []})
         result = session.run("query_objects", json.dumps({"objectSet": {"type": "base", "objectType": "Project"}}))
         assert "已截断" in result and len(result) < 300
+
+
+def test_tool_errors_say_whether_permission_is_involved(tmp_path):
+    """Live 2026-11-01: granite passed an empty project to single-project functions and then told an admin the
+    data was hidden from them. Missing values now name the cross-project tools, and errors say what kind they are."""
+    with TestClient(create_app(settings(tmp_path))) as client:
+        service = client.app.state.ontology_service
+        admin = AssistantSession(service, {"username": "a", "is_admin": True, "permissions": []})
+        empty = json.loads(admin.run("projectBudgetStatus", json.dumps({"project": ""})))
+        assert empty["errorType"].startswith("参数或数据错误，不是权限问题")
+        assert "缺少必填参数 project（项目）" in empty["error"] and "projectList" in empty["error"] and "query_objects" in empty["error"]
+        assert "projectBudgetStatus" not in empty["error"].split("改用")[1], "only tools without required parameters are offered"
+        assert admin.calls[-1]["tool"] == "projectBudgetStatus" and not admin.sources, "nothing ran, nothing is cited"
+
+        missing = json.loads(admin.run("get_object", json.dumps({"objectType": "Project", "primaryKey": "NOPE"})))
+        assert missing["errorType"].startswith("参数或数据错误")
+        viewer = AssistantSession(service, {"username": "v", "is_admin": False, "permissions": ["health"]})
+        denied = json.loads(viewer.run("query_objects", json.dumps({"objectSet": {"type": "base", "objectType": "Customer"}})))
+        assert denied["errorType"] == "无权限"
+
+        prompt = admin.instructions()
+        assert "跨项目问题" in prompt and "不是权限问题" in prompt and "redacted_markings" in prompt

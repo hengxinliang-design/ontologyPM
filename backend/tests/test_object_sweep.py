@@ -24,7 +24,7 @@ def test_every_object_type_opens_with_links_and_actions(tmp_path):
         # Objects the example data does not have: maintain one of each through its action.
         apply(client, "setAnnualOperatingPlan", {"policy": "default", "year": 2026, "collectionTarget": "1000000"})
         apply(client, "recordOperatingCost", {"policy": "default", "month": "2026-01", "laborCost": "1000"})
-        apply(client, "openIntervention", {"project": "WDR101", "title": "补充资源"})
+        apply(client, "openIntervention", {"project": "WDR101", "title": "补充资源", "dueDate": "2026-12-31"})
         apply(client, "createPaymentTerm", {"project": "WDR101", "name": "首付款", "plannedAmount": "1000"})
         import_entries(client, [entry("S1", "WDR101", "2026-10-12")])
 
@@ -52,3 +52,17 @@ def test_action_list_does_not_invent_missing_parameter_errors(tmp_path):
         for name in ("setAnnualOperatingPlan", "recordOperatingCost"):
             failed = [c["reason"] for c in actions[name]["criteria"] if not c["passed"]]
             assert failed == [], (name, failed)
+
+
+def test_object_list_shows_referenced_titles(tmp_path):
+    """User 2026-11-01: the 回款约定 list showed ms_… for 关联里程碑; the list now carries the milestone's name."""
+    with TestClient(create_app(settings(tmp_path))) as client:
+        term = client.post("/api/v1/projects/WDR101/payment-terms", json={"name": "首付款", "planned_amount": "1000"}).json()["data"]
+        milestone = client.post("/api/v1/projects/WDR101/milestones", json={
+            "name": "项目启动", "planned_end": "2026-12-01", "payment_term_id": term["payment_term_id"]}).json()["data"]
+        [row] = client.get("/api/v1/ontology/objects/PaymentTerm").json()["data"]
+        assert row["properties"]["linkedMilestoneId"] == milestone["milestone_id"]
+        assert row["references"]["linkedMilestoneId"] == {
+            "objectType": "Milestone", "primaryKey": milestone["milestone_id"], "title": "项目启动"}
+        milestones = {r["primaryKey"]: r for r in client.get("/api/v1/ontology/objects/Milestone").json()["data"]}
+        assert milestones[milestone["milestone_id"]]["references"]["paymentNodeId"]["title"] == "首付款"

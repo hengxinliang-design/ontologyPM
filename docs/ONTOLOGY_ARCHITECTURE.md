@@ -144,7 +144,7 @@
 | `editPaymentNode` 编辑回款节点 | PaymentNode | `payment_nodes` | 未到账 |
 | `deletePaymentNode` 删除回款节点 | PaymentNode | `payment_nodes` | 未到账；不能是里程碑关联节点 |
 | `confirmPaymentReceived` 确认回款到账 | PaymentNode | `payment_nodes` | 未到账 |
-| `openIntervention` 发起管理干预 | Project | `interventions` | — |
+| `openIntervention` 发起管理干预 | Project | `interventions` | 截止日期必填，类型为枚举（8.0.0） |
 | `updateInterventionStatus` 更新干预状态 | Intervention | `interventions` | 已关闭的干预不可重新打开 |
 
 支持 `validateOnly`：只跑 ①②③，返回每一条提交条件的结果，不写数据——前端可在提交前提示“为什么不能做”。
@@ -535,6 +535,12 @@ when: [{property: contractType, notIn: [sales]}, {property: lifecycleStatus, not
 需求基线 D30：`AnnualOperatingPlan` 按年度连接三类对象：`operatingCosts`（`OperatingCost.year`）、`signedContracts`（`Contract.signedYear`）、`receivedPayments`（新增派生属性 `PaymentNode.receivedYear`，只有已到账才有值）。年度不是年度计划的主键（主键为年度-部门），按诊断 CON-CARDINALITY 声明为多对多；三条关系都声明「允许悬空」（没有年度计划的年份）。年度计划与经营成本去掉「独立对象」声明，运营口径参数仍独立。同版本修复：提交条件只检查已给出的值，可用动作列表不再因缺参数报错；新增逐类型走查测试 `test_object_sweep.py`。
 
 构建包见 [2026-10-31-annual-plan-links.yaml](./ontology-builds/2026-10-31-annual-plan-links.yaml)。
+
+### 11.32 管理干预闭环（v8.0.0，破坏性）
+
+需求基线 D31–D34：`Intervention.interventionType` 由文本改为枚举 `InterventionType`（进度、资源、回款、客户、质量、其他 `management`），动作 `openIntervention` 的 `dueDate` 改为必填——两者在版本差异中都是破坏性变更，所以升主版本。新增派生属性 `Intervention.overdue`（数据源中按今天计算）与 `Project.overdueInterventions`（`projectFacts`）；逾期干预进入项目 `anomaly_alerts`（`INTERVENTION_OVERDUE`，关注级），不进入 `riskReasons`。负责人缺省取项目经理，在基础程序 `create_intervention` 中补齐。项目详情抽屉新增干预区块，经业务渠道执行两个动作；另补业务接口 `POST /api/v1/projects/{项目}/interventions/{干预}/status`。
+
+构建包见 [2026-11-01-intervention-loop.yaml](./ontology-builds/2026-11-01-intervention-loop.yaml)。
 
 ## 12. 代码结构
 

@@ -444,7 +444,9 @@ class OntologyService:
         total = len(items)
         start = (page - 1) * page_size
         return {
-            "data": [self._serialize(ctx, definition, item) for item in items[start:start + page_size]],
+            # References let the object browser's table show 「项目验收」 instead of ms_… for a key column.
+            "data": [{**self._serialize(ctx, definition, item), "references": self._references(ctx, definition, item)}
+                     for item in items[start:start + page_size]],
             "meta": {
                 "objectType": object_type,
                 "page": page,
@@ -485,7 +487,7 @@ class OntologyService:
     def _references(self, ctx: OntologyContext, definition: ObjectTypeDef, item: dict[str, Any]) -> dict[str, Any]:
         """Properties that hold another object's primary key (a join link's key), with that object's title.
 
-        Lets the detail panel show 「验收款」 instead of ``pay_2ae2…`` for Milestone.paymentNodeId.
+        Lets the detail panel and the object list show 「验收款」 instead of ``pay_2ae2…`` for Milestone.paymentNodeId.
         """
         references: dict[str, Any] = {}
         for link, forward in self.ontology.links_for(definition.api_name):

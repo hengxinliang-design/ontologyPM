@@ -256,6 +256,7 @@ def derive_project_facts(ctx: OntologyContext, objects: list[dict[str, Any]], ob
             "unlinkedPaymentTermCount": p["unlinked_payment_term_count"],
             "overduePaymentNodes": p["overdue_payment_nodes"],
             "openInterventions": p["open_interventions"],
+            "overdueInterventions": p["overdue_interventions"],
             "riskLevel": p["risk_level"],
             "riskReasons": p["risk_reasons"],
             "__facts": p,
@@ -735,6 +736,7 @@ def load_operating_costs(ctx: OntologyContext) -> list[dict[str, Any]]:
 
 @RULES.datasource("interventions")
 def load_interventions(ctx: OntologyContext) -> list[dict[str, Any]]:
+    today = ctx.projects.today().isoformat()
     return [
         {
             "interventionId": row["intervention_id"],
@@ -744,6 +746,8 @@ def load_interventions(ctx: OntologyContext) -> list[dict[str, Any]]:
             "status": row["status"],
             "owner": row.get("owner"),
             "dueDate": row.get("due_date"),
+            # D32: open past its due date; stored interventions without a due date are never overdue.
+            "overdue": row["status"] != "closed" and bool(row.get("due_date")) and row["due_date"] < today,
             "notes": row.get("notes"),
             "updatedAt": row["updated_at"],
         }

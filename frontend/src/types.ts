@@ -351,9 +351,13 @@ export interface ProjectDetail extends ProjectSummary {
   interventions: Array<{
     intervention_id: string;
     title: string;
-    status: string;
+    intervention_type: string;
+    status: "open" | "in_progress" | "closed";
     owner: string | null;
     due_date: string | null;
+    notes: string | null;
+    /** Open past its due date (D32); computed on the server. */
+    overdue: boolean;
   }>;
   todo_events: TodoEvent[];
   settings: {

@@ -891,13 +891,15 @@ Content-Type: application/json
 ```json
 {
   "title": "协调客户确认延期里程碑",
-  "intervention_type": "management",
-  "status": "open",
+  "intervention_type": "schedule",
   "owner": "PMO",
   "due_date": "2026-07-10",
   "notes": "需要项目经理跟进"
 }
 ```
+
+- 本体 8.0.0 起 `due_date` 必填；`intervention_type` 取 `schedule`（进度）、`resource`（资源）、`payment`（回款）、`customer`（客户）、`quality`（质量）、`management`（其他，缺省）；`owner` 不填时取项目经理。新建的干预状态总是待处理，原来的 `status` 字段不再接受。
+- 走动作 `openIntervention`（业务渠道），权限为「项目管理」，项目经理只限本人项目（其他项目返回 404）。
 
 响应：
 
@@ -914,6 +916,20 @@ Content-Type: application/json
   }
 }
 ```
+
+### 8.2 更新干预状态
+
+```http
+POST /api/v1/projects/{project_number}/interventions/{intervention_id}/status
+Content-Type: application/json
+```
+
+```json
+{"status": "closed", "notes": "已协调测试资源到位"}
+```
+
+- `status` 取 `open`、`in_progress`、`closed`；已关闭的干预锁定，再更新返回 422。干预必须属于路径中的项目，否则 404。走动作 `updateInterventionStatus`（业务渠道）。
+- 项目详情（`projectOverview` 与 `GET /api/v1/projects/{project_number}`）的 `interventions` 每条带 `overdue`；项目带 `open_interventions`、`overdue_interventions`，逾期干预在 `anomaly_alerts` 中为 `INTERVENTION_OVERDUE`（`warning`）。
 
 ## 9. 工时接口
 

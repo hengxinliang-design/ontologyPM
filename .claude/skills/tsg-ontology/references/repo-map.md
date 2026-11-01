@@ -85,6 +85,10 @@ npx tsc -b && npm test && npm run build
 23. **测试数据不是演示库。** 测试库每次从 `data/source_snapshot.example.json` 新建，只有 TPL149、WDR101、ZMJ113 三个项目，工时与演示库（scratchpad 的 preview.sqlite3）不同。构建包验收口径和测试里用到的项目、人员和数值，要么在测试中先导入或配置出来，要么先从接口读出再断言，不能照演示库写（经验库 L36、L39）。
 12. **升主版本后，旧构建包要标注被取代。** 旧发布稿的 `ontologyVersion` 不再等于当前版本，给它加 `supersededBy: <新构建包文件名>`；设计稿实施后也这样处理。
 
-## 当前规模（v7.5.0）
+## 当前规模（v8.0.0）
 
-13 个对象类型、18 种关系、17 个动作、16 个函数、4 条推导规则、2 个安全标记。数字变化时同步更新本节、PRD 第 8 章和本体架构文档。
+14 个对象类型、21 种关系、18 个动作、19 个函数、4 条推导规则、16 个值类型、2 个安全标记。数字变化时同步更新本节、PRD 第 8 章和本体架构文档。
+
+## 本地预览数据
+
+预览数据库是 `backend/data/preview.sqlite3`（Git 忽略；`.claude/launch.json` 的 tsg-backend 指向它）。不要放在 `/private/tmp`：系统重启会清空（2026-10-27、10-31 两次丢失演示数据）。空库重建：启动后端自动导入示例快照，再运行 `backend/scripts/seed_demo.py`；只换员工工时用 `--reset-people`。40 名演示员工各对应一个测试场景（`scripts/demo_people.py`，清单见 `docs/test-data/people-scenarios.md`），脚本加载后逐人核对 10 月的资源健康、工时评价与调剂建议。

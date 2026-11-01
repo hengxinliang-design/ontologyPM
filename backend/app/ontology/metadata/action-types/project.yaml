@@ -75,9 +75,9 @@ definition:
   parameters:
     - {apiName: project, displayName: 项目, type: object_ref, objectType: Project, required: true}
     - {apiName: title, displayName: 事项, type: string, required: true}
-    - {apiName: interventionType, displayName: 类型, type: string, description: 缺省为 management}
-    - {apiName: owner, displayName: 负责人, type: string}
-    - {apiName: dueDate, displayName: 截止日期, type: date}
+    - {apiName: interventionType, displayName: 类型, type: enum, valueType: InterventionType, description: 缺省为其他}
+    - {apiName: owner, displayName: 负责人, type: string, description: 不填时取项目经理}
+    - {apiName: dueDate, displayName: 截止日期, type: date, required: true}
     - {apiName: notes, displayName: 备注, type: string}
   permissions: [projects]
   edits: [Intervention.*]

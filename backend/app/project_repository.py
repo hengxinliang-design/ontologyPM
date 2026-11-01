@@ -966,6 +966,9 @@ class ProjectRepository:
         self, project_number: str, payload: dict[str, Any]
     ) -> dict[str, Any]:
         intervention_id = "act_" + uuid.uuid4().hex[:16]
+        owner = payload.get("owner") or None
+        if owner is None:  # D34: the project manager owns it unless someone else is named
+            owner = self._settings({project_number}).get(project_number, {}).get("project_manager")
         with self.database.connect() as connection:
             connection.execute(
                 """
@@ -978,9 +981,9 @@ class ProjectRepository:
                     intervention_id,
                     project_number,
                     payload["title"],
-                    payload.get("intervention_type", "management"),
+                    payload.get("intervention_type") or "management",
                     payload.get("status", "open"),
-                    payload.get("owner"),
+                    owner,
                     payload.get("due_date"),
                     payload.get("notes"),
                     self._now(),

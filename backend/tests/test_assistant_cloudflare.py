@@ -135,7 +135,7 @@ def test_scope_markings_and_suggestions_are_unchanged(tmp_path, monkeypatch):
     sent = scripted(monkeypatch, [
         [tool_call("get_object", {"objectType": "Project", "primaryKey": "ZMJ113"}, "other"),
          tool_call("query_objects", {"objectSet": {"type": "base", "objectType": "Customer"}}, "customers"),
-         tool_call("suggest_action", {"actionType": "openIntervention", "parameters": {"project": "TPL149", "title": "补充资源"}}, "write")],
+         tool_call("suggest_action", {"actionType": "openIntervention", "parameters": {"project": "TPL149", "title": "补充资源", "dueDate": "2026-12-31"}}, "write")],
         "ZMJ113 不在你的范围内；为 TPL149 建立干预需要你在业务页面执行。",
     ])
     with TestClient(cloudflare(tmp_path, auth_enabled=True)) as client:

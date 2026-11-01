@@ -336,6 +336,9 @@ tr.selected-row { background: var(--primary-soft) !important; }
 .reference-value { display: grid; gap: 1px; padding: 0; border: 0; background: none; color: var(--primary); cursor: pointer; text-align: left; }
 .reference-value strong { font-weight: 600; }
 .reference-value small { color: var(--text-tertiary); font-size: var(--fs-xs); }
+.reference-cell { display: grid; gap: 1px; }
+.reference-cell strong { font-weight: 600; }
+.reference-cell small { color: var(--text-tertiary); font-size: var(--fs-xs); }
 .reference-value:hover strong { text-decoration: underline; }
 /* UI check 2026-10-30: on phones the relationship diagram keeps a readable size and scrolls sideways. */
 @media (max-width: 820px) {
