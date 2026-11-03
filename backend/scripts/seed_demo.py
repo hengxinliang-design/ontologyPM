@@ -10,7 +10,8 @@ every project is maintained through the business endpoints (settings, payment te
 and payment confirmations, interventions), opportunities are abandoned or reopened through their actions, and the
 monthly operating costs are entered. Milestone completion dates are backdated in the local SQLite file after the
 confirm action, because the action always records today (demo history only). Staff: 40 people
-(scripts/demo_people.py plus docs/test-data/wdr101-time-entries.json), January–October 2026. Budgets and annual
+(scripts/demo_people.py plus docs/test-data/wdr101-time-entries.json), January–October 2026, plus a year of 2025
+history (scripts/demo_history.py: 15 more people who left in 2025, and four finished 2025 projects). Budgets and annual
 targets are then set from the loaded figures so each project and target lands in its intended band, and every
 project, opportunity and person is checked against its expected result.
 """
@@ -31,6 +32,7 @@ from pathlib import Path
 import httpx
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import demo_history  # noqa: E402
 import demo_people  # noqa: E402
 import demo_projects as dp  # noqa: E402
 
@@ -196,7 +198,8 @@ def seed_people(call) -> None:
             cache[day] = result["working_days"] == 1
         return cache[day]
 
-    entries = demo_people.generate(working) + json.loads(TEST_DATA.read_text(encoding="utf-8"))
+    entries = (demo_people.generate(working) + demo_history.generate(working)
+               + json.loads(TEST_DATA.read_text(encoding="utf-8")))
     for index in range(0, len(entries), 500):
         call("POST", "/api/v1/time-entries/import", entries[index:index + 500])
     print(f"Staff: loaded {len(entries)} time entries for {len({e['employee_id'] for e in entries})} people.")

@@ -115,6 +115,16 @@ CONTRACTS = [
              "380000.00", "380000.00", "380000.00"),
     Contract("demo-c-jtk205", "JTK205", "JTK205-江拓汽配WMS实施", "JTK", "Sales C", "2025-11-05", "系统实施", "暂停",
              "450000.00", "135000.00", "135000.00"),
+    # 2025 history (scripts/demo_history.py): finished projects that give the load forecast a year of history.
+    # Every payment was received in 2025, so none of them counts towards the 2026 department figures.
+    Contract("demo-c-hdl190", "HDL190", "HDL190-恒达物流WMS实施", "HDL", "Sales B", "2024-11-15", "系统实施", "已完成",
+             "560000.00", "560000.00", "560000.00"),
+    Contract("demo-c-lny190", "LNY190", "LNY190-澜宁医药2025年运维", "LNY", "Sales C", "2024-12-20", "运维服务", "已完成",
+             "200000.00", "200000.00", "200000.00"),
+    Contract("demo-c-sey190", "SEY190", "SEY190-质量报表平台", "SEY", "Sales A", "2025-02-20", "系统实施", "已完成",
+             "420000.00", "420000.00", "420000.00"),
+    Contract("demo-c-qyd190", "QYD190", "QYD190-启元电子MES一期", "QYD", "Sales B", "2025-03-28", "系统实施", "已完成",
+             "780000.00", "780000.00", "780000.00"),
 ]
 
 OPPORTUNITIES = [
@@ -191,6 +201,34 @@ PROJECTS = [
             settlement="contract"),
     Project("LNY207", "已终止：CRM 状态终止，项目状态由 CRM 推导为已关闭；未做任何人工维护", None,
             lifecycle_source="contract_status"),
+    # ---- 2025 history: all finished on plan, all paid in 2025. Their milestones drive the staff's overtime before
+    # each due date in scripts/demo_history.py, which is what the load forecast should learn to anticipate.
+    Project("HDL190", "2025 年历史项目：上半年实施完成，按期回款", "construction", "completed",
+            "赵经理", "2025-01-06", "2025-06-30", budget_share=0.92, milestones=[
+                Milestone("项目启动", "2025-01-06", "2025-01-24", "2025-01-24", ("首付款", "168000.00", "30"), "2025-02-10"),
+                Milestone("系统上线", "2025-02-03", "2025-05-16", "2025-05-16", ("上线款", "224000.00", "40"), "2025-06-05"),
+                Milestone("项目验收", "2025-05-19", "2025-06-30", "2025-06-27", ("验收款", "168000.00", "30"), "2025-07-18"),
+            ], risk="healthy", settlement="contract"),
+    Project("LNY190", "2025 年历史运维：全年按季度服务评审与回款", "maintenance", "completed",
+            "孙经理", "2025-01-01", "2025-12-31", budget_share=0.88, milestones=[
+                Milestone("一季度服务评审", "2025-01-01", "2025-03-31", "2025-03-31", ("一季度服务费", "50000.00", "25"), "2025-04-10"),
+                Milestone("二季度服务评审", "2025-04-01", "2025-06-30", "2025-06-30", ("二季度服务费", "50000.00", "25"), "2025-07-08"),
+                Milestone("三季度服务评审", "2025-07-01", "2025-09-30", "2025-09-30", ("三季度服务费", "50000.00", "25"), "2025-10-15"),
+                Milestone("四季度服务评审", "2025-10-01", "2025-12-31", "2025-12-26", ("四季度服务费", "50000.00", "25"), "2025-12-30"),
+            ], risk="healthy", settlement="contract"),
+    Project("SEY190", "2025 年历史项目：3–9 月实施，8 月上线", "construction", "completed",
+            "王经理", "2025-03-03", "2025-09-30", budget_share=0.95, milestones=[
+                Milestone("需求确认", "2025-03-03", "2025-04-18", "2025-04-18", ("首付款", "126000.00", "30"), "2025-05-08"),
+                Milestone("系统上线", "2025-04-21", "2025-08-29", "2025-08-29", ("上线款", "168000.00", "40"), "2025-09-19"),
+                Milestone("项目验收", "2025-09-01", "2025-09-30", "2025-09-30", ("尾款", "126000.00", "30"), "2025-10-24"),
+            ], risk="healthy", settlement="contract"),
+    Project("QYD190", "2025 年历史项目：4–12 月实施，10 月底上线、12 月验收", "construction", "completed",
+            "钱经理", "2025-04-07", "2025-12-19", budget_share=0.97, milestones=[
+                Milestone("项目启动", "2025-04-07", "2025-04-30", "2025-04-30", ("首付款", "234000.00", "30"), "2025-05-20"),
+                Milestone("蓝图确认", "2025-05-05", "2025-07-18", "2025-07-18"),
+                Milestone("系统上线", "2025-07-21", "2025-10-31", "2025-10-31", ("上线款", "312000.00", "40"), "2025-11-25"),
+                Milestone("项目验收", "2025-11-03", "2025-12-19", "2025-12-19", ("验收款", "234000.00", "30"), "2025-12-29"),
+            ], risk="healthy", settlement="contract"),
 ]
 
 # Operating costs per month (finance figures, D24). July is deliberately missing: gross profit is cut at September and

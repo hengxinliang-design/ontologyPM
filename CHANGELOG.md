@@ -4,6 +4,7 @@
 
 | 产品版本 | 本体版本 | 日期 | 构建包 |
 | --- | --- | --- | --- |
+| v1.32.0 | 8.1.0 | 2026-11-03 | —（本体不变） |
 | v1.31.0 | 8.1.0 | 2026-11-03 | [2026-11-03-input-guards](docs/ontology-builds/2026-11-03-input-guards.yaml) |
 | v1.30.0 | 8.0.0 | 2026-11-01 | [2026-11-01-intervention-loop](docs/ontology-builds/2026-11-01-intervention-loop.yaml) |
 | v1.29.0 | 7.11.0 | 2026-11-01 | —（本体不变） |
@@ -17,6 +18,13 @@
 | v1.22.0 | 7.6.0 | 2026-10-30 | [2026-10-29-logical-delete](docs/ontology-builds/2026-10-29-logical-delete.yaml) |
 | v1.21.0 | 7.5.0 | 2026-10-29 | [2026-10-29-rule-homes-and-linkages](docs/ontology-builds/2026-10-29-rule-homes-and-linkages.yaml) |
 | v1.20.0 | 7.4.0 | 2026-10-29 | [2026-10-29-milestone-span-period](docs/ontology-builds/2026-10-29-milestone-span-period.yaml) |
+
+## v1.32.0 — 三层评测与负荷预测历史数据（本体 8.1.0 不变）
+
+- 三层评测：`backend/scripts/eval_three_layers.py`（用例 `eval_cases.py`）在同一份数据上评测本体规则（按演示场景逐项核对，167 项）、小模型（员工下月负荷预测的滚动回测）和大模型（PM Assistant 21 道题，覆盖问答查询、经营分析、风险预警、策略预警、权限与范围，经真实模型服务调用，标准答案由本体函数现场算出）。可按模型分进程运行，再用 `--combine` 合并成一份报告。结果与分析见 `docs/test-reports/2026-11-03-three-layer-eval.md`、`2026-11-03-three-layer-eval-analysis.md`。
+- 主要发现：Cloudflare 免费计划可用的模型中 `gpt-oss-120b` 通过 81%，现用的 granite 为 33%；`projectList` 每行带全部工时明细，PM Assistant 的工具结果因此被截断；提示词中缺少今天的日期。这些问题本版本只记录，尚未修改。
+- 负荷预测历史数据：`backend/scripts/demo_history.py` 生成 2025 年全年工时（28 名老员工与 15 名 2025 年员工，4 个已完成的历史项目 HDL190、LNY190、SEY190、QYD190），模拟里程碑赶工、项目空档、爬坡、休假与随机波动；2026 年数据与所有预期不变。演示库达到 22 个月、696 个样本，试点第 0 步门槛通过。
+- 小模型回测：线性回归与逻辑回归（无依赖），以及梯度提升树（可选依赖 `backend/requirements-ml.txt`，scikit-learn）；新增特征「下月仍在计划期内的项目数」「下月到期的里程碑数」。梯度提升树在利用率估计上首次胜过「照抄上月」，逻辑回归的过载预警最好，两者都未达到接入门槛；剩余误差主要来自本体中缺少的人员安排计划与人事信息。
 
 ## v1.31.0 — 输入校验与测试数据（本体 8.1.0）
 

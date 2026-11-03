@@ -1,0 +1,3 @@
+# Optional: models for the load-forecast pilot (scripts/eval_three_layers.py, gradient-boosted trees).
+# The application does not import these; install with: .venv/bin/python -m pip install -r requirements-ml.txt
+scikit-learn>=1.7,<2
