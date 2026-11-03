@@ -146,6 +146,14 @@
 - 关闭后锁定，不能重新打开或删除；关错了重新发起。
 - 本体位置：`Intervention.overdue`、`Project.openInterventions`、`Project.overdueInterventions`、动作 `openIntervention`、`updateInterventionStatus`；构建包 [2026-11-01-intervention-loop](ontology-builds/2026-11-01-intervention-loop.yaml)。
 
+### 6.1b 输入校验（本体 8.1.0，D40）
+
+- 回款到账日期不能晚于今天（按服务器时区，`XTCRM_TIMEZONE`）。
+- 每人天小时数必须大于 0 且不超过 24；预算人天填写时必须大于 0（系统实施、TSnT365 仍必须填写）。两条都按生效值判断：本次没有提交的字段取项目当前值。
+- 文本参数去掉首尾空格后再判断是否为必填项；只有空格的可选文本视为清空。
+- 金额、小数参数的绝对值必须小于 1e15；对象集筛选条件嵌套不超过 32 层（对象集本身不超过 12 层）。
+- 本体位置：动作 `configureProject`（`positiveBudget`、`hoursPerPersonDayRange`）、`confirmPaymentReceived`（`notAfterToday`）；规则实现在 `app/maintenance_rules.py`，动作和基础程序共用；构建包 [2026-11-03-input-guards](ontology-builds/2026-11-03-input-guards.yaml)。
+
 ### 6.2 运营监控预警
 
 | 预警 | 条件 |

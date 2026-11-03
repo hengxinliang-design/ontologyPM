@@ -46,6 +46,32 @@ def non_negative(amount: Any) -> str | None:
         return "金额必须是数字"
 
 
+def positive_budget(planned_person_days: Any) -> str | None:
+    """D40: a budget, when given, is a positive number of person-days."""
+    if planned_person_days in (None, ""):
+        return None
+    try:
+        return None if Decimal(str(planned_person_days)) > 0 else "预算人天必须大于 0"
+    except InvalidOperation:
+        return "预算人天必须是数字"
+
+
+def hours_per_person_day(hours: Any) -> str | None:
+    """D40: hours in one person-day, above 0 and at most 24 (0 would turn every person-day into 0)."""
+    if hours in (None, ""):
+        return None
+    try:
+        value = Decimal(str(hours))
+    except InvalidOperation:
+        return "每人天小时数必须是数字"
+    return None if Decimal("0") < value <= Decimal("24") else "每人天小时数必须大于 0 且不超过 24"
+
+
+def not_after_today(day: Any, today: str, label: str) -> str | None:
+    """D40: a date that records something that happened (a payment received) cannot be in the future."""
+    return f"{label}不能晚于今天（{today}）" if day and str(day) > today else None
+
+
 def payment_ratio(ratio: Any) -> str | None:
     if ratio in (None, ""):
         return None

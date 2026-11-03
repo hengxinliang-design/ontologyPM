@@ -542,6 +542,12 @@ when: [{property: contractType, notIn: [sales]}, {property: lifecycleStatus, not
 
 构建包见 [2026-11-01-intervention-loop.yaml](./ontology-builds/2026-11-01-intervention-loop.yaml)。
 
+### 11.33 输入校验（v8.1.0）
+
+需求基线 D40，来自本体浏览器边界测试（`docs/test-reports/2026-11-01-ontology-browser.md`）。新增提交条件 `positiveBudget`、`hoursPerPersonDayRange`（`configureProject`，按生效值判断）与 `notAfterToday`（`confirmPaymentReceived`），规则写在 `maintenance_rules.py`，基础程序的写入守卫调用同一实现。参数校验 `_validate_parameters` 先去首尾空格再判必填，`_coerce` 拒绝绝对值不小于 1e15 的数字（原先 1e309 在保留两位小数时抛异常）；`objectsets.compile_where` 增加 `MAX_WHERE_DEPTH = 32`。
+
+构建包见 [2026-11-03-input-guards.yaml](./ontology-builds/2026-11-03-input-guards.yaml)。
+
 ## 12. 代码结构
 
 ```text

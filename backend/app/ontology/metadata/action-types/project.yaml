@@ -30,6 +30,8 @@ definition:
   handler: configureProject
   submissionCriteria:
     - {description: 系统实施、TSnT365 项目必须有预算人天, rule: cappedBudget}
+    - {description: 预算人天大于 0, rule: positiveBudget}
+    - {description: 每人天小时数大于 0 且不超过 24, rule: hoursPerPersonDayRange}
     - description: 计划结束日不早于计划开始日
       rule: dateOrder
       args: {start: plannedStart, end: plannedEnd, label: 计划结束日期}

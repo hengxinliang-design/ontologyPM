@@ -91,4 +91,4 @@ npx tsc -b && npm test && npm run build
 
 ## 本地预览数据
 
-预览数据库是 `backend/data/preview.sqlite3`（Git 忽略；`.claude/launch.json` 的 tsg-backend 指向它）。不要放在 `/private/tmp`：系统重启会清空（2026-10-27、10-31 两次丢失演示数据）。空库重建：启动后端自动导入示例快照，再运行 `backend/scripts/seed_demo.py`；只换员工工时用 `--reset-people`。40 名演示员工各对应一个测试场景（`scripts/demo_people.py`，清单见 `docs/test-data/people-scenarios.md`），脚本加载后逐人核对 10 月的资源健康、工时评价与调剂建议。
+预览数据库是 `backend/data/preview.sqlite3`（Git 忽略；`.claude/launch.json` 的 tsg-backend 指向它）。不要放在 `/private/tmp`：系统重启会清空（2026-10-27、10-31 两次丢失演示数据）。空库重建：启动后端自动导入示例快照，再运行 `backend/scripts/seed_demo.py`；只换员工工时用 `--reset-people`。演示数据：项目与商机（`scripts/demo_projects.py`，清单 `docs/test-data/project-scenarios.md`）与 40 名员工（`scripts/demo_people.py`，清单 `docs/test-data/people-scenarios.md`），脚本加载后逐项核对；里程碑完成日期在确认动作后直接回填到 SQLite（动作总记录今天）；边界场景按运营口径默认值（最低利用率 75%）设计。

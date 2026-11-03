@@ -4,6 +4,7 @@
 
 | 产品版本 | 本体版本 | 日期 | 构建包 |
 | --- | --- | --- | --- |
+| v1.31.0 | 8.1.0 | 2026-11-03 | [2026-11-03-input-guards](docs/ontology-builds/2026-11-03-input-guards.yaml) |
 | v1.30.0 | 8.0.0 | 2026-11-01 | [2026-11-01-intervention-loop](docs/ontology-builds/2026-11-01-intervention-loop.yaml) |
 | v1.29.0 | 7.11.0 | 2026-11-01 | —（本体不变） |
 | v1.28.0 | 7.11.0 | 2026-10-31 | [2026-10-31-annual-plan-links](docs/ontology-builds/2026-10-31-annual-plan-links.yaml) |
@@ -16,6 +17,14 @@
 | v1.22.0 | 7.6.0 | 2026-10-30 | [2026-10-29-logical-delete](docs/ontology-builds/2026-10-29-logical-delete.yaml) |
 | v1.21.0 | 7.5.0 | 2026-10-29 | [2026-10-29-rule-homes-and-linkages](docs/ontology-builds/2026-10-29-rule-homes-and-linkages.yaml) |
 | v1.20.0 | 7.4.0 | 2026-10-29 | [2026-10-29-milestone-span-period](docs/ontology-builds/2026-10-29-milestone-span-period.yaml) |
+
+## v1.31.0 — 输入校验与测试数据（本体 8.1.0）
+
+- 输入校验（本体 8.1.0，需求基线 D40，构建包 2026-11-03-input-guards）：修复本体浏览器边界测试发现的高、中级问题——极大数字与过深的筛选条件不再造成服务器错误；回款到账日期不能晚于今天；每人天小时数须大于 0 且不超过 24，预算人天须大于 0；只有空格的必填文本按未填处理，基础程序的必填提示改为中文；本体浏览器动作表单在提交条件不满足时不能提交，失败提示为错误色，表单打开时不再被 PM Assistant 按钮遮住。
+- 本体浏览器边界与异常测试：`backend/scripts/ontology_browser_check.py`（361 个用例），报告见 `docs/test-reports/2026-11-01-ontology-browser.md`。
+- 项目管理页去掉顶部指标卡（项目总数、合同总额、待回款、风险项目、待维护项目）。
+- 演示数据：`backend/scripts/demo_projects.py` 提供覆盖全年运营的 12 个项目与 9 个商机（含丢单、失效、放弃、重新激活、停滞、赢单转合同），40 名演示员工改投到这些项目；清单见 `docs/test-data/project-scenarios.md`、`people-scenarios.md`。
+- 小模型试点设计（需求基线 D35–D39、G10）：员工下月负荷预测，见 `docs/ontology-design/2026-11-01-small-model-pilot.md`；第 0 步的只读数据核对脚本 `backend/scripts/load_forecast_data_check.py`。
 
 ## v1.30.0 — 管理干预闭环（本体 8.0.0）
 

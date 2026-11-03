@@ -2,6 +2,7 @@
 # 依据：用户 2026-11-01「检查一下管理干预的对象，是不是没实际用处」→「Make it useful」；四个问题均按建议确认，为需求基线 D31–D34。
 kind: OntologyBuild
 stage: release
+supersededBy: 2026-11-03-input-guards.yaml
 topic: 管理干预从「只在本体里有定义」变成可用的闭环：项目详情中发起和推进，逾期进入待处理事项，类型和截止日期规范化
 ontologyVersion: 8.0.0
 date: 2026-11-01

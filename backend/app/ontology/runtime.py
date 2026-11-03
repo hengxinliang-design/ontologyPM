@@ -870,6 +870,10 @@ class OntologyService:
         }
 
 
+# D40: money and decimal parameters stay below this magnitude (1e309 used to crash the 2-decimal rounding).
+MAX_NUMBER = Decimal("1e15")
+
+
 def _validate_parameters(
     ctx: OntologyContext, definitions: tuple[ParameterDef, ...], raw: dict[str, Any]
 ) -> tuple[dict[str, Any], list[dict[str, str]]]:
@@ -881,7 +885,10 @@ def _validate_parameters(
     ]
     values: dict[str, Any] = {}
     for param in definitions:
-        if param.api_name not in raw or raw[param.api_name] in (None, ""):
+        given = raw.get(param.api_name)
+        if isinstance(given, str) and param.data_type in {"string", "enum"}:
+            given = given.strip()  # D40: text made only of spaces counts as not filled in
+        if param.api_name not in raw or given in (None, ""):
             if param.required:
                 errors.append({"parameter": param.api_name, "message": f"{param.display_name}为必填项"})
             elif param.api_name in raw:
@@ -919,6 +926,8 @@ def _coerce(ctx: OntologyContext, param: ParameterDef, value: Any) -> Any:
             raise ValueError("必须是数字") from exc
         if not number.is_finite():
             raise ValueError("必须是有限数字")
+        if abs(number) >= MAX_NUMBER:
+            raise ValueError("数值超出范围")
         return format(number.quantize(Decimal("0.01")), "f")
     if kind == "date":
         try:

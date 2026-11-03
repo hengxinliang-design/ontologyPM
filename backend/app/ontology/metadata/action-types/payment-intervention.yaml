@@ -70,6 +70,9 @@ definition:
     - description: 到账金额不能为负数
       rule: nonNegative
       args: {parameters: [actualAmount]}
+    - description: 到账日期不晚于今天
+      rule: notAfterToday
+      args: {parameter: actualDate, label: 到账日期}
 ---
 kind: ActionType
 version: v1

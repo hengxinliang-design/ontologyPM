@@ -233,6 +233,8 @@ class ProjectRepository:
             "notes": payload.get("notes", current.get("notes")),
         }
         rules.ensure(rules.capped_budget(values["contract_type"], values["planned_person_days"]))
+        rules.ensure(rules.positive_budget(values["planned_person_days"]))
+        rules.ensure(rules.hours_per_person_day(values["hours_per_person_day"]))
         with self.database.connect() as connection:
             connection.execute(
                 """
@@ -412,7 +414,7 @@ class ProjectRepository:
             payload.get("planned_end") or payload.get("planned_date"), "planned_end"
         )
         if planned_end is None:
-            raise ValueError("planned_end is required")
+            raise ValueError("计划完成日期为必填项")
         planned_start = _optional_iso_date(
             payload.get("planned_start") or planned_end, "planned_start"
         )
@@ -509,7 +511,7 @@ class ProjectRepository:
             values.get("planned_end") or values.get("planned_date"), "planned_end"
         )
         if planned_end is None:
-            raise ValueError("planned_end is required")
+            raise ValueError("计划完成日期为必填项")
         planned_start = _optional_iso_date(
             values.get("planned_start") or planned_end, "planned_start"
         )
@@ -753,10 +755,10 @@ class ProjectRepository:
     def _validated_payment_term(self, payload: dict[str, Any]) -> dict[str, Any]:
         name = str(payload.get("name") or "").strip()
         if not name:
-            raise ValueError("payment term name is required")
+            raise ValueError("回款约定名称为必填项")
         amount = payload.get("planned_amount")
         if amount in (None, ""):
-            raise ValueError("planned_amount is required")
+            raise ValueError("约定金额为必填项")
         amount_text = _decimal_text(amount)
         rules.ensure(rules.non_negative(amount_text))
         ratio = payload.get("payment_ratio")
@@ -867,6 +869,7 @@ class ProjectRepository:
         self, project_number: str, payment_node_id: str, confirmed_by: str,
         actual_amount: Any | None = None, actual_date: str | None = None,
     ) -> dict[str, Any]:
+        rules.ensure(rules.not_after_today(actual_date, self.today().isoformat(), "到账日期"))
         with self.database.connect() as connection:
             row = connection.execute(
                 f"SELECT * FROM payment_nodes WHERE payment_node_id=? AND project_number=? AND {ACTIVE_ROW}",

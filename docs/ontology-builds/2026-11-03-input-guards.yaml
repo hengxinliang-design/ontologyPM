@@ -1,0 +1,88 @@
+# 本体构建包（发布稿）：输入校验——本体浏览器边界测试发现的高、中级问题。本体 8.1.0（新增 3 条提交条件，非破坏性）。
+# 依据：测试报告 docs/test-reports/2026-11-01-ontology-browser.md（F1–F8）；用户 2026-11-03「Fix high and medium」；需求基线 D40。
+kind: OntologyBuild
+stage: release
+topic: 动作参数与对象集的输入校验：越界数字、过深筛选不再造成服务器错误；未来到账日期、无效的每人天小时数与预算人天被拒绝；只有空格的必填文本按未填；提交条件不满足时动作表单不能提交
+ontologyVersion: 8.1.0
+date: 2026-11-03
+scope:
+  - CQ-V1 一笔回款能否在今天之后到账？
+  - CQ-V2 一个项目的每人天小时数和预算人天允许取哪些值？
+  - CQ-V3 用户只输入空格时，必填项算不算已填写？
+  - CQ-V4 越界或畸形的输入会让服务出错吗？
+
+rules:
+  - id: R1
+    statement: 金额、小数、百分比参数的绝对值必须小于 1e15，超出时参数校验报「数值超出范围」（422），不再在保留两位小数时抛出异常（500）。
+    basis: 测试报告 F1（P03）：plannedAmount 为 "1e309" 时 _coerce 的 quantize 抛 decimal.InvalidOperation，所有 money、decimal 参数都受影响。
+    acceptance: 新建回款约定金额为 1e309 或 1e15、设置项目每人天小时数为 1e309，预检都返回 200 且参数错误含「数值超出范围」；999999999999.99 预检通过。
+    verifiedBy: [test_numbers_out_of_range_are_rejected_not_a_server_error]
+    ontology: [createPaymentTerm, configureProject]
+  - id: R2
+    statement: 对象集筛选条件（and / or / not）嵌套不超过 32 层，超出时返回 422「where 条件嵌套超过 32 层」。对象集本身仍是 12 层上限。
+    basis: 测试报告 F2（Q30b）：3000 层 not 嵌套导致递归溢出（500）。
+    acceptance: 32 层嵌套正常返回；3000 层返回 422 并提示嵌套超过 32 层。
+    verifiedBy: [test_deeply_nested_where_clauses_are_rejected]
+    ontology: [Project]
+  - id: R3
+    statement: 确认回款到账的到账日期不能晚于今天（提交条件 notAfterToday），业务接口与动作走同一条规则。
+    basis: 测试报告 F3（P56）：到账日期填 2099-01-01 被接受，并计入 2099 年的经营收入（D22 经营收入按到账日期归年）。
+    acceptance: 今天为 2026-11-03 时，到账日期 2026-11-04 被拒绝并提示「到账日期不能晚于今天（2026-11-03）」，2026-11-03 可以确认；经业务接口确认 2099-01-01 同样被拒绝。
+    verifiedBy: [test_payment_cannot_be_received_in_the_future]
+    ontology: [confirmPaymentReceived, PaymentNode.actualDate]
+  - id: R4
+    statement: 每人天小时数必须大于 0 且不超过 24（提交条件 hoursPerPersonDayRange）；预算人天填写时必须大于 0（提交条件 positiveBudget）。两条都按生效值判断（本次提交的值，没提交则取项目当前值），基础程序保存设置时调用同一规则。
+    basis: 测试报告 F4（P35、P36）：每人天小时数为 0 时该项目所有人天显示 0.00；F5（P34）：预算人天 -10 被保存，预算使用率变空而维护要求仍判已满足。经验库 L32（预检与执行一致）。
+    acceptance: 每人天小时数为 0、-1、24.5、25 被拒绝，0.5、8、24 通过；预算人天为 -10 或 0 被拒绝，30 可以保存。
+    verifiedBy: [test_hours_per_person_day_and_budget_must_make_sense]
+    ontology: [configureProject, Project.hoursPerPersonDay, Project.plannedPersonDays]
+  - id: R5
+    statement: 文本与枚举参数先去掉首尾空格再判断是否为必填项；只有空格的必填文本按未填处理，预检与执行一致。基础程序的必填提示改为中文。
+    basis: 测试报告 F6（P13）：只有空格的名称预检通过；里程碑和管理干预以空名称创建，回款约定在执行时才被拒绝且提示为英文「payment term name is required」。
+    acceptance: 新建里程碑名称、发起管理干预事项、新建回款约定名称只填空格时，预检 valid 为 false 并提示「…为必填项」，执行返回 422，项目下没有新增记录；名称「  上线  」保存为「上线」。
+    verifiedBy: [test_text_made_of_spaces_counts_as_empty]
+    ontology: [createMilestone, openIntervention, createPaymentTerm]
+  - id: R6
+    statement: 本体浏览器的动作表单：最近一次评估（打开时、预检或被拒绝的提交）有不满足的提交条件时，「提交」不可用，并提示修改参数后再试；改动任一参数后恢复可用。执行结果的提示按成功或失败着色。表单滚动到可见时在底部留出 PM Assistant 按钮的位置。
+    basis: 测试报告 F7：锁定的动作仍可点「提交」，拒绝原因为普通文字；F8：表单按钮被 PM Assistant 悬浮按钮遮住。
+    acceptance: 打开已完成里程碑的「编辑里程碑」，「提交」不可用并显示提示；修改名称后「提交」恢复可用，提交被拒绝后再次不可用，拒绝原因以错误色显示；表单打开时按钮不在悬浮按钮之下。
+    verifiedBy: [test_build_packages_need_basis_acceptance_and_a_non_empty_exception_table]
+    ontology: [editMilestone]
+
+exceptions:
+  - rule: R1
+    case: 真实业务中的大额合同。
+    handling: 上限 1e15（千万亿）远超合同金额与人天的合理范围，不影响正常数据；预算、比例等字段仍由各自的提交条件约束。
+    basis: 演示与示例数据中最大的合同额为 150 万元。
+  - rule: R2
+    case: 由构建器或 PM Assistant 生成的复杂查询。
+    handling: 构建器的示例最多 3 层，助手生成的对象集通常不超过 5 层；32 层只拦截异常输入。
+    basis: ObjectSetWorkbench 的示例查询与助手工具说明。
+  - rule: R3
+    case: 服务器时区与用户所在时区不同（默认 America/Detroit，见 config.py 的 XTCRM_TIMEZONE）。
+    handling: 「今天」按服务器时区计算；中国用户在北京时间早晨确认当天到账，可能被判为晚于今天。部署在国内时应把 XTCRM_TIMEZONE 设为 Asia/Shanghai。
+    basis: ProjectRepository.today() 使用配置的时区（经验库 L31）。
+  - rule: R3
+    case: 8.1.0 之前已经保存的未来到账日期。
+    handling: 不追溯修改；已到账节点锁定，如需更正由管理员在数据库层处理并在审计中说明。
+    basis: 新规则只约束新的确认动作。
+  - rule: R4
+    case: 已经保存了无效每人天小时数（如 0）或负预算的项目。
+    handling: 按生效值判断：再次「设置项目」时必须同时把该值改为有效值，否则预检与执行都提示原因；不影响其他动作。
+    basis: 预检与执行一致（L32）；本地演示库中没有这样的项目。
+  - rule: R4
+    case: 售前、开口合同等不要求预算的项目清空预算。
+    handling: 预算人天为空时不检查；只有填写的值必须大于 0。系统实施、TSnT365 必须有预算的规则（cappedBudget）不变。
+    basis: 业务规则第 1 节「维护要求」。
+  - rule: R5
+    case: 可选文本只填空格（如备注）。
+    handling: 视为清空该字段（保存为空），不报错。
+    basis: 可选字段的空值本来就表示「未填写」。
+  - rule: R5
+    case: 内容中间的空格。
+    handling: 只去掉首尾空格，中间空格保留（例如「系统 上线」）。
+    basis: 名称中可以有空格。
+  - rule: R6
+    case: 改动的参数与不满足的条件无关（例如已锁定的里程碑改了名称）。
+    handling: 「提交」恢复可用，服务端照常拒绝并重新禁用；表单不推测哪些参数能修复哪条条件。
+    basis: 有的条件可以通过修改参数满足（如补填预算人天），一律锁死会挡住正当的修正。

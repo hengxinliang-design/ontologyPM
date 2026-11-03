@@ -479,8 +479,11 @@ function ActionForm({ action, type, object, close, done }: {
   const [dirty, setDirty] = useState<Set<string>>(new Set());
   const [criteria, setCriteria] = useState<CriterionResult[]>(action.criteria);
   const [paramErrors, setParamErrors] = useState<Record<string, string>>({});
-  const [message, setMessage] = useState<string | null>(null);
+  const [message, setMessage] = useState<{ text: string; ok: boolean } | null>(null);
   const [busy, setBusy] = useState(false);
+  // D40: a failed evaluation blocks 提交 until a field changes (a change may be what fixes it, e.g. a budget).
+  const [changedSinceCheck, setChangedSinceCheck] = useState(false);
+  const blocked = criteria.some(c => !c.passed) && !changedSinceCheck;
   const formRef = useRef<HTMLFormElement>(null);
 
   useEffect(() => { formRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }); }, []);
@@ -503,14 +506,15 @@ function ActionForm({ action, type, object, close, done }: {
       const result = await applyAction(action.apiName, parameters(), validateOnly);
       setCriteria(result.criteria);
       setParamErrors(Object.fromEntries(result.parameterErrors.map(e => [e.parameter, e.message])));
-      if (validateOnly) setMessage(result.valid ? "预检通过，可以提交。" : "预检未通过，请查看下方条件。");
+      if (validateOnly) setMessage(result.valid ? { text: "预检通过，可以提交。", ok: true } : { text: "预检未通过，请查看下方条件。", ok: false });
       else done(result);
     } catch (err) {
       const body = err instanceof ApiError ? err.body as { errors?: { criteria?: CriterionResult[]; parameterErrors?: { parameter: string; message: string }[] } } : undefined;
       if (body?.errors?.criteria?.length) setCriteria(body.errors.criteria);
       if (body?.errors?.parameterErrors) setParamErrors(Object.fromEntries(body.errors.parameterErrors.map(e => [e.parameter, e.message])));
-      setMessage(errorMessage(err, "动作执行失败"));
+      setMessage({ text: errorMessage(err, "动作执行失败"), ok: false });
     } finally {
+      setChangedSinceCheck(false);
       setBusy(false);
     }
   }
@@ -522,15 +526,16 @@ function ActionForm({ action, type, object, close, done }: {
     </div>
     {editable.length > 0 && <div className="action-fields">{editable.map(param =>
       <ParameterInput key={param.apiName} param={param} value={values[param.apiName] ?? ""} error={paramErrors[param.apiName]}
-        onChange={value => { setValues(v => ({ ...v, [param.apiName]: value })); setDirty(d => new Set(d).add(param.apiName)); }} />)}
+        onChange={value => { setValues(v => ({ ...v, [param.apiName]: value })); setDirty(d => new Set(d).add(param.apiName)); setChangedSinceCheck(true); }} />)}
     </div>}
     {criteria.length > 0 && <ul className="criteria-list">{criteria.map(c =>
       <li key={c.description} className={c.passed ? "passed" : "failed"} title={c.description}>{c.passed ? `✓ ${c.description}` : `✕ ${c.reason ?? c.description}`}</li>)}</ul>}
     <p className="action-meta">写回：{action.writebackDatasets.join("、")} · 修改：{action.edits.join("、")}</p>
-    {message && <p className="action-message">{message}</p>}
+    {message && <p className={`action-message ${message.ok ? "ok" : "error"}`} role={message.ok ? "status" : "alert"}>{message.text}</p>}
     <div className="action-form-buttons">
+      {blocked && <small className="action-blocked">提交条件未满足；修改参数后可再预检或提交</small>}
       <button type="button" className="button secondary" disabled={busy} onClick={() => void run(true)}>预检</button>
-      <button type="submit" className={`button ${action.tone === "danger" ? "danger" : "primary"}`} disabled={busy}>{busy ? "执行中…" : "提交"}</button>
+      <button type="submit" className={`button ${action.tone === "danger" ? "danger" : "primary"}`} disabled={busy || blocked}>{busy ? "执行中…" : "提交"}</button>
     </div>
   </form>;
 }

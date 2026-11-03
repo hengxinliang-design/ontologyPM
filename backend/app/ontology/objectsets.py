@@ -28,6 +28,7 @@ if TYPE_CHECKING:
 NUMERIC = {"integer", "decimal", "money", "percent"}
 ORDERED = NUMERIC | {"date", "datetime", "string", "enum"}
 MAX_DEPTH = 12
+MAX_WHERE_DEPTH = 32  # D40: and/or/not nesting; deeper clauses overflowed the recursion with a 500
 MAX_PAGE_SIZE = 500
 MAX_GROUPS = 1000
 
@@ -125,17 +126,19 @@ class ObjectSetEngine:
         return self.evaluate(ctx, spec).object_type
 
     # ------------------------------------------------------------ where clauses
-    def compile_where(self, ctx: "OntologyContext", definition: ObjectTypeDef, clause: Any) -> Predicate:
+    def compile_where(self, ctx: "OntologyContext", definition: ObjectTypeDef, clause: Any, depth: int = 0) -> Predicate:
+        if depth > MAX_WHERE_DEPTH:
+            raise ObjectSetError(f"where 条件嵌套超过 {MAX_WHERE_DEPTH} 层")
         if not isinstance(clause, dict) or "type" not in clause:
             raise ObjectSetError("where 条件必须是带 type 字段的对象")
         kind = clause["type"]
         if kind in {"and", "or"}:
-            parts = [self.compile_where(ctx, definition, c) for c in _require(clause, "value", list)]
+            parts = [self.compile_where(ctx, definition, c, depth + 1) for c in _require(clause, "value", list)]
             if kind == "and":
                 return lambda obj: all(p(obj) for p in parts)
             return lambda obj: any(p(obj) for p in parts)
         if kind == "not":
-            inner = self.compile_where(ctx, definition, _require(clause, "value", dict))
+            inner = self.compile_where(ctx, definition, _require(clause, "value", dict), depth + 1)
             return lambda obj: not inner(obj)
 
         prop = self._field(ctx, definition, clause)

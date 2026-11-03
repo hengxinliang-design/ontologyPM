@@ -834,6 +834,22 @@ def linked_payment_not_paid(ctx, values, target) -> str | None:
     return maintenance_rules.linked_payment_unpaid(payment["status"] if payment else None)
 
 
+@RULES.criterion("positiveBudget")
+def positive_budget(ctx, values, target) -> str | None:
+    # Effective value, like the base program's guard on the merged settings: preview and execution agree (L32).
+    return maintenance_rules.positive_budget(_effective(values, target, "plannedPersonDays"))
+
+
+@RULES.criterion("hoursPerPersonDayRange")
+def hours_per_person_day_range(ctx, values, target) -> str | None:
+    return maintenance_rules.hours_per_person_day(_effective(values, target, "hoursPerPersonDay"))
+
+
+@RULES.criterion("notAfterToday")
+def not_after_today(ctx, values, target, *, parameter: str, label: str) -> str | None:
+    return maintenance_rules.not_after_today(values.get(parameter), ctx.projects.today().isoformat(), label)
+
+
 @RULES.criterion("paymentRatioRange")
 def payment_ratio_range(ctx, values, target) -> str | None:
     return maintenance_rules.payment_ratio(values.get("paymentRatio"))

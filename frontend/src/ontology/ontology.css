@@ -114,7 +114,7 @@ tr.selected-row { background: var(--primary-soft) !important; }
 .action-button:disabled { cursor: not-allowed; opacity: .45; }
 .action-button .blocked { padding: 2px 6px; border-radius: 999px; background: rgba(0, 0, 0, .06); font-size: var(--fs-xs); }
 
-.action-form { margin-top: 14px; padding: 14px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface-subtle); }
+.action-form { scroll-margin-bottom: 96px; margin-top: 14px; padding: 14px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface-subtle); }
 .action-form-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .action-form-head p { margin: 4px 0 0; color: var(--text-secondary); font-size: var(--fs-xs); }
 .action-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 12px; margin-top: 12px; }
@@ -345,3 +345,7 @@ tr.selected-row { background: var(--primary-soft) !important; }
   .ontology-graph { overflow-x: auto; }
   .ontology-graph svg { min-width: 680px; max-height: none; }
 }
+
+/* Action form outcome (D40): failures read as errors; a failed evaluation blocks 提交 until a field changes. */
+.action-message.ok { color: var(--success); }
+.action-blocked { align-self: center; margin-right: auto; color: var(--text-secondary); font-size: var(--fs-xs); }

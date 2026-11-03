@@ -453,13 +453,8 @@ export function App() {
     setResourceMonthResolved(true);
   }
 
-  const cards = useMemo(() => view === "projects" ? [
-    { label: "项目总数", value: health?.summary.total_projects ?? "—", tone: "blue" },
-    { label: "合同总额", value: money(health?.summary.contract_value), tone: "green" },
-    { label: "待回款金额", value: money(health?.summary.outstanding_receivable_amount), tone: "amber" },
-    { label: "风险项目", value: health ? (health.summary.risk_critical_projects ?? 0) + (health.summary.risk_warning_projects ?? 0) : "—", tone: "violet" },
-    { label: "待维护项目", value: health?.summary.maintenance_pending_projects ?? "—", tone: "amber" }
-  ] : view === "employeeWorktime" ? [
+  // The project management page shows no summary cards (removed at the user's request, 2026-11-01).
+  const cards = useMemo(() => view === "projects" ? [] : view === "employeeWorktime" ? [
     { label: "统计员工", value: employeeWorktime?.summary.total_employees ?? "—", tone: "blue" },
     { label: "工时充足", value: employeeWorktime?.summary.sufficient_count ?? "—", tone: "green" },
     { label: "需要关注", value: employeeWorktime?.summary.attention_count ?? "—", tone: "amber" },
