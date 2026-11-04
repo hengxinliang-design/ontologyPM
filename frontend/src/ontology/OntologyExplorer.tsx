@@ -484,6 +484,9 @@ function ActionForm({ action, type, object, close, done }: {
   // D40: a failed evaluation blocks 提交 until a field changes (a change may be what fixes it, e.g. a budget).
   const [changedSinceCheck, setChangedSinceCheck] = useState(false);
   const blocked = criteria.some(c => !c.passed) && !changedSinceCheck;
+  // Failed conditions stay in view; the ones already met collapse to a count.
+  const failedCriteria = criteria.filter(c => !c.passed);
+  const passedCriteria = criteria.filter(c => c.passed);
   const formRef = useRef<HTMLFormElement>(null);
 
   useEffect(() => { formRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }); }, []);
@@ -528,9 +531,14 @@ function ActionForm({ action, type, object, close, done }: {
       <ParameterInput key={param.apiName} param={param} value={values[param.apiName] ?? ""} error={paramErrors[param.apiName]}
         onChange={value => { setValues(v => ({ ...v, [param.apiName]: value })); setDirty(d => new Set(d).add(param.apiName)); setChangedSinceCheck(true); }} />)}
     </div>}
-    {criteria.length > 0 && <ul className="criteria-list">{criteria.map(c =>
-      <li key={c.description} className={c.passed ? "passed" : "failed"} title={c.description}>{c.passed ? `✓ ${c.description}` : `✕ ${c.reason ?? c.description}`}</li>)}</ul>}
-    <p className="action-meta">写回：{action.writebackDatasets.join("、")} · 修改：{action.edits.join("、")}</p>
+    {failedCriteria.length > 0 && <ul className="criteria-list">{failedCriteria.map(c =>
+      <li key={c.description} className="failed" title={c.description}>✕ {c.reason ?? c.description}</li>)}</ul>}
+    {passedCriteria.length > 0 && <details className="collapsible criteria-passed">
+      <summary>✓ {failedCriteria.length ? `另有 ${passedCriteria.length} 项条件已满足` : `提交条件全部满足（${passedCriteria.length} 项）`}<span className="collapsible-toggle" /></summary>
+      <ul className="criteria-list">{passedCriteria.map(c => <li key={c.description} className="passed">✓ {c.description}</li>)}</ul>
+    </details>}
+    <details className="collapsible action-meta"><summary>写回与修改范围<span className="collapsible-toggle" /></summary>
+      <p>写回：{action.writebackDatasets.join("、")} · 修改：{action.edits.join("、")}</p></details>
     {message && <p className={`action-message ${message.ok ? "ok" : "error"}`} role={message.ok ? "status" : "alert"}>{message.text}</p>}
     <div className="action-form-buttons">
       {blocked && <small className="action-blocked">提交条件未满足；修改参数后可再预检或提交</small>}

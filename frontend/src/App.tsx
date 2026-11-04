@@ -1061,14 +1061,28 @@ const MAINTENANCE_PLACE: Record<string, string> = { configureProject: "项目基
 function MaintenanceChecklist({ project }: { project: ProjectDetail }) {
   const checklist = project.maintenance_checklist ?? [];
   if (!checklist.length) return null;
-  const pending = checklist.filter(item => !item.met).length;
+  const pending = checklist.filter(item => !item.met);
+  const met = checklist.filter(item => item.met);
+  const row = (item: (typeof checklist)[number]) => <li key={item.requirement} className={item.met ? "met" : "pending"}>
+    <span aria-hidden="true">{item.met ? "✓" : "○"}</span>
+    <strong>{item.label}</strong>
+    <small>{item.met ? "已维护" : `待维护 · 在「${MAINTENANCE_PLACE[item.action] ?? item.action}」中处理`}</small>
+  </li>;
+  // Done work collapses to one line; only what still needs attention is laid out (user feedback 2026-11-03).
+  if (!pending.length) return <section className="detail-section maintenance-checklist complete">
+    <details className="collapsible">
+      <summary><span className="collapsible-mark" aria-hidden="true">✓</span><strong>维护清单</strong><span className="health-tag healthy">已全部维护</span>
+        <small>{checklist.length} 项维护要求均已满足</small><span className="collapsible-toggle" /></summary>
+      <ul>{checklist.map(row)}</ul>
+    </details>
+  </section>;
   return <section className="detail-section maintenance-checklist">
-    <div className="section-title"><div><h3>维护清单 <span className={`health-tag ${pending ? "warning" : "healthy"}`}>{pending ? `待维护 ${pending} 项` : "已全部维护"}</span></h3><small>导入后需要人工补充的内容，由本体按维护要求推导</small></div></div>
-    <ul>{checklist.map(item => <li key={item.requirement} className={item.met ? "met" : "pending"}>
-      <span aria-hidden="true">{item.met ? "✓" : "○"}</span>
-      <strong>{item.label}</strong>
-      <small>{item.met ? "已维护" : `待维护 · 在「${MAINTENANCE_PLACE[item.action] ?? item.action}」中处理`}</small>
-    </li>)}</ul>
+    <div className="section-title"><div><h3>维护清单 <span className="health-tag warning">待维护 {pending.length} 项</span></h3><small>导入后需要人工补充的内容，由本体按维护要求推导</small></div></div>
+    <ul>{pending.map(row)}</ul>
+    {met.length > 0 && <details className="collapsible met-items">
+      <summary><span className="collapsible-mark" aria-hidden="true">✓</span><small>已维护 {met.length} 项：{met.map(item => item.label).join("、")}</small><span className="collapsible-toggle" /></summary>
+      <ul>{met.map(row)}</ul>
+    </details>}
   </section>;
 }
 
@@ -1528,9 +1542,9 @@ function ProjectDrawer({ project, close, refresh }: { project: ProjectDetail; cl
         </article>;
       })}</div>
       {pendingTodoEvents.length === 0 && <p className="detail-empty">当前没有待办事件</p>}
-      <div className="completed-todo-section"><div className="completed-todo-head"><div><h4>已完成事项</h4><small>保留完成内容、计划日期及实际完成状态，便于复核。</small></div><span>{completedTodoEvents.length} 项</span></div>
+      <details className={`completed-todo-section collapsible ${completedTodoEvents.length ? "" : "empty"}`}><summary className="completed-todo-head" onClick={event => { if (!completedTodoEvents.length) event.preventDefault(); }}><div><h4>已完成事项</h4><small>{completedTodoEvents.length ? `保留完成内容与实际完成状态，便于复核${completedTodoEvents.some(item => item.completion_state === "delayed") ? ` · 其中延期完成 ${completedTodoEvents.filter(item => item.completion_state === "delayed").length} 项` : ""}` : "暂无已完成事项"}</small></div><span>{completedTodoEvents.length} 项</span>{completedTodoEvents.length > 0 && <span className="collapsible-toggle" />}</summary>
         {completedTodoEvents.length > 0 ? <div className="completed-todo-list">{completedTodoEvents.map(item => <article className={`completed-todo-row ${item.completion_state === "delayed" ? "delayed-completed" : ""}`} key={`${item.event_type}-${item.event_id}`}><span className="completed-todo-type">{item.event_type === "payment" ? "回款" : "里程碑"}</span><strong>{item.name}</strong><span className="completed-todo-status">{item.completion_label ?? "已完成"}</span><small>计划：{item.due_date}{item.amount && ` · ${money(item.amount)}`}{item.deliverable && ` · 输出物：${item.deliverable}`}</small><small>实际{item.event_type === "payment" ? "到账" : "完成"}：{item.completed_at ?? "未记录"}{item.confirmed_by && ` · 确认人：${item.confirmed_by}`}</small></article>)}</div> : <p className="detail-empty">暂无已完成事项</p>}
-      </div>
+      </details>
     </section>
 
     <MaintenanceChecklist project={project} />

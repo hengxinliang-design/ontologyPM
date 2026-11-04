@@ -4,6 +4,7 @@
 
 | 产品版本 | 本体版本 | 日期 | 构建包 |
 | --- | --- | --- | --- |
+| v1.33.0 | 8.1.0 | 2026-11-04 | —（本体不变） |
 | v1.32.0 | 8.1.0 | 2026-11-03 | —（本体不变） |
 | v1.31.0 | 8.1.0 | 2026-11-03 | [2026-11-03-input-guards](docs/ontology-builds/2026-11-03-input-guards.yaml) |
 | v1.30.0 | 8.0.0 | 2026-11-01 | [2026-11-01-intervention-loop](docs/ontology-builds/2026-11-01-intervention-loop.yaml) |
@@ -18,6 +19,10 @@
 | v1.22.0 | 7.6.0 | 2026-10-30 | [2026-10-29-logical-delete](docs/ontology-builds/2026-10-29-logical-delete.yaml) |
 | v1.21.0 | 7.5.0 | 2026-10-29 | [2026-10-29-rule-homes-and-linkages](docs/ontology-builds/2026-10-29-rule-homes-and-linkages.yaml) |
 | v1.20.0 | 7.4.0 | 2026-10-29 | [2026-10-29-milestone-span-period](docs/ontology-builds/2026-10-29-milestone-span-period.yaml) |
+
+## v1.33.0 — 已完成内容折叠（本体 8.1.0 不变）
+
+- 界面：已完成或全部满足的内容折叠为一行摘要，只展开需要处理的部分——项目详情的「维护清单」全部维护时只显示一行（部分待维护时只列待维护项，已维护项折叠）；「已完成事项」默认折叠并显示延期完成数；本体浏览器动作表单只列出不满足的提交条件，已满足的与「写回与修改范围」折叠。
 
 ## v1.32.0 — 三层评测与负荷预测历史数据（本体 8.1.0 不变）
 

@@ -521,3 +521,22 @@ tr.clickable:focus-visible { outline: 3px solid rgba(40, 88, 184, .35); outline-
 .intervention-item.closed { opacity: .72; }
 .intervention-item .mini-state.overdue { background: var(--warning-soft); color: var(--warning); }
 .intervention-item .mini-state.completed { background: #e8f8f1; color: #0e8b64; }
+
+/* Collapsible summaries (user feedback 2026-11-03): finished or all-clear content folds into one line. */
+.collapsible > summary { display: flex; align-items: center; gap: 8px; cursor: pointer; list-style: none; }
+.collapsible > summary::-webkit-details-marker { display: none; }
+.collapsible > summary:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: var(--radius-sm); }
+.collapsible-toggle { margin-left: auto; color: var(--primary); font-size: var(--fs-xs); font-weight: 700; white-space: nowrap; }
+.collapsible-toggle::after { content: "展开 ▾"; }
+.collapsible[open] .collapsible-toggle::after { content: "收起 ▴"; }
+.collapsible-mark { color: var(--success); font-weight: 800; }
+.maintenance-checklist.complete { padding-top: 12px; padding-bottom: 12px; }
+.maintenance-checklist.complete summary strong { font-size: var(--fs-md); }
+.maintenance-checklist.complete summary small, .met-items summary small { min-width: 0; overflow: hidden; color: var(--text-secondary); font-size: var(--fs-xs); text-overflow: ellipsis; white-space: nowrap; }
+.maintenance-checklist details[open] > ul { margin-top: 12px; }
+.met-items { margin-top: 10px; padding: 8px 12px; border: 1px dashed var(--line-subtle); border-radius: var(--radius-sm); }
+.completed-todo-section > summary.completed-todo-head { margin-bottom: 0; }
+.completed-todo-section[open] > summary.completed-todo-head { margin-bottom: 10px; }
+
+.completed-todo-head .collapsible-toggle { margin-left: 4px; padding: 0; border: 0; background: none; color: var(--primary); }
+.completed-todo-section.empty > summary { cursor: default; }

@@ -349,3 +349,8 @@ tr.selected-row { background: var(--primary-soft) !important; }
 /* Action form outcome (D40): failures read as errors; a failed evaluation blocks 提交 until a field changes. */
 .action-message.ok { color: var(--success); }
 .action-blocked { align-self: center; margin-right: auto; color: var(--text-secondary); font-size: var(--fs-xs); }
+.criteria-passed { margin-top: 8px; color: var(--success); font-size: var(--fs-xs); font-weight: 650; }
+.criteria-passed > .criteria-list { margin-top: 6px; }
+details.action-meta > summary { color: var(--text-tertiary); }
+details.action-meta > p { margin: 6px 0 0; }
+
