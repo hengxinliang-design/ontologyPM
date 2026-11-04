@@ -169,7 +169,7 @@ td small { display: block; margin-top: 4px; color: var(--text-tertiary); font-si
 .state.success, .risk.healthy, .health-tag.healthy { background: var(--success-soft); color: var(--success); }.state.unfinished, .risk.warning, .health-tag.warning { background: var(--warning-soft); color: var(--warning); }.state.tracking { background: #f0edff; color: #6347ba; }.risk.critical, .health-tag.critical { background: var(--danger-soft); color: var(--danger); }.health-tag.baseline { background: #eef3fa; color: #52647b; }
 .project-code { color: #2455ad; }.subject { min-width: 250px; max-width: 440px; font-weight: 650; line-height: 1.5; }.danger-text { color: var(--danger); }
 .risk-cell { display: inline-flex; flex-direction: column; align-items: flex-start; gap: 5px; }.risk-trigger { display: inline-flex; flex-direction: column; align-items: flex-start; gap: 5px; padding: 0; border: 0; background: transparent; color: inherit; cursor: help; text-align: left; }.risk-trigger:focus-visible { outline: 2px solid #7ea4dd; outline-offset: 4px; border-radius: 4px; }.risk-popover { position: fixed; z-index: 90; width: min(320px, calc(100vw - 24px)); max-height: calc(100vh - 24px); overflow: auto; padding: 13px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface); box-shadow: 0 14px 32px rgba(21, 42, 70, .22); color: #33455e; }.risk-popover::before { position: absolute; top: -7px; left: 18px; width: 12px; height: 12px; border-top: 1px solid var(--line); border-left: 1px solid var(--line); background: var(--surface); content: ""; transform: rotate(45deg); }.risk-popover[data-placement="top"]::before { top: auto; bottom: -7px; border-top: 0; border-bottom: 1px solid var(--line); border-left: 0; border-right: 1px solid var(--line); transform: rotate(45deg); }.risk-popover h4 { margin: 0 0 8px; color: var(--text); font-size: var(--fs-sm); }.risk-popover article { padding: 9px 0; border-top: 1px solid #edf1f5; }.risk-popover article:first-of-type { border-top: 0; }.risk-popover article div { display: flex; justify-content: space-between; gap: 10px; }.risk-popover strong { font-size: var(--fs-xs); }.risk-popover p { margin: 5px 0 0; color: var(--text-secondary); font-size: var(--fs-xs); line-height: 1.45; }.risk-popover span { flex: 0 0 auto; font-size: var(--fs-xs); font-weight: 750; }.risk-popover span.critical { color: var(--danger); }.risk-popover span.warning { color: var(--warning); }.risk-popover span.info { color: var(--primary); }
-.budget { width: 138px; }.budget i { display: block; height: 6px; overflow: hidden; border-radius: 999px; background: #e7edf4; }.budget em { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #25a67d, #eaae25); }
+.budget { display: grid; gap: 6px; width: 170px; max-width: 100%; }.budget i { display: block; height: 6px; overflow: hidden; border-radius: 999px; background: #e7edf4; }.budget em { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #25a67d, #eaae25); }
 .budget-overrun { display: grid; width: 154px; gap: 4px; padding: 8px 9px; border: 1px solid #f1a9b2; border-left: 3px solid #d84356; border-radius: 8px; background: linear-gradient(135deg, #fff4f5, #fffafa); box-shadow: 0 4px 12px rgba(181, 46, 67, .08); }.budget-overrun-title { display: flex; align-items: center; gap: 6px; color: #b52e43; font-size: var(--fs-xs); line-height: 1.2; }.budget-overrun-title span { display: grid; width: 16px; height: 16px; place-items: center; border-radius: 50%; background: #d84356; color: #fff; font-size: var(--fs-xs); font-weight: 850; }.budget-overrun small { color: #bd4556; font-size: var(--fs-xs); font-weight: 750; }.budget-overrun > em { height: auto; overflow: visible; background: none; color: #8f5a65; font-size: var(--fs-xs); font-style: normal; line-height: 1.35; }
 
 .drawer-backdrop { position: fixed; z-index: 20; inset: 0; display: flex; justify-content: flex-end; background: rgba(8, 20, 38, .5); backdrop-filter: blur(2px); }
@@ -408,7 +408,7 @@ main { padding-bottom: 104px; }
 .resource-operations-table td small { white-space: normal; }
 .resource-operations-table table { min-width: 1060px; }
 @media (max-width: 1380px) {
-  .budget { width: 112px; }
+  .budget { width: 150px; }
   .table-wrap .subject { min-width: 200px; }
 }
 
@@ -540,3 +540,12 @@ tr.clickable:focus-visible { outline: 3px solid rgba(40, 88, 184, .35); outline-
 
 .completed-todo-head .collapsible-toggle { margin-left: 4px; padding: 0; border: 0; background: none; color: var(--primary); }
 .completed-todo-section.empty > summary { cursor: default; }
+
+/* Budget cell (项目管理): bar and percentage on one line, used / budget person-days below; nothing spills into the next column. */
+.budget-bar { display: flex; align-items: center; gap: 8px; }
+.budget-bar i { flex: 1; min-width: 0; }
+.budget-bar b { flex: none; color: #2f8a63; font-size: var(--fs-xs); font-variant-numeric: tabular-nums; font-weight: 750; }
+.budget-bar b.near { color: #b8740a; }
+.budget-bar b.over { color: var(--danger); }
+.budget small { display: block; overflow: hidden; color: var(--text-secondary); font-size: var(--fs-xs); font-variant-numeric: tabular-nums; text-overflow: ellipsis; }
+

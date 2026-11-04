@@ -948,7 +948,12 @@ function BudgetCell({ row }: { row: ProjectHealthRow }) {
   if (row.contract_type === "open_ended") return <><div>{row.billable_person_days ?? "0.00"} 人天</div><small>开口合同 · 可结算</small></>;
   if (row.budget_person_days == null) return <span className="danger-text">请填预算</span>;
   const percent = Number(row.burn_rate_percent ?? 0);
-  return <div className="budget"><i><em className={percent > 100 ? "over" : percent >= 80 ? "near" : undefined} style={{ width: `${Math.min(percent, 100)}%` }} /></i><small>{row.cumulative_actual_person_days}/{row.budget_person_days} 人天 · {row.burn_rate_percent ?? "—"}%</small></div>;
+  const state = percent > 100 ? "over" : percent >= 80 ? "near" : undefined;
+  // Two short lines that fit the column: bar with the percentage, then used / budget person-days.
+  return <div className="budget" title={`已用 ${row.cumulative_actual_person_days} 人天 / 预算 ${row.budget_person_days} 人天 · ${row.burn_rate_percent ?? "—"}%`}>
+    <div className="budget-bar"><i><em className={state} style={{ width: `${Math.min(percent, 100)}%` }} /></i><b className={state}>{row.burn_rate_percent ?? "—"}%</b></div>
+    <small>{row.cumulative_actual_person_days} / {row.budget_person_days} 人天</small>
+  </div>;
 }
 
 function PaymentCell({ row }: { row: ProjectHealthRow }) {
