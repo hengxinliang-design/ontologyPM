@@ -747,6 +747,36 @@ def test_project_overview_payment_term_summary_prioritizes_next_linked_milestone
         assert terms[0]["planned_date"] == "2099-01-10"
 
 
+def test_payment_term_order_puts_received_terms_last_and_keeps_unpaid_completed_milestones_first(tmp_path):
+    """SEY104 showed 「下一回款约定：尾款 · 已到账」: with nothing upcoming, the list fell back to the latest-edited term
+    even when it was already paid; and a completed milestone whose payment had not arrived was skipped."""
+    with TestClient(create_app(settings(tmp_path))) as client:
+        def term(name, amount):
+            return client.post("/api/v1/projects/WDR101/payment-terms", json={"name": name, "planned_amount": amount}).json()["data"]["payment_term_id"]
+
+        first, last = term("首期款", "3000"), term("尾款", "7000")
+        term("质保金", "500")  # never linked to a milestone
+        first_ms = client.post("/api/v1/projects/WDR101/milestones", json={
+            "name": "上线", "planned_start": "2000-01-01", "planned_end": "2000-01-10", "payment_term_id": first}).json()["data"]
+        client.post("/api/v1/projects/WDR101/milestones", json={
+            "name": "验收", "planned_start": "2000-02-01", "planned_end": "2000-02-10", "payment_term_id": last})
+
+        def order():
+            rows = client.get("/api/v1/projects").json()["data"]
+            return [t["name"] for t in next(r for r in rows if r["project_number"] == "WDR101")["payment_term_summary"]]
+
+        # Milestone done, money not in: the term stays first (it is the payment to chase); the unlinked term follows the dated ones.
+        assert client.post(f"/api/v1/projects/WDR101/milestones/{first_ms['milestone_id']}/confirm", json={"confirmed_by": "李经理"}).status_code == 200
+        assert order() == ["首期款", "尾款", "质保金"]
+
+        nodes = {n["name"]: n["payment_node_id"] for n in client.get("/api/v1/projects/WDR101").json()["data"]["payment_nodes"]}
+        for name in ("首期款", "尾款"):
+            assert client.post(f"/api/v1/projects/WDR101/payment-nodes/{nodes[name]}/confirm",
+                               json={"confirmed_by": "李经理", "actual_date": "2000-03-01"}).status_code == 200, name
+        # Received terms go last, in their planned order; the one still open leads.
+        assert order() == ["质保金", "首期款", "尾款"]
+
+
 def test_completed_todos_distinguish_on_time_and_delayed_completion(tmp_path):
     with TestClient(create_app(settings(tmp_path))) as client:
         delayed = client.post(

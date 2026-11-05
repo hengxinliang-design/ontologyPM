@@ -220,47 +220,54 @@ def derive_project(
     )
     current_milestone = _current_milestone(enriched_milestones, today_date)
     payment_summary = _payment_summary(payments, today_date)
-    # The overview must lead with the payment term attached to the next open
-    # milestone.  Maintenance time is only a fallback for terms that are not
-    # part of the upcoming delivery plan; otherwise a later-edited future term
-    # can incorrectly replace the next payment commitment in the list.
+    # Order of the payment terms (the first unpaid one is the "next payment"): unpaid terms with a date (from the
+    # payment node, else the linked milestone's planned end) by date; then unpaid terms without a date (not yet
+    # linked to a milestone) by most recent update; received terms last. A completed milestone whose payment has not
+    # arrived stays first: that money is the one to chase. A later edit to a future term never jumps the queue.
     milestone_by_id = {
         row["milestone_id"]: row for row in enriched_milestones
     }
-    upcoming_payment_terms: list[tuple[str, dict[str, Any]]] = []
-    remaining_payment_terms: list[dict[str, Any]] = []
+    dated_open: list[tuple[str, dict[str, Any]]] = []
+    undated_open: list[dict[str, Any]] = []
+    received: list[dict[str, Any]] = []
     for term in payment_terms:
         linked_milestone = milestone_by_id.get(term.get("linked_milestone_id"))
         linked_payment = payment_by_id.get(term.get("payment_node_id"))
+        if linked_payment is not None and linked_payment["status"] == "paid":
+            received.append(term)
+            continue
         planned_date = (
             linked_payment.get("planned_date") if linked_payment
             else linked_milestone.get("planned_end") if linked_milestone
             else None
         )
-        is_open = (
-            linked_milestone is not None
-            and linked_milestone["status"] != "completed"
-            and (linked_payment is None or linked_payment["status"] != "paid")
-            and planned_date is not None
-        )
-        if is_open:
-            upcoming_payment_terms.append((str(planned_date), term))
+        if planned_date:
+            dated_open.append((str(planned_date), term))
         else:
-            remaining_payment_terms.append(term)
+            undated_open.append(term)
+
+    def most_recent(terms: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        return sorted(
+            terms,
+            key=lambda term: (
+                str(term.get("updated_at") or ""),
+                str(term.get("created_at") or ""),
+                str(term.get("payment_term_id") or ""),
+            ),
+            reverse=True,
+        )
 
     ordered_payment_terms = [
         term for _, term in sorted(
-            upcoming_payment_terms,
+            dated_open,
             key=lambda item: (item[0], str(item[1].get("payment_term_id") or "")),
         )
-    ] + sorted(
-        remaining_payment_terms,
+    ] + most_recent(undated_open) + sorted(
+        received,
         key=lambda term: (
-            str(term.get("updated_at") or ""),
-            str(term.get("created_at") or ""),
+            str(payment_by_id[term["payment_node_id"]].get("planned_date") or ""),
             str(term.get("payment_term_id") or ""),
         ),
-        reverse=True,
     )
     payment_term_summary = [
         {

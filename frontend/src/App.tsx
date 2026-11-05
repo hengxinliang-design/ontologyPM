@@ -1,5 +1,6 @@
 import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { paymentProgress } from "./paymentProgress";
 import DatePicker, { registerLocale } from "react-datepicker";
 import { DayPicker } from "react-day-picker";
 import { zhCN } from "date-fns/locale";
@@ -957,23 +958,21 @@ function BudgetCell({ row }: { row: ProjectHealthRow }) {
 }
 
 function PaymentCell({ row }: { row: ProjectHealthRow }) {
-  const summary = row.payment_summary;
   const contractAmount = Number(row.contract_value);
   const receivedAmount = Number(row.crm_received_amount);
   const hasContractAmount = Number.isFinite(contractAmount) && contractAmount > 0;
   const receivedRatio = hasContractAmount && Number.isFinite(receivedAmount) ? Math.min(Math.max(receivedAmount / contractAmount * 100, 0), 100) : null;
-  const nextTerm = row.payment_term_summary?.[0];
-  return <div className="payment-cell">
+  const progress = paymentProgress(row, money);
+  return <div className="payment-cell" title={progress.map(line => line.text).join("\n")}>
     {row.contract_value === null ? <small>金额需要财务金额权限</small> : row.revenue_settlement_basis === "workload" ? <>
       <strong>确认收入 {money(row.recognized_revenue_amount)}</strong>
-      <small>已回款 {money(row.crm_received_amount)} · 待回款 {money(row.outstanding_receivable_amount)}</small>
+      <small>CRM 已回款 {money(row.crm_received_amount)} · 待回款 {money(row.outstanding_receivable_amount)}</small>
       <small className="payment-workload-note">按工作量结算 · 框架额 {money(row.contract_value)}</small>
     </> : hasContractAmount ? <>
-      <strong>已回款 {receivedRatio?.toFixed(1)}%</strong>
+      <strong>CRM 已回款 {receivedRatio?.toFixed(1)}%</strong>
       <small>{money(row.crm_received_amount)} / {money(row.contract_value)}</small>
     </> : <small>暂无合同金额</small>}
-    {nextTerm && <small className="payment-term-summary">下一回款约定：{nextTerm.name}{nextTerm.payment_ratio ? ` ${nextTerm.payment_ratio}%` : ""} · {nextTerm.node_status === "paid" ? "已到账" : nextTerm.planned_date ? `计划 ${nextTerm.planned_date}` : "待排期"}</small>}
-    {summary.total_nodes > 0 && <small className={summary.next_node?.deadline.urgency === "overdue" ? "danger-text" : ""}>{summary.paid_nodes}/{summary.total_nodes} 个节点已到账{summary.next_node ? ` · 下个：${summary.next_node.name} ${summary.next_node.deadline.label}` : ""}</small>}
+    {progress.map(line => <small key={line.text} className={`payment-progress ${line.tone}`}>{line.text}</small>)}
   </div>;
 }
 
