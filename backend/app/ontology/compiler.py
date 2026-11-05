@@ -15,6 +15,7 @@ import hashlib
 import inspect
 import json
 from dataclasses import dataclass
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
@@ -39,6 +40,7 @@ from .metadata_schema import (
     ValueTypeDoc,
 )
 from .model import (
+    DEFAULT_TEXT_LENGTH,
     ActionTypeDef,
     FunctionDef,
     LinkTypeDef,
@@ -208,6 +210,12 @@ def compile_documents(documents: list[MetadataDocument], rules: RuleRegistry = R
                     errors.append(f"{param_where}: object_ref 必须引用已定义的 objectType")
             elif param.object_type:
                 errors.append(f"{param_where}: 只有 object_ref 参数可以声明 objectType")
+            if (param.minimum is not None or param.maximum is not None) and param.type not in NUMERIC_TYPES:
+                errors.append(f"{param_where}: 只有数值参数可以声明 minimum / maximum")
+            if param.minimum is not None and param.maximum is not None and param.minimum > param.maximum:
+                errors.append(f"{param_where}: minimum 大于 maximum")
+            if (param.max_length is not None or param.format) and param.type != "string":
+                errors.append(f"{param_where}: 只有文本参数可以声明 maxLength / format")
             if param.option_details and param.type != "object_ref":
                 errors.append(f"{param_where}: 只有 object_ref 参数可以声明 optionDetails")
             elif param.option_details and param.object_type in object_docs:
@@ -225,6 +233,10 @@ def compile_documents(documents: list[MetadataDocument], rules: RuleRegistry = R
                     enum_values=enum_values(param_where, param.value_type, param.type, param.allowed_values),
                     object_type=param.object_type,
                     option_details=tuple(param.option_details or ()),
+                    minimum=None if param.minimum is None else Decimal(str(param.minimum)),
+                    maximum=None if param.maximum is None else Decimal(str(param.maximum)),
+                    max_length=(param.max_length or DEFAULT_TEXT_LENGTH) if param.type == "string" else None,
+                    format=param.format,
                 )
             )
         return tuple(result)

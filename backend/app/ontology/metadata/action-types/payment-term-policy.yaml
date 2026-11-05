@@ -11,7 +11,7 @@ definition:
     - {apiName: name, displayName: 名称, type: string, required: true}
     - {apiName: plannedAmount, displayName: 约定金额, type: money, required: true}
     - {apiName: paymentRatio, displayName: 回款比例, type: decimal, description: 0–100}
-    - {apiName: notes, displayName: 备注, type: string}
+    - {apiName: notes, displayName: 备注, type: string, maxLength: 2000}
   permissions: [projects]
   edits: [PaymentTerm.*]
   writeback: [payment_terms]
@@ -35,7 +35,7 @@ definition:
     - {apiName: name, displayName: 名称, type: string}
     - {apiName: plannedAmount, displayName: 约定金额, type: money}
     - {apiName: paymentRatio, displayName: 回款比例, type: decimal, description: 0–100}
-    - {apiName: notes, displayName: 备注, type: string}
+    - {apiName: notes, displayName: 备注, type: string, maxLength: 2000}
   permissions: [projects]
   edits: [PaymentTerm.name, PaymentTerm.plannedAmount, PaymentTerm.paymentRatio, PaymentTerm.notes, PaymentNode.name, PaymentNode.plannedAmount, PaymentNode.notes]
   writeback: [payment_terms, payment_nodes]
@@ -93,7 +93,7 @@ definition:
     - {apiName: maxConcurrentProjects, displayName: 同期项目数上限, type: integer}
     - {apiName: planLagTolerancePoints, displayName: 年度计划落后容差, type: decimal}
     - {apiName: defaultTaxRatePercent, displayName: 增值税率, type: decimal, description: 经营收入税后换算用，默认 6}
-    - {apiName: notes, displayName: 备注, type: string}
+    - {apiName: notes, displayName: 备注, type: string, maxLength: 2000}
   permissions: [settings, employeeWorktime]
   edits: [OperatingPolicy.standardHoursPerDay, OperatingPolicy.standardWorkDaysPerYear, OperatingPolicy.lostStatuses, OperatingPolicy.internalCodes, OperatingPolicy.attentionUtilizationPercent, OperatingPolicy.minimumUtilizationPercent, OperatingPolicy.excellentUtilizationPercent, OperatingPolicy.overloadUtilizationPercent, OperatingPolicy.budgetAttentionPercent, OperatingPolicy.budgetHighRiskPercent, OperatingPolicy.stallDays, OperatingPolicy.overtimeShareAttentionPercent, OperatingPolicy.overloadConsecutiveMonths, OperatingPolicy.maxConcurrentProjects, OperatingPolicy.planLagTolerancePoints, OperatingPolicy.defaultTaxRatePercent, OperatingPolicy.notes]
   writeback: [worktime_baseline_config, investment_settings]
@@ -128,7 +128,7 @@ definition:
     - {apiName: capacityPersonDaysTarget, displayName: 项目投入人天目标, type: decimal}
     - {apiName: headcountTarget, displayName: 人员编制, type: decimal}
     - {apiName: utilizationTargetPercent, displayName: 利用率目标, type: decimal}
-    - {apiName: notes, displayName: 备注, type: string}
+    - {apiName: notes, displayName: 备注, type: string, maxLength: 2000}
   permissions: [department, settings]
   edits: [AnnualOperatingPlan.*]
   writeback: [annual_operating_plans]
@@ -146,14 +146,14 @@ definition:
   targetParameter: policy
   parameters:
     - {apiName: policy, displayName: 运营口径, type: object_ref, objectType: OperatingPolicy, required: true}
-    - {apiName: month, displayName: 月份, type: string, required: true, description: YYYY-MM，不能晚于当前月份}
+    - {apiName: month, displayName: 月份, type: string, required: true, description: YYYY-MM，不能晚于当前月份, format: month}
     - {apiName: laborCost, displayName: 人工成本, type: money}
     - {apiName: bonusCost, displayName: 绩效奖金, type: money}
     - {apiName: travelCost, displayName: 差旅费, type: money}
     - {apiName: outsourcingCost, displayName: 外包成本, type: money}
     - {apiName: trainingCost, displayName: 培训成本, type: money}
     - {apiName: otherCost, displayName: 其他成本, type: money}
-    - {apiName: notes, displayName: 备注, type: string}
+    - {apiName: notes, displayName: 备注, type: string, maxLength: 2000}
   permissions: [department, settings]
   edits: [OperatingCost.*]
   writeback: [operating_costs]

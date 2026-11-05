@@ -548,6 +548,14 @@ when: [{property: contractType, notIn: [sales]}, {property: lifecycleStatus, not
 
 构建包见 [2026-11-03-input-guards.yaml](./ontology-builds/2026-11-03-input-guards.yaml)。
 
+### 11.34 参数约束（v8.2.0）
+
+需求基线 D41，处理同一测试的低级问题 F9–F11（用例 P07、P14、F10、F20、F23、F26）。参数元数据（`ParameterDoc`）新增四项可选声明：`minimum`、`maximum`（数值参数，含端点）、`maxLength`（文本参数，未声明时取 `model.DEFAULT_TEXT_LENGTH = 200`）、`format`（文本参数，`month` 为 YYYY-MM、`year` 为 YYYY）。编译器拒绝错放的声明（数值参数写 maxLength、文本参数写 minimum、minimum 大于 maximum）。`runtime._coerce` 对动作和函数统一执行：文本检查长度与格式，整数与小数检查范围，金额、小数、百分比多于两位小数时拒绝（原先静默保留两位）。`_parameter_schema` 公布四项约束，本体浏览器的动作表单和函数运行器据此设置 `maxLength` 并在提示中显示范围或格式。
+
+已声明：所有备注、理由、输出物 2000 字；游标 1000 字；函数的月份参数与 `recordOperatingCost.month` 为 `format: month`；`resourceForecast.months` 1–6；三个分页函数的 `pageSize` 1–200；两个年度参数 2000–2100。函数实现中的 `value or 默认值` 改为只在参数未提供时取缺省值；`departmentOperatingReview` 在年度与截至月份不一致时报错；`maintenanceWorklist` 遇到未声明维护要求的对象类型或未知的维护要求时报错（原先返回空清单）。新增声明只收紧输入、不改输出，属次版本。
+
+构建包见 [2026-11-05-parameter-constraints.yaml](./ontology-builds/2026-11-05-parameter-constraints.yaml)。
+
 ## 12. 代码结构
 
 ```text

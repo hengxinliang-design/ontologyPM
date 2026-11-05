@@ -1,0 +1,99 @@
+# 本体构建包（发布稿）：参数约束——本体浏览器边界测试发现的低级问题（F9–F11）。本体 8.2.0（参数元数据新增 4 项可选声明，非破坏性）。
+# 依据：测试报告 docs/test-reports/2026-11-01-ontology-browser.md（F9–F11a，用例 P07、P14、F10、F20、F23、F26）；用户 2026-11-05 选择「Fix the 6 failures」；需求基线 D41。
+kind: OntologyBuild
+stage: release
+topic: 非法输入一律拒绝并说明原因，不再四舍五入、不限长度或静默改成默认值；约束写在参数元数据里，动作与函数统一执行
+ontologyVersion: 8.2.0
+date: 2026-11-05
+scope:
+  - CQ-P1 金额、比例填了三位小数，系统会怎么处理？
+  - CQ-P2 名称和备注最多能写多少字？
+  - CQ-P3 函数的月份、测算月数、每页条数填错时，用户会得到错误还是一个看似正常的结果？
+  - CQ-P4 部门复盘选了 2026 年，却给出 2025 年的截至月份，结果是什么？
+  - CQ-P5 某个参数允许的取值范围从哪里能查到？
+
+rules:
+  - id: R1
+    statement: 金额、小数、百分比参数最多两位小数；多于两位（如 0.001、12.345、33.333）时参数校验报「最多保留两位小数」，不再四舍五入后保存。末尾多余的 0 不算（1.000 按 1.00 保存）。
+    basis: 测试报告 F9（P07）：0.005 被存为 0.00、0.001 被接受，用户看不到自己输入的值被改了。所有数值参数原本都由 _coerce 静默保留两位小数。
+    acceptance: 新建回款约定的约定金额为 0.001、0.005、12.345，或回款比例为 33.333 时预检不通过并提示「约定金额：最多保留两位小数」；12.5、1.000、100 通过，1.000 保存为 1.00；经业务接口 POST /projects/{n}/payment-terms 提交 0.001 返回 422 且没有新增约定。
+    verifiedBy: [test_amounts_with_more_than_two_decimals_are_rejected_not_rounded]
+    ontology: [createPaymentTerm, editPaymentTerm, confirmPaymentReceived]
+  - id: R2
+    statement: 文本参数都有长度上限：未声明 maxLength 的默认 200 字；备注、理由、输出物声明 2000 字；游标 1000 字（与业务接口一致）。超出时提示「最多 N 个字（现有 M 个）」。长度按去掉首尾空格后的文本计算。
+    basis: 测试报告 F10（P14）：1 万字的回款约定名称可以保存。建议值「名称限 200 字、备注限 2000 字」出自该报告。
+    acceptance: 回款约定名称 201 字预检不通过并提示「名称：最多 200 个字（现有 201 个）」，200 字（含首尾空格）通过；备注 2000 字通过、2001 字不通过；经业务接口新建 201 字名称的里程碑返回 422；schema 中每个文本参数都有 maxLength。
+    verifiedBy: [test_text_parameters_have_a_length_limit, test_schema_publishes_the_constraints]
+    ontology: [createPaymentTerm, createMilestone, openIntervention]
+  - id: R3
+    statement: 声明 format month 的参数必须是有效的 YYYY-MM（月份 01–12），format year 的参数必须是 YYYY；不符合时提示格式，不再返回空结果。所有函数的月份参数和登记经营成本的月份都已声明。
+    basis: 测试报告 F11（F20）：资源健康的月份 2026-13 返回空列表，调用方无法区分「没有数据」和「输错了」。
+    acceptance: resourceHealth 月份 2026-13 或 2026-1、resourceOperations 开始月份 2026-00、portfolioHealth 月份 26-01 都返回 422「月份格式应为 YYYY-MM」；员工工时评价年度 26 返回 422「年度格式应为 YYYY」；登记经营成本月份 2026-13 预检不通过；2026-12 正常返回。
+    verifiedBy: [test_months_must_be_real_months]
+    ontology: [resourceHealth, resourceOperations, portfolioHealth, employeeWorktimeAssessment, recordOperatingCost]
+  - id: R4
+    statement: 整数参数按声明的范围（含端点）检查：测算月数 1–6、每页条数 1–200、年度 2000–2100；越界时提示「不能小于 / 不能大于」。缺省值只在参数未提供时使用，0 不再被当作「未提供」。
+    basis: 测试报告 F11（F10、F26）：测算月数 0 按 3 个月计算、每页条数 0 按 50 条返回，原因是实现中写了 `value or 默认值`。年度范围与业务接口 /department/review 的 ge=2000、le=2100 一致，每页条数与业务接口的 le=200 一致。
+    acceptance: resourceForecast 测算月数 0、-1 返回 422「测算月数：不能小于 1」，7 返回「不能大于 6」；1 和 6 分别返回 1 个和 6 个月，不提供时返回 3 个月；projectList、portfolioHealth、resourceOperations 的每页条数 0 和 201 返回 422，200 正常；部门复盘年度 1999 返回 422。
+    verifiedBy: [test_integer_parameters_stay_in_their_declared_range]
+    ontology: [resourceForecast, projectList, portfolioHealth, resourceOperations, departmentOperatingReview]
+  - id: R5
+    statement: 部门复盘同时给出年度和截至月份时，月份必须在该年度内，否则返回「截至月份 X 不在 Y 年内」。只给年度时，缺省月份照旧落在该年度内（不是输入错误）。
+    basis: 测试报告 F11（F23）：年度 2026、月份 2025-05 被改成 2026-01，结果与用户的输入不符却没有提示。
+    acceptance: 函数 departmentOperatingReview 与业务接口 /department/review 在年度 2026、月份 2025-05 时都返回 422；年度 2026、月份 2026-05 返回截至 2026-05；只给年度 2025 时返回 2025 年内的月份。
+    verifiedBy: [test_review_month_must_lie_in_the_chosen_year]
+    ontology: [departmentOperatingReview]
+  - id: R6
+    statement: 约束写在参数元数据中（minimum、maximum、maxLength、format），由运行时对动作和函数统一执行，schema 原样公布；编译器拒绝错放的声明（数值参数写 maxLength、文本参数写 minimum、minimum 大于 maximum、未知的 format）。
+    basis: 原则 7（数值做成参数、可被查看）；经验库 L10、L44（同一条规则只有一份实现：业务接口经由动作调用，不另写校验）。
+    acceptance: schema 中回款约定名称 maxLength 为 200、备注为 2000，约定金额没有 maxLength，经营成本月份 format 为 month，测算月数范围为 1–6；四种错放的声明在加载元数据时报错并指出位置。
+    verifiedBy: [test_schema_publishes_the_constraints, test_invalid_metadata_is_rejected_with_location]
+    ontology: [createPaymentTerm, recordOperatingCost, resourceForecast]
+  - id: R7
+    statement: 待维护清单的对象类型和维护要求必须是已声明的名称；未知名称返回 422 并列出可选的对象类型，不再返回空清单。
+    basis: 测试报告 F11a：待维护清单允许未知对象类型，返回空结果，与「全部已维护」无法区分。同一条中的「部门复盘 1900 年」由 R4 的年度范围处理。
+    acceptance: maintenanceWorklist 对象类型 Nope 返回 422「对象类型 Nope 没有声明维护要求」，维护要求 nope 返回 422；对象类型 Project 正常返回。
+    verifiedBy: [test_unknown_names_are_errors_not_empty_results]
+    ontology: [maintenanceWorklist]
+
+exceptions:
+  - rule: R1
+    case: 导入的数据（CRM 快照、Excel 工时）带三位以上小数。
+    handling: 不受影响：导入走各自的导入程序，不经过动作参数校验；本规则只约束用户通过动作和业务接口提交的值。
+    basis: /api/v1/time-entries/import 与 /api/v1/crm-imports 调用 ProjectRepository 的导入方法，不调用 _validate_parameters。
+  - rule: R1
+    case: 由系统计算出的金额（如按回款比例拆分合同额）带多位小数。
+    handling: 不受影响：计算结果在处理器和推导规则中按两位小数保存，不经过参数校验；前端也不自行计算金额后提交（已核对 frontend/src 中没有对金额、比例做乘除后提交的代码）。
+    basis: 参数校验只作用于调用方提交的参数。
+  - rule: R1
+    case: PM Assistant 的建议卡片里给出了三位小数的金额。
+    handling: 建议卡片在给出前经过预检（D16），预检会报「最多保留两位小数」，用户看到原因后修改；不会写入被改过的值。
+    basis: G5 的写操作只给经预检的建议。
+  - rule: R2
+    case: 8.2.0 之前已经保存的超长文本。
+    handling: 不追溯截断；只有再次编辑该字段时才要求不超过上限。本地演示库中名称和备注最长 11 字，不受影响。
+    basis: 已核对 data/preview.sqlite3 的 milestones、payment_terms、interventions 三张表。
+  - rule: R2
+    case: 名称中有全角字符、表情符号。
+    handling: 按字符（Python len）计数，一个汉字或一个表情都算 1 个字；不按字节计算。
+    basis: 用户可见的「字数」与数据库存储无关（SQLite TEXT 不限长度）。
+  - rule: R3
+    case: 页面上的月份选择器。
+    handling: 页面用 input type=month，只能选出有效月份，用户不会遇到这个错误；规则主要拦截接口调用、本体浏览器和 PM Assistant 的手写参数。
+    basis: DepartmentOperations.tsx、InvestmentAnalysis.tsx 中的 input type=month；项目管理页的统计月份用日期控件选择。
+  - rule: R4
+    case: 调用方需要一次取回超过 200 条。
+    handling: 按游标分页取回；200 是业务接口原有的上限，函数与接口保持一致。
+    basis: main.py 中 page_size 的 Query(…, le=200)。
+  - rule: R5
+    case: 用户在部门经营页切换年度。
+    handling: 页面切换年度时清空截至月份，月份输入限定在所选年度内，不会提交跨年的组合。
+    basis: DepartmentOperations.tsx 切换年度时 setMonth("")，月份输入 min/max 为该年 01–12。
+  - rule: R6
+    case: 动作或函数在代码里另有更严格的检查（如回款比例 0–100、测算月数 1–6）。
+    handling: 保留代码中的检查作为兜底，元数据声明负责公布和统一拒绝；两者取值一致，测算月数的代码检查与声明同为 1–6。
+    basis: 提交条件 paymentRatioRange 与 fn_resource_forecast 中的范围检查。
+  - rule: R7
+    case: 只给维护要求、不给对象类型，而该要求属于另一个对象类型（如对回款约定的要求查全部类型）。
+    handling: 照常返回：维护要求在全部声明了维护要求的对象类型中查找，只要名称存在就不报错；不属于某类型的对象不会出现在结果里。
+    basis: fn_maintenance_worklist 按对象逐条比对 maintenanceChecklist 中的 requirement。

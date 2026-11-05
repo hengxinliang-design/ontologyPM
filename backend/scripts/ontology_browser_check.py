@@ -443,14 +443,14 @@ def phase_a() -> None:
     A("F20", "函数", "资源健康：非法月份", "POST", f"{fn}/resourceHealth/execute", body={"parameters": {"month": "2026-13"}}, expect=422)
     A("F21", "函数", "资源健康：没有工时的月份 2024-12", "POST", f"{fn}/resourceHealth/execute", body={"parameters": {"month": "2024-12"}},
       check=lambda p: data(p)["result"]["data"] == [])
-    A("F22", "函数", "部门复盘：年份 1900", "POST", f"{fn}/departmentOperatingReview/execute", body={"parameters": {"year": 1900}}, expect={200, 422})
+    A("F22", "函数", "部门复盘：年份 1900", "POST", f"{fn}/departmentOperatingReview/execute", body={"parameters": {"year": 1900}}, expect=422)
     A("F23", "函数", "部门复盘：月份不在年份内", "POST", f"{fn}/departmentOperatingReview/execute", body={"parameters": {"year": 2026, "month": "2025-05"}}, expect=422)
     A("F24", "函数", "项目期间健康：结束早于开始", "POST", f"{fn}/projectHealthForPeriod/execute",
       body={"parameters": {"project": "SEY101", "startMonth": "2026-10", "endMonth": "2026-01"}}, expect=422)
     A("F25", "函数", "员工利用率：不存在的员工", "POST", f"{fn}/employeeUtilization/execute", body={"parameters": {"employee": "E999", "month": "2026-10"}}, expect={404, 422})
     A("F26", "函数", "项目台账：pageSize 0", "POST", f"{fn}/projectList/execute", body={"parameters": {"pageSize": 0}}, expect=422)
     A("F27", "函数", "项目台账：伪造游标", "POST", f"{fn}/projectList/execute", body={"parameters": {"cursor": "forged"}}, expect=422)
-    A("F28", "函数", "待维护清单：未知对象类型", "POST", f"{fn}/maintenanceWorklist/execute", body={"parameters": {"objectType": "Nope"}}, expect={200, 422})
+    A("F28", "函数", "待维护清单：未知对象类型", "POST", f"{fn}/maintenanceWorklist/execute", body={"parameters": {"objectType": "Nope"}}, expect=422)
     A("F29", "函数", "工时评价：period=week（不支持）", "POST", f"{fn}/employeeWorktimeAssessment/execute", body={"parameters": {"period": "week"}}, expect=422)
     A("F30", "函数", "参数不是对象", "POST", f"{fn}/portfolioSummary/execute", body={"parameters": [1]}, expect=422)
 

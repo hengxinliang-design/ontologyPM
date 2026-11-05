@@ -2,6 +2,7 @@
 # 依据：测试报告 docs/test-reports/2026-11-01-ontology-browser.md（F1–F8）；用户 2026-11-03「Fix high and medium」；需求基线 D40。
 kind: OntologyBuild
 stage: release
+supersededBy: 2026-11-05-parameter-constraints.yaml
 topic: 动作参数与对象集的输入校验：越界数字、过深筛选不再造成服务器错误；未来到账日期、无效的每人天小时数与预算人天被拒绝；只有空格的必填文本按未填；提交条件不满足时动作表单不能提交
 ontologyVersion: 8.1.0
 date: 2026-11-03

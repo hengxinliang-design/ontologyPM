@@ -18,10 +18,10 @@ definition:
       description: 完成状态只能通过“确认里程碑完成”设置
     - {apiName: plannedStart, displayName: 计划开始, type: date}
     - {apiName: owner, displayName: 负责人, type: string}
-    - {apiName: deliverable, displayName: 输出物, type: string}
+    - {apiName: deliverable, displayName: 输出物, type: string, maxLength: 2000}
     - {apiName: paymentTermId, displayName: 关联回款约定, type: object_ref, objectType: PaymentTerm, description: 关联后以约定金额生成回款节点，回款日期取计划完成日；传空值解除关联（历史回款事件随之删除）, optionDetails: [plannedAmount, paymentRatio]}
     - {apiName: sequenceNo, displayName: 序号, type: integer}
-    - {apiName: notes, displayName: 备注, type: string}
+    - {apiName: notes, displayName: 备注, type: string, maxLength: 2000}
   permissions: [projects]
   edits:
     - Milestone.sequenceNo

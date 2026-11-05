@@ -45,8 +45,8 @@ definition:
   description: 按月份或月份区间计算项目人天投入、累计消耗、趋势与健康状态。
   parameters:
     - {apiName: project, displayName: 项目, type: object_ref, objectType: Project, required: true}
-    - {apiName: startMonth, displayName: 开始月份, type: string, required: true, description: YYYY-MM}
-    - {apiName: endMonth, displayName: 结束月份, type: string, description: YYYY-MM，缺省同开始月份}
+    - {apiName: startMonth, displayName: 开始月份, type: string, required: true, description: YYYY-MM, format: month}
+    - {apiName: endMonth, displayName: 结束月份, type: string, description: YYYY-MM，缺省同开始月份, format: month}
   outputType: ProjectHealth
   permissions: [projects, health]
   implementation: projectHealthForPeriod
@@ -60,7 +60,7 @@ definition:
   description: 按月对照工时基线评估员工工时充足度。
   parameters:
     - {apiName: employee, displayName: 员工, type: object_ref, objectType: Employee, required: true}
-    - {apiName: month, displayName: 月份, type: string, required: true, description: YYYY-MM}
+    - {apiName: month, displayName: 月份, type: string, required: true, description: YYYY-MM, format: month}
   outputType: EmployeeUtilization
   permissions: [employeeWorktime, resource]
   implementation: employeeUtilization
@@ -87,7 +87,7 @@ definition:
   displayName: 客户年度汇总
   description: 按合同签约年度和客户汇总合同数、项目数、新签合同额，以及这些合同至今的 CRM 开票、回款金额（按签约年度归集，不是该年实际开票、到账；按到账年度看回款请用部门经营复盘）。不传年度时列出全部年度；没有签约时间的合同单独计数。
   parameters:
-    - {apiName: year, displayName: 年度, type: integer, description: 签约年度，缺省为全部年度}
+    - {apiName: year, displayName: 年度, type: integer, description: 签约年度，缺省为全部年度, minimum: 2000, maximum: 2100}
   outputType: CustomerAnnualSummary
   permissions: [crm, projects, department]
   implementation: customerAnnualSummary
@@ -111,8 +111,8 @@ definition:
   displayName: 投入与沉没成本分析
   description: 全公司投入结构、赢单率、平均获单成本、沉没成本率、在途账龄、停滞商机与未建档代码；可按月份区间统计。
   parameters:
-    - {apiName: startMonth, displayName: 开始月份, type: string, description: YYYY-MM，缺省为全部期间}
-    - {apiName: endMonth, displayName: 结束月份, type: string, description: YYYY-MM}
+    - {apiName: startMonth, displayName: 开始月份, type: string, description: YYYY-MM，缺省为全部期间, format: month}
+    - {apiName: endMonth, displayName: 结束月份, type: string, description: YYYY-MM, format: month}
   outputType: InvestmentAnalysis
   permissions: [projects, investment, resource]
   implementation: portfolioInvestmentAnalysis
@@ -138,7 +138,7 @@ definition:
   displayName: 资源健康
   description: 按月评估员工的持续过载（连续 N 个月高于过载线）、疲劳、碎片化与闲置风险，统计窗口内第一个有工时的月份标为首月（不评价闲置），并汇总各状态人数。利用率与资源运营监控、员工工时评价同一份实现。
   parameters:
-    - {apiName: month, displayName: 月份, type: string, description: YYYY-MM，缺省为最近有工时的月份}
+    - {apiName: month, displayName: 月份, type: string, description: YYYY-MM，缺省为最近有工时的月份, format: month}
   outputType: ResourceHealth
   permissions: [resource, department]
   implementation: resourceHealth
@@ -150,8 +150,8 @@ definition:
   displayName: 部门经营复盘
   description: 按年度经营计划和时间进度对照合同额、经营收入（税前 / 税后）、经营成本、毛利润、毛利率，以及投入人天、利用率与人数，给出带证据的策略信号（推动验收回款、争取新合同、释放资源）。经营收入为当年到账回款，毛利截至最近已录成本的月份（需求基线 D22–D25）。
   parameters:
-    - {apiName: year, displayName: 年度, type: integer}
-    - {apiName: month, displayName: 截至月份, type: string, description: YYYY-MM，缺省为本月与最近工时月份中较早者}
+    - {apiName: year, displayName: 年度, type: integer, minimum: 2000, maximum: 2100}
+    - {apiName: month, displayName: 截至月份, type: string, description: YYYY-MM，缺省为本月与最近工时月份中较早者, format: month}
   outputType: DepartmentOperatingReview
   permissions: [department]
   implementation: departmentOperatingReview
@@ -168,8 +168,8 @@ definition:
     - {apiName: riskLevel, displayName: 风险等级, type: enum, valueType: RiskLevel}
     - {apiName: category, displayName: CRM 分类, type: string}
     - {apiName: query, displayName: 搜索, type: string, description: 项目编号、名称、客户或项目经理}
-    - {apiName: cursor, displayName: 游标, type: string}
-    - {apiName: pageSize, displayName: 每页条数, type: integer}
+    - {apiName: cursor, displayName: 游标, type: string, maxLength: 1000}
+    - {apiName: pageSize, displayName: 每页条数, type: integer, minimum: 1, maximum: 200}
   outputType: ProjectList
   permissions: [projects]
   implementation: projectList
@@ -182,9 +182,9 @@ definition:
   displayName: 项目运营监控
   description: 「项目管理」页的数据：按单月或月份区间计算每个项目的投入、上期对比、参与人数、超支预警、月度趋势、综合健康状态与预算耗尽预测，并附项目台账字段。没有财务金额权限时金额为空。
   parameters:
-    - {apiName: month, displayName: 统计月份, type: string, description: YYYY-MM}
-    - {apiName: startMonth, displayName: 开始月份, type: string, description: YYYY-MM}
-    - {apiName: endMonth, displayName: 结束月份, type: string, description: YYYY-MM}
+    - {apiName: month, displayName: 统计月份, type: string, description: YYYY-MM, format: month}
+    - {apiName: startMonth, displayName: 开始月份, type: string, description: YYYY-MM, format: month}
+    - {apiName: endMonth, displayName: 结束月份, type: string, description: YYYY-MM, format: month}
     - {apiName: projectNumber, displayName: 项目编号, type: string}
     - {apiName: masterCategory, displayName: 主数据类别, type: string, description: 项目或商机}
     - {apiName: maintenance, displayName: 维护状态, type: string, description: missing（待维护）或 complete（已维护）}
@@ -193,8 +193,8 @@ definition:
     - {apiName: riskLevel, displayName: 风险等级, type: enum, valueType: RiskLevel}
     - {apiName: category, displayName: CRM 分类, type: string}
     - {apiName: query, displayName: 搜索, type: string, description: 项目编号、名称、客户或项目经理}
-    - {apiName: cursor, displayName: 游标, type: string}
-    - {apiName: pageSize, displayName: 每页条数, type: integer}
+    - {apiName: cursor, displayName: 游标, type: string, maxLength: 1000}
+    - {apiName: pageSize, displayName: 每页条数, type: integer, minimum: 1, maximum: 200}
   outputType: PortfolioHealth
   permissions: [projects, health]
   implementation: portfolioHealth
@@ -236,8 +236,8 @@ definition:
   description: 按月或按年评价每位员工的填报工时、确认工时、确认缺口与利用率（项目工时 ÷ 工作日 × 每日标准小时），分为工时充足、基本达标、需要关注、严重不足。本期有任何工时记录的员工都列出；草稿、驳回与内部代码（投入设置维护）的工时不计入利用率。
   parameters:
     - {apiName: period, displayName: 统计周期, type: string, description: month 或 year，缺省为 month}
-    - {apiName: month, displayName: 月份, type: string, description: YYYY-MM，period=month 时使用，缺省为本月}
-    - {apiName: year, displayName: 年度, type: string, description: YYYY，period=year 时使用}
+    - {apiName: month, displayName: 月份, type: string, description: YYYY-MM，period=month 时使用，缺省为本月, format: month}
+    - {apiName: year, displayName: 年度, type: string, description: YYYY，period=year 时使用, format: year}
     - {apiName: employeeName, displayName: 员工姓名, type: string, description: 精确匹配}
   outputType: EmployeeWorktimeAssessment
   permissions: [employeeWorktime, resource, department]
@@ -250,12 +250,12 @@ definition:
   displayName: 资源运营监控
   description: 按月份或月份区间给出每位员工的利用率、调剂状态（本月负荷过高、负荷较高、可优先调剂、可适度支持、安排基本均衡）、可调剂人天和项目投入；本月负荷过高指单月利用率高于过载线，与资源健康的持续过载不同。内部非项目工时（投入设置维护）不计入负荷，可调剂。
   parameters:
-    - {apiName: month, displayName: 月份, type: string, description: YYYY-MM，缺省为最近有工时的月份}
-    - {apiName: startMonth, displayName: 开始月份, type: string, description: YYYY-MM，与结束月份一起使用}
-    - {apiName: endMonth, displayName: 结束月份, type: string, description: YYYY-MM}
+    - {apiName: month, displayName: 月份, type: string, description: YYYY-MM，缺省为最近有工时的月份, format: month}
+    - {apiName: startMonth, displayName: 开始月份, type: string, description: YYYY-MM，与结束月份一起使用, format: month}
+    - {apiName: endMonth, displayName: 结束月份, type: string, description: YYYY-MM, format: month}
     - {apiName: employeeName, displayName: 员工姓名, type: string, description: 模糊匹配}
-    - {apiName: cursor, displayName: 游标, type: string}
-    - {apiName: pageSize, displayName: 每页条数, type: integer}
+    - {apiName: cursor, displayName: 游标, type: string, maxLength: 1000}
+    - {apiName: pageSize, displayName: 每页条数, type: integer, minimum: 1, maximum: 200}
   outputType: ResourceOperations
   permissions: [resource]
   implementation: resourceOperations
@@ -267,7 +267,7 @@ definition:
   displayName: 资源测算
   description: 本月起三个自然月（本月从明天起算）的人力测算。可用产能：最近有工时月份的在岗员工，每人每月 = 工作日 × 最低利用率目标。项目需求：未暂停、未结束的项目，有预算按剩余人天（预算 − 已填报）按工作日均摊到计划结束，无预算按最近 3 个月月均人天延续到计划结束，均换算为标准人天。按月给出产能、需求、缺口和拉动需求最多的项目，并列出无法测算的项目及原因。需求不分摊到个人。
   parameters:
-    - {apiName: months, displayName: 测算月数, type: integer, description: 1–6，缺省 3}
+    - {apiName: months, displayName: 测算月数, type: integer, description: 1–6，缺省 3, minimum: 1, maximum: 6}
   outputType: ResourceForecast
   permissions: [resource, department]
   implementation: resourceForecast

@@ -1462,6 +1462,11 @@ def fn_portfolio_investment(ctx: OntologyContext, params: dict[str, Any]) -> dic
     )
 
 
+def _page_size(params: dict[str, Any]) -> int:
+    """Default 50 when not given; the declared range (1–200, D41) has already been checked."""
+    return 50 if params.get("pageSize") is None else int(params["pageSize"])
+
+
 @RULES.function("resourceHealth")
 def fn_resource_health(ctx: OntologyContext, params: dict[str, Any]) -> dict[str, Any]:
     return _department(ctx).resource_health(params.get("month"))
@@ -1478,7 +1483,7 @@ def fn_employee_worktime_assessment(ctx: OntologyContext, params: dict[str, Any]
 
 @RULES.function("resourceForecast")
 def fn_resource_forecast(ctx: OntologyContext, params: dict[str, Any]) -> dict[str, Any]:
-    months = int(params.get("months") or 3)
+    months = 3 if params.get("months") is None else int(params["months"])  # D41: 0 is rejected, not read as 3
     if not 1 <= months <= 6:
         raise ValueError("测算月数必须在 1 到 6 之间")
     return _resources(ctx).forecast(ctx.objects("Project"), months)
@@ -1488,15 +1493,17 @@ def fn_resource_forecast(ctx: OntologyContext, params: dict[str, Any]) -> dict[s
 def fn_resource_operations(ctx: OntologyContext, params: dict[str, Any]) -> dict[str, Any]:
     return _resources(ctx).resource_operations(
         month=params.get("month"), start_month=params.get("startMonth"), end_month=params.get("endMonth"),
-        employee_name=params.get("employeeName"), cursor=params.get("cursor"), page_size=int(params.get("pageSize") or 50),
+        employee_name=params.get("employeeName"), cursor=params.get("cursor"), page_size=_page_size(params),
         project_names={p["project_number"]: p["subject"] for p in ctx.project_facts()},
     )
 
 
 @RULES.function("departmentOperatingReview")
 def fn_department_review(ctx: OntologyContext, params: dict[str, Any]) -> dict[str, Any]:
-    year = params.get("year")
-    review = _department(ctx).department_review(int(year) if year else None, params.get("month"))
+    year, month = params.get("year"), params.get("month")
+    if year and month and int(month[:4]) != int(year):  # D41: an explicit month must lie in the chosen year
+        raise ValueError(f"截至月份 {month} 不在 {year} 年内")
+    review = _department(ctx).department_review(int(year) if year else None, month)
     if _finance_visible(ctx):
         return review
     money_kpis = {"new_contracts", "collections"}
@@ -1578,7 +1585,7 @@ def fn_project_list(ctx: OntologyContext, params: dict[str, Any]) -> dict[str, A
         [_public_facts(p) for p in ctx.project_facts()], ctx.projects._crm_search_terms_by_project,
         contract_type=params.get("contractType"), lifecycle_status=params.get("lifecycleStatus"),
         category=params.get("category"), risk_level=params.get("riskLevel"), query=params.get("query"),
-        cursor=params.get("cursor"), page_size=int(params.get("pageSize") or 50),
+        cursor=params.get("cursor"), page_size=_page_size(params),
     )
     return _redact_payload(ctx, result)
 
@@ -1595,7 +1602,7 @@ def fn_portfolio_health(ctx: OntologyContext, params: dict[str, Any]) -> dict[st
         project_number=params.get("projectNumber"), lifecycle_status=params.get("lifecycleStatus"),
         contract_type=params.get("contractType"), risk_level=params.get("riskLevel"),
         master_category=params.get("masterCategory"), category=params.get("category"), query=params.get("query"),
-        cursor=params.get("cursor"), page_size=int(params.get("pageSize") or 50),
+        cursor=params.get("cursor"), page_size=_page_size(params),
     )
     result["summary"]["maintenance_pending_projects"] = sum(not p["maintenance_complete"] for p in ctx.project_facts())
     return _redact_payload(ctx, result)
@@ -1611,8 +1618,14 @@ def fn_maintenance_worklist(ctx: OntologyContext, params: dict[str, Any]) -> dic
     """Objects that still need maintenance, per declared requirement (every object type that declares any)."""
     requirement = params.get("requirement")
     only_pending = params.get("onlyPending", True)
-    types = [t for t in ctx.ontology.object_types if t.maintenance_requirements
-             and (not params.get("objectType") or t.api_name == params["objectType"])]
+    declaring = [t for t in ctx.ontology.object_types if t.maintenance_requirements]
+    wanted = params.get("objectType")
+    if wanted and wanted not in {t.api_name for t in declaring}:  # D41: an unknown type is an error, not an empty list
+        raise ValueError(f"对象类型 {wanted} 没有声明维护要求，可选：{'、'.join(t.api_name for t in declaring)}")
+    known_requirements = {r.api_name for t in declaring for r in t.maintenance_requirements}
+    if requirement and requirement not in known_requirements:
+        raise ValueError(f"未知的维护要求 {requirement}")
+    types = [t for t in declaring if not wanted or t.api_name == wanted]
     summary, rows = [], []
     for definition in types:
         if not ctx.principal.holds_any(definition.read_permissions):

@@ -12,7 +12,7 @@ definition:
     - {apiName: outcome, displayName: 结论, type: enum, valueType: OpportunityOutcome, allowedValues: [lost, abandoned], required: true}
     - {apiName: reason, displayName: 原因, type: enum, valueType: OutcomeReason, required: true}
     - {apiName: outcomeDate, displayName: 结论日期, type: date, description: 缺省为今天}
-    - {apiName: notes, displayName: 备注, type: string}
+    - {apiName: notes, displayName: 备注, type: string, maxLength: 2000}
   permissions: [projects, investment]
   edits: [CostObject.opportunityOutcome, CostObject.outcomeReason, CostObject.outcomeDate]
   writeback: [opportunity_outcomes]
@@ -31,7 +31,7 @@ definition:
   targetParameter: costObject
   parameters:
     - {apiName: costObject, displayName: 项目代码, type: object_ref, objectType: CostObject, required: true}
-    - {apiName: reason, displayName: 激活理由, type: string, required: true}
+    - {apiName: reason, displayName: 激活理由, type: string, required: true, maxLength: 2000}
   permissions: [projects, investment]
   edits: [CostObject.opportunityOutcome, CostObject.outcomeReason, CostObject.outcomeDate]
   writeback: [opportunity_outcomes]

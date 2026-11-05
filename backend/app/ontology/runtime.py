@@ -909,14 +909,22 @@ def _coerce(ctx: OntologyContext, param: ParameterDef, value: Any) -> Any:
         value = value.strip()
         if kind == "enum" and value not in {v for v, _ in param.enum_values}:
             raise ValueError(f"取值必须是 {', '.join(v for v, _ in param.enum_values)} 之一")
+        if param.max_length is not None and len(value) > param.max_length:
+            raise ValueError(f"最多 {param.max_length} 个字（现有 {len(value)} 个）")  # D41
+        if param.format == "month" and not _is_month(value):
+            raise ValueError("月份格式应为 YYYY-MM，月份为 01–12")
+        if param.format == "year" and not YEAR_PATTERN.fullmatch(value):
+            raise ValueError("年度格式应为 YYYY")
         return value
     if kind == "integer":
         if isinstance(value, bool) or not isinstance(value, (int, str)):
             raise ValueError("必须是整数")
         try:
-            return int(value)
+            number = int(value)
         except ValueError as exc:
             raise ValueError("必须是整数") from exc
+        _check_range(param, Decimal(number))
+        return number
     if kind in {"decimal", "money", "percent"}:
         if isinstance(value, bool):
             raise ValueError("必须是数字")
@@ -928,7 +936,11 @@ def _coerce(ctx: OntologyContext, param: ParameterDef, value: Any) -> Any:
             raise ValueError("必须是有限数字")
         if abs(number) >= MAX_NUMBER:
             raise ValueError("数值超出范围")
-        return format(number.quantize(Decimal("0.01")), "f")
+        rounded = number.quantize(Decimal("0.01"))
+        if rounded != number:  # D41: values are stored with two decimals; more is rejected, not rounded
+            raise ValueError("最多保留两位小数")
+        _check_range(param, number)
+        return format(rounded, "f")
     if kind == "date":
         try:
             return date.fromisoformat(str(value)).isoformat()
@@ -944,6 +956,26 @@ def _coerce(ctx: OntologyContext, param: ParameterDef, value: Any) -> Any:
             raise ValueError(f"对象 {param.object_type}:{key} 不存在")
         return key
     return value
+
+
+MONTH_PATTERN = re.compile(r"\d{4}-(0[1-9]|1[0-2])")
+YEAR_PATTERN = re.compile(r"\d{4}")
+
+
+def _is_month(value: str) -> bool:
+    return MONTH_PATTERN.fullmatch(value) is not None
+
+
+def _check_range(param: ParameterDef, number: Decimal) -> None:
+    """D41: declared minimum / maximum, inclusive."""
+    if param.minimum is not None and number < param.minimum:
+        raise ValueError(f"不能小于 {_plain(param.minimum)}")
+    if param.maximum is not None and number > param.maximum:
+        raise ValueError(f"不能大于 {_plain(param.maximum)}")
+
+
+def _plain(number: Decimal) -> str:
+    return format(number.normalize(), "f")
 
 
 def _evaluate_criteria(
@@ -985,6 +1017,10 @@ def _parameter_schema(param: ParameterDef) -> dict[str, Any]:
         "enumValues": [{"value": v, "label": label} for v, label in param.enum_values],
         "objectType": param.object_type,
         "optionDetails": list(param.option_details),
+        "minimum": None if param.minimum is None else float(param.minimum),
+        "maximum": None if param.maximum is None else float(param.maximum),
+        "maxLength": param.max_length,
+        "format": param.format,
     }
 
 

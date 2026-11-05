@@ -154,6 +154,16 @@
 - 金额、小数参数的绝对值必须小于 1e15；对象集筛选条件嵌套不超过 32 层（对象集本身不超过 12 层）。
 - 本体位置：动作 `configureProject`（`positiveBudget`、`hoursPerPersonDayRange`）、`confirmPaymentReceived`（`notAfterToday`）；规则实现在 `app/maintenance_rules.py`，动作和基础程序共用；构建包 [2026-11-03-input-guards](ontology-builds/2026-11-03-input-guards.yaml)。
 
+### 6.1c 参数约束（本体 8.2.0，D41）
+
+- 原则：非法输入一律拒绝并说明原因，不再四舍五入、截断或改成默认值。
+- 金额、小数、百分比最多两位小数；多于两位时拒绝（末尾多余的 0 不算）。
+- 文本默认最长 200 字；备注、理由、输出物最长 2000 字；按去掉首尾空格后的字数计算。已保存的超长文本不追溯，再次编辑时才检查。
+- 月份必须是有效的 YYYY-MM；测算月数 1–6，每页条数 1–200，年度 2000–2100；参数缺省值只在未提供时使用，0 不算「未提供」。
+- 部门复盘同时给出年度和截至月份时，月份必须在该年度内；只给年度时缺省月份照旧落在该年度内。
+- 待维护清单的对象类型、维护要求必须是已声明的名称，未知名称报错而不是返回空清单。
+- 本体位置：参数元数据的 `minimum`、`maximum`、`maxLength`、`format`（`functions.yaml`、`action-types/*.yaml`），运行时 `runtime._coerce` 统一执行；函数 `departmentOperatingReview` 检查年度与月份一致；构建包 [2026-11-05-parameter-constraints](ontology-builds/2026-11-05-parameter-constraints.yaml)。
+
 ### 6.2 运营监控预警
 
 | 预警 | 条件 |

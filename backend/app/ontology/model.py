@@ -8,6 +8,7 @@ or interpret those objects.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from decimal import Decimal
 from typing import TYPE_CHECKING, Any, Callable, Literal
 
 if TYPE_CHECKING:
@@ -157,6 +158,10 @@ class LinkTypeDef:
     period_property: str | None = None
 
 
+# D41: text parameters without a declared maxLength accept at most this many characters.
+DEFAULT_TEXT_LENGTH = 200
+
+
 @dataclass(frozen=True)
 class ParameterDef:
     api_name: str
@@ -167,6 +172,10 @@ class ParameterDef:
     enum_values: tuple[tuple[str, str], ...] = ()
     object_type: str | None = None
     option_details: tuple[str, ...] = ()
+    minimum: Decimal | None = None
+    maximum: Decimal | None = None
+    max_length: int | None = None  # text parameters always have one (D41 default 200)
+    format: str | None = None
 
 
 @dataclass(frozen=True)

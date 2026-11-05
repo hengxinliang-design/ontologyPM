@@ -15,7 +15,7 @@ definition:
     - {apiName: plannedStart, displayName: 计划开始, type: date}
     - {apiName: plannedEnd, displayName: 计划结束, type: date}
     - {apiName: projectManager, displayName: 项目经理, type: string}
-    - {apiName: notes, displayName: 备注, type: string}
+    - {apiName: notes, displayName: 备注, type: string, maxLength: 2000}
   permissions: [projects]
   edits:
     - Project.contractType
@@ -51,10 +51,10 @@ definition:
     - {apiName: plannedEnd, displayName: 计划完成, type: date, required: true}
     - {apiName: plannedStart, displayName: 计划开始, type: date}
     - {apiName: owner, displayName: 负责人, type: string}
-    - {apiName: deliverable, displayName: 输出物, type: string}
+    - {apiName: deliverable, displayName: 输出物, type: string, maxLength: 2000}
     - {apiName: paymentTermId, displayName: 关联回款约定, type: object_ref, objectType: PaymentTerm, description: 关联后以约定金额生成回款节点，回款日期取计划完成日, optionDetails: [plannedAmount, paymentRatio]}
     - {apiName: sequenceNo, displayName: 序号, type: integer}
-    - {apiName: notes, displayName: 备注, type: string}
+    - {apiName: notes, displayName: 备注, type: string, maxLength: 2000}
   permissions: [projects]
   edits: [Milestone.*, PaymentNode.*, PaymentTerm.linkedMilestoneId]
   writeback: [milestones, payment_nodes, payment_terms]
@@ -80,7 +80,7 @@ definition:
     - {apiName: interventionType, displayName: 类型, type: enum, valueType: InterventionType, description: 缺省为其他}
     - {apiName: owner, displayName: 负责人, type: string, description: 不填时取项目经理}
     - {apiName: dueDate, displayName: 截止日期, type: date, required: true}
-    - {apiName: notes, displayName: 备注, type: string}
+    - {apiName: notes, displayName: 备注, type: string, maxLength: 2000}
   permissions: [projects]
   edits: [Intervention.*]
   writeback: [interventions]

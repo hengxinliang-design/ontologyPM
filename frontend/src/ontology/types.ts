@@ -89,6 +89,11 @@ export interface OntologyParameter {
   currentValue?: string | null;
   /** Properties of the referenced object shown under the choice (read-only). */
   optionDetails?: string[];
+  /** Declared input constraints (ontology 8.2.0, D41); the server rejects values outside them. */
+  minimum?: number | null;
+  maximum?: number | null;
+  maxLength?: number | null;
+  format?: "month" | "year" | null;
 }
 
 export interface ReferenceOption extends EnumValue {

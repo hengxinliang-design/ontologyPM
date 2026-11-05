@@ -588,9 +588,20 @@ function ParameterInput({ param, value, error, onChange }: { param: OntologyPara
   } else {
     const inputType = param.dataType === "date" ? "date" : "text";
     const mode = ["integer", "decimal", "money", "percent"].includes(param.dataType) ? "decimal" : undefined;
-    control = <input type={inputType} inputMode={mode} value={value} placeholder={param.description || undefined} onChange={e => onChange(e.target.value)} />;
+    control = <input type={inputType} inputMode={mode} value={value} maxLength={param.maxLength ?? undefined} placeholder={parameterHint(param) || undefined} onChange={e => onChange(e.target.value)} />;
   }
   return <label className={`action-field ${error ? "invalid" : ""}`}>{label}{control}{error && <small>{error}</small>}</label>;
+}
+
+// Placeholder text: the description plus the declared range or format (D41), unless the description already states it.
+function parameterHint(param: OntologyParameter): string {
+  const parts = [param.description];
+  const range = param.minimum != null && param.maximum != null ? `${param.minimum}–${param.maximum}`
+    : param.minimum != null ? `≥ ${param.minimum}` : param.maximum != null ? `≤ ${param.maximum}` : "";
+  if (range && !param.description.includes(range)) parts.push(`范围 ${range}`);
+  if (param.format === "month" && !param.description.includes("YYYY-MM")) parts.push("YYYY-MM");
+  if (param.format === "year" && !param.description.includes("YYYY")) parts.push("YYYY");
+  return parts.filter(Boolean).join("，");
 }
 
 // ------------------------------------------------------------ function runner
@@ -622,7 +633,7 @@ function FunctionRunner({ fn, objectType, primaryKey, valueTypes, month }: { fn:
     <div className="function-head">
       <div><strong>{fn.displayName}</strong><code>{fn.apiName} → {fn.outputType}</code></div>
       <div className="function-controls">
-        {extra.map(p => <input key={p.apiName} value={values[p.apiName] ?? ""} placeholder={`${p.displayName}${p.description ? `（${p.description}）` : ""}`}
+        {extra.map(p => <input key={p.apiName} value={values[p.apiName] ?? ""} maxLength={p.maxLength ?? undefined} placeholder={`${p.displayName}${parameterHint(p) ? `（${parameterHint(p)}）` : ""}`}
           onChange={e => setValues(v => ({ ...v, [p.apiName]: e.target.value }))} />)}
         <button className="button secondary" disabled={busy || !fn.permitted} title={fn.permitted ? fn.description : "当前用户无权调用"} onClick={() => void run()}>{busy ? "计算中…" : "运行"}</button>
       </div>

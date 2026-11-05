@@ -211,6 +211,12 @@ class ParameterDoc(MetadataModel):
     object_type: str | None = None
     # object_ref only: properties of the referenced object shown under the choice (read-only, not submitted).
     option_details: tuple[str, ...] | None = None
+    # D41 (8.2.0): declared input constraints, enforced for every action and function. minimum / maximum for
+    # numeric parameters; maxLength for text (default 200); format "month" (YYYY-MM) or "year" (YYYY) for text.
+    minimum: int | float | None = None
+    maximum: int | float | None = None
+    max_length: int | None = Field(default=None, ge=1)
+    format: Literal["month", "year"] | None = None
 
 
 class CriterionDoc(MetadataModel):
