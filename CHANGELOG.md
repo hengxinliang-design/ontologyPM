@@ -4,6 +4,7 @@
 
 | 产品版本 | 本体版本 | 日期 | 构建包 |
 | --- | --- | --- | --- |
+| v1.34.1 | 8.2.0 | 2026-11-05 | —（只改界面） |
 | v1.34.0 | 8.2.0 | 2026-11-05 | [2026-11-05-parameter-constraints](docs/ontology-builds/2026-11-05-parameter-constraints.yaml) |
 | v1.33.1 | 8.1.0 | 2026-11-04 | —（只改界面） |
 | v1.33.0 | 8.1.0 | 2026-11-04 | —（本体不变） |
@@ -21,6 +22,10 @@
 | v1.22.0 | 7.6.0 | 2026-10-30 | [2026-10-29-logical-delete](docs/ontology-builds/2026-10-29-logical-delete.yaml) |
 | v1.21.0 | 7.5.0 | 2026-10-29 | [2026-10-29-rule-homes-and-linkages](docs/ontology-builds/2026-10-29-rule-homes-and-linkages.yaml) |
 | v1.20.0 | 7.4.0 | 2026-10-29 | [2026-10-29-milestone-span-period](docs/ontology-builds/2026-10-29-milestone-span-period.yaml) |
+
+## v1.34.1 — 项目详情提示自动关闭（本体 8.2.0 不变）
+
+- 项目详情顶部的操作提示不再一直停留：成功提示 2 秒后自动消失；错误与校验提示改为红色，5 秒后消失，便于读完原因；所有提示都可以点 × 立即关闭。
 
 ## v1.34.0 — 参数约束（本体 8.2.0）
 

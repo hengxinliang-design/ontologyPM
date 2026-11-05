@@ -1285,7 +1285,14 @@ function ProjectDrawer({ project, close, refresh }: { project: ProjectDetail; cl
   // Project-manager accounts' names (D10); an empty list just means no suggestions.
   const [managerNames, setManagerNames] = useState<string[]>([]);
   useEffect(() => { fetchProjectManagerNames().then(setManagerNames).catch(() => setManagerNames([])); }, []);
-  const [message, setMessage] = useState<string | null>(null);
+  // Drawer feedback: success disappears after 2 s; errors and hints stay 5 s so the reason can be read. Both can be closed.
+  const [message, setMessageState] = useState<{ text: string; tone: "ok" | "error" } | null>(null);
+  const setMessage = useCallback((text: string | null, tone: "ok" | "error" = "error") => setMessageState(text ? { text, tone } : null), []);
+  useEffect(() => {
+    if (!message) return;
+    const timer = window.setTimeout(() => setMessageState(null), message.tone === "ok" ? 2000 : 5000);
+    return () => window.clearTimeout(timer);
+  }, [message]);
   const [confirmedBy, setConfirmedBy] = useState(project.project_manager ?? "");
   const [settings, setSettings] = useState({
     contract_type: project.contract_type,
@@ -1327,7 +1334,7 @@ function ProjectDrawer({ project, close, refresh }: { project: ProjectDetail; cl
 
   async function run(action: () => Promise<void>, success: string) {
     setSaving(true); setMessage(null);
-    try { await action(); await refresh(); setMessage(success); }
+    try { await action(); await refresh(); setMessage(success, "ok"); }
     catch (err) { setMessage(err instanceof Error ? err.message : "操作失败"); }
     finally { setSaving(false); }
   }
@@ -1380,7 +1387,7 @@ function ProjectDrawer({ project, close, refresh }: { project: ProjectDetail; cl
       payment_amount: item.payment_amount ?? "",
       payment_term_id: item.payment_term_id ?? ""
     });
-    setMessage("正在编辑待确认里程碑");
+    setMessage("正在编辑待确认里程碑", "ok");
   }
 
   function removeMilestone(item: ProjectDetail["milestones"][number]) {
@@ -1514,7 +1521,7 @@ function ProjectDrawer({ project, close, refresh }: { project: ProjectDetail; cl
     <p className="eyebrow">{project.project_number}</p><h2>{displayProjectName(project.project_number, project.subject)}</h2>
     <div className="drawer-badges"><span>{contractTypeLabel(project.contract_type)}</span><span>{lifecycleLabel(project.lifecycle_status)}</span><span className={`risk ${project.risk_level}`}>{riskLabel(project.risk_level)}</span>{project.redacted_markings?.length ? <RedactionNote markings={project.redacted_markings} /> : null}</div>
     {actionAlerts.length > 0 && <section className="alert-stack" aria-label="项目待处理事项"><div className="alert-stack-head"><div className="alert-stack-icon" aria-hidden="true">!</div><div><h3>项目待处理事项</h3><small>按优先级处理风险和人工维护事项</small></div><span className="alert-stack-count">{actionAlerts.length} 项</span><button type="button" className="ai-analysis-button" disabled={analyzing} onClick={() => void requestAiAnalysis()}>{analyzing ? "正在分析…" : aiAnalysis ? "重新分析" : "AI 分析"}</button></div><div className="alert-stack-list">{actionAlerts.map((alert, index) => <article className={`anomaly-alert ${alert.severity}`} key={`${alert.code}-${index}`}><span className="anomaly-alert-icon" aria-hidden="true">{alert.severity === "critical" ? "!" : "◷"}</span><div className="anomaly-alert-content"><div><strong>{alert.title}</strong><span>{alert.severity === "critical" ? "严重" : "关注"}</span></div><p>{alert.detail}</p></div></article>)}</div>{aiAnalysis && <article className="ai-analysis-result"><header><div><span>AI 项目研判</span><small>基于当前 CRM、工时、里程碑与回款资料</small></div><b>已生成</b></header><Markdown text={aiAnalysis.answer} /><footer>{aiAnalysis.sources.map(source => <small key={source}>{source}</small>)}</footer></article>}{analysisError && <p className="ai-analysis-error">{analysisError}</p>}</section>}
-    {message && <div className="inline-message">{message}</div>}
+    {message && <div className={`inline-message ${message.tone}`} role={message.tone === "error" ? "alert" : "status"}><span>{message.text}</span><button type="button" aria-label="关闭提示" onClick={() => setMessageState(null)}>×</button></div>}
     <section className="detail-section source-section"><div className="section-title"><div><h3>项目主数据库汇总 <span className="source-tag">系统接口 · 只读</span></h3><small>{project.revenue_settlement_basis === "workload" ? "开口合同按工作量确认收入：合同金额仅作框架额参考，不用于计算回款完成率。" : "合同金额取 CRM 导入模板；工时与人工维护字段分别独立汇总"}</small></div></div><div className="detail-metrics six"><article><span>{project.revenue_settlement_basis === "workload" ? "合同框架额（CRM）" : "合同金额（CRM）"}</span><b>{money(project.contract_value)}</b></article><article><span>{project.revenue_settlement_basis === "workload" ? "确认收入（开票）" : "已开票（CRM）"}</span><b>{money(project.revenue_settlement_basis === "workload" ? project.recognized_revenue_amount : project.invoiced_amount)}</b></article><article><span>{project.revenue_settlement_basis === "workload" ? "实际已回款（CRM）" : "已回款（CRM）"}</span><b>{money(project.crm_received_amount)}</b></article><article><span>预算人天</span><b>{project.planned_person_days ? `${project.planned_person_days} 人天` : "未设置"}</b></article><article><span>累计实际人天</span><b>{project.actual_person_days} 人天</b></article><article className={Number(project.confirmation_gap_person_days) > 0 ? "metric-alert" : ""}><span>待客户确认缺口</span><b>{project.confirmation_gap_person_days} 人天</b></article></div></section>
 
     <section className="detail-section"><div className="section-title"><div><h3>月度工时清单 <span className="source-tag">系统接口 · 只读</span></h3><small>点击月份展开员工填报明细</small></div></div>
