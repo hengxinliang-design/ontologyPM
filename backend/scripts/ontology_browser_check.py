@@ -90,18 +90,21 @@ def phase_a() -> None:
     A = lambda *args, **kwargs: run(c, "A", *args, **kwargs)  # noqa: E731
     schema = data(c.get(f"{O}/schema").json())
     types = {t["apiName"]: t for t in schema["objectTypes"]}
+    # The active version and the project count come from the server, so the cases keep working after a version
+    # bump or a change to the demo data.
+    current = next(v["version"] for v in data(c.get(f"{O}/versions").json()) if v["active"])
 
     # ---- schema, versions, index
     A("S01", "元数据", "读取 schema", "GET", f"{O}/schema", check=lambda p: len(data(p)["objectTypes"]) == 14)
     A("S02", "元数据", "版本列表", "GET", f"{O}/versions", check=lambda p: any(v["active"] for v in data(p)))
-    A("S03", "元数据", "同一版本自比较：无差异", "GET", f"{O}/versions/diff", params={"from": "8.0.0", "to": "8.0.0"},
+    A("S03", "元数据", "同一版本自比较：无差异", "GET", f"{O}/versions/diff", params={"from": current, "to": current},
       check=lambda p: data(p)["summary"].get("breaking", 0) == 0)
-    A("S04", "元数据", "差异：未登记的版本", "GET", f"{O}/versions/diff", params={"from": "1.0.0", "to": "8.0.0"}, expect=404)
-    A("S05", "元数据", "差异：版本号格式错误（8.0）", "GET", f"{O}/versions/diff", params={"from": "8.0", "to": "8.0.0"}, expect=422)
-    A("S06", "元数据", "差异：缺少 to 参数", "GET", f"{O}/versions/diff", params={"from": "8.0.0"}, expect=422)
+    A("S04", "元数据", "差异：未登记的版本", "GET", f"{O}/versions/diff", params={"from": "1.0.0", "to": current}, expect=404)
+    A("S05", "元数据", "差异：版本号格式错误（8.0）", "GET", f"{O}/versions/diff", params={"from": "8.0", "to": current}, expect=422)
+    A("S06", "元数据", "差异：缺少 to 参数", "GET", f"{O}/versions/diff", params={"from": current}, expect=422)
     A("S07", "元数据", "版本文档：不存在的版本", "GET", f"{O}/versions/9.9.9", expect=404)
     A("S08", "元数据", "版本文档：路径穿越样式的版本号", "GET", f"{O}/versions/..%2F..%2Fetc", expect={404, 422})
-    A("S09", "元数据", "版本文档：当前版本", "GET", f"{O}/versions/8.0.0", check=lambda p: len(data(p)) > 0)
+    A("S09", "元数据", "版本文档：当前版本", "GET", f"{O}/versions/{current}", check=lambda p: len(data(p)) > 0)
     A("S10", "索引", "索引状态", "GET", f"{O}/index", check=lambda p: len(data(p)["objectTypes"]) == 14)
     A("S11", "索引", "刷新索引", "POST", f"{O}/index/refresh", check=lambda p: "rebuilt" in data(p))
 
@@ -341,6 +344,7 @@ def phase_a() -> None:
     load = f"{O}/objectSets/loadObjects"
     agg = f"{O}/objectSets/aggregate"
     base = {"type": "base", "objectType": "Project"}
+    project_count = c.post(agg, json={"objectSet": base, "aggregation": [{"type": "count"}]}).json()["totalCount"]
     A("Q01", "对象集", "基础对象集", "POST", load, body={"objectSet": base}, check=lambda p: len(p["data"]) > 0)
     A("Q02", "对象集", "缺少 objectSet", "POST", load, body={}, expect=422)
     A("Q03", "对象集", "objectSet 为字符串", "POST", load, body={"objectSet": "Project"}, expect=422)
@@ -405,7 +409,7 @@ def phase_a() -> None:
     A("Q45", "对象集", "分页令牌：第二页与第一页不重叠", "POST", load, body={"objectSet": base, "pageSize": 3, "pageToken": first.get("nextPageToken")},
       check=lambda p: not ({o["primaryKey"] for o in p["data"]} & {o["primaryKey"] for o in first["data"]}))
     A("Q50", "聚合", "count 按风险分组", "POST", agg, body={"objectSet": base, "aggregation": [{"type": "count"}], "groupBy": [{"type": "exact", "field": "riskLevel"}]},
-      check=lambda p: sum(int(g["metrics"][0]["value"]) for g in p["data"]) == p["totalCount"] == 20)
+      check=lambda p: sum(int(g["metrics"][0]["value"]) for g in p["data"]) == p["totalCount"] == project_count > 0)
     A("Q51", "聚合", "sum 合同额", "POST", agg, body={"objectSet": base, "aggregation": [{"type": "sum", "field": "contractValue"}]})
     A("Q52", "聚合", "sum 文本属性", "POST", agg, body={"objectSet": base, "aggregation": [{"type": "sum", "field": "subject"}]}, expect=422)
     A("Q53", "聚合", "aggregation 为空数组", "POST", agg, body={"objectSet": base, "aggregation": []}, expect=422)
@@ -437,7 +441,7 @@ def phase_a() -> None:
         A(f"F1{i}", "函数", f"资源测算 months={months!r}", "POST", f"{fn}/resourceForecast/execute", body={"parameters": {"months": months}},
           expect=200 if months in (1, 6) else 422)
     A("F20", "函数", "资源健康：非法月份", "POST", f"{fn}/resourceHealth/execute", body={"parameters": {"month": "2026-13"}}, expect=422)
-    A("F21", "函数", "资源健康：没有工时的月份 2025-01", "POST", f"{fn}/resourceHealth/execute", body={"parameters": {"month": "2025-01"}},
+    A("F21", "函数", "资源健康：没有工时的月份 2024-12", "POST", f"{fn}/resourceHealth/execute", body={"parameters": {"month": "2024-12"}},
       check=lambda p: data(p)["result"]["data"] == [])
     A("F22", "函数", "部门复盘：年份 1900", "POST", f"{fn}/departmentOperatingReview/execute", body={"parameters": {"year": 1900}}, expect={200, 422})
     A("F23", "函数", "部门复盘：月份不在年份内", "POST", f"{fn}/departmentOperatingReview/execute", body={"parameters": {"year": 2026, "month": "2025-05"}}, expect=422)
