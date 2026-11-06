@@ -102,6 +102,21 @@ export interface PmAssistantResponse {
   sources: string[];
   suggestions?: PmAssistantSuggestion[];
   model: string;
+  /** Project review only: the checked result and the ontology facts it rests on. */
+  review?: ProjectReview;
+  facts?: string[];
+}
+
+export interface ProjectReview {
+  conclusion: string;
+  /** What the rules cannot say: relations between two or more ontology facts, each with the facts it rests on. */
+  findings?: { text: string; evidence: string[] }[];
+  /** The project's pending items (from the ontology, ranked); action is the model's suggestion, null when none passed the check. */
+  items: { level: "高" | "中" | "低"; title: string; evidence: string; action: string | null }[];
+  /** Suggested actions withheld because they cited dates, numbers or claims the facts do not support. */
+  dropped: number;
+  /** False when the model did not answer in the requested format; the conclusion then comes from the facts alone. */
+  formatted: boolean;
 }
 
 export interface SyncStatus {

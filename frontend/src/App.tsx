@@ -1,4 +1,4 @@
-import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ChangeEvent, FormEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { paymentProgress } from "./paymentProgress";
 import DatePicker, { registerLocale } from "react-datepicker";
@@ -54,6 +54,8 @@ import {
 } from "./api";
 import type {
   AuthenticatedUser,
+  PmAssistantResponse,
+  ProjectReview,
   ChinaHolidayCalendarDay,
   CrmRecord,
   CrmImportLogsResponse,
@@ -957,6 +959,38 @@ function BudgetCell({ row }: { row: ProjectHealthRow }) {
   </div>;
 }
 
+// Finished items in a drawer list (received terms, completed milestones, closed interventions) fold into one line,
+// like the to-do area: only what still needs work is laid out.
+function DoneFold({ title, note, children }: { title: string; note?: string; children: ReactNode[] }) {
+  if (children.length === 0) return null;
+  return <details className="completed-todo-section collapsible panel-done"><summary className="completed-todo-head"><div><h4>{title}</h4>{note && <small>{note}</small>}</div><span className="collapsible-toggle" /></summary><ul className="panel-rows">{children}</ul></details>;
+}
+
+// AI 项目研判 adds what the rule alerts cannot say: a one-line conclusion and findings that link two or more ontology
+// facts. The per-alert actions are shown under the alerts themselves (aiActionFor), so nothing is listed twice.
+function aiActionFor(review: ProjectReview | undefined, alert: { title: string; detail: string }): string | null {
+  return review?.items.find(item => item.title === alert.title && item.evidence === alert.detail)?.action ?? null;
+}
+
+function ProjectReviewCard({ analysis }: { analysis: Pick<PmAssistantResponse, "answer" | "sources" | "review" | "facts" | "model"> }) {
+  const review = analysis.review;
+  const findings = review?.findings ?? [];
+  return <article className="ai-analysis-result">
+    <header><div><span>AI 项目研判</span><small>把多条系统事实联系起来；数字、日期与说法已和本体数据核对</small></div><b>{review?.formatted === false ? "仅系统结论" : "已核对"}</b></header>
+    {review ? <>
+      <p className="ai-review-conclusion">{review.conclusion}</p>
+      {findings.length > 0 ? <ul className="ai-review-findings">{findings.map(finding => <li key={finding.text}>
+        <strong>{finding.text}</strong>
+        <small title={finding.evidence.join("\n")}>依据 {finding.evidence.map(item => item.split(" ", 1)[0]).join("、")}</small>
+      </li>)}</ul> : <p className="ai-review-empty">没有发现规则提醒之外的关联问题。</p>}
+      {review.items.some(item => item.action) && <p className="ai-review-hint">各项的处理建议已显示在上方对应的待处理事项下。</p>}
+      {!review.formatted && <p className="ai-review-note">模型没有按要求的格式回答，只显示系统给出的结论；可以点「重新分析」再试。</p>}
+      {review.dropped > 0 && <p className="ai-review-note">已隐藏 {review.dropped} 条与系统事实不符的建议。</p>}
+      {analysis.facts && analysis.facts.length > 0 && <details className="collapsible ai-review-facts"><summary><span>依据：{analysis.facts.length} 条系统事实（本体函数 projectOverview）· {analysis.model}</span><span className="collapsible-toggle" /></summary><ul>{analysis.facts.map(fact => <li key={fact}>{fact}</li>)}</ul></details>}
+    </> : <><Markdown text={analysis.answer} /><footer>{analysis.sources.map(source => <small key={source}>{source}</small>)}</footer></>}
+  </article>;
+}
+
 function PaymentCell({ row }: { row: ProjectHealthRow }) {
   const contractAmount = Number(row.contract_value);
   const receivedAmount = Number(row.crm_received_amount);
@@ -1314,7 +1348,7 @@ function ProjectDrawer({ project, close, refresh }: { project: ProjectDetail; cl
   const [interventionFormOpen, setInterventionFormOpen] = useState(false);
   const [expandedMonth, setExpandedMonth] = useState(project.monthly_time_entries[0]?.month ?? "");
   const [configEditing, setConfigEditing] = useState(false);
-  const [aiAnalysis, setAiAnalysis] = useState<{ answer: string; sources: string[] } | null>(null);
+  const [aiAnalysis, setAiAnalysis] = useState<Pick<PmAssistantResponse, "answer" | "sources" | "review" | "facts" | "model"> | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
 
@@ -1486,7 +1520,7 @@ function ProjectDrawer({ project, close, refresh }: { project: ProjectDetail; cl
     setAnalysisError(null);
     try {
       const result = await analyzeProjectWithPmAssistant(project.project_number);
-      setAiAnalysis({ answer: result.answer, sources: result.sources });
+      setAiAnalysis({ answer: result.answer, sources: result.sources, review: result.review, facts: result.facts, model: result.model });
     } catch (err) {
       setAnalysisError(err instanceof Error ? err.message : "暂时无法生成 AI 项目研判，请稍后重试。");
     } finally {
@@ -1519,7 +1553,7 @@ function ProjectDrawer({ project, close, refresh }: { project: ProjectDetail; cl
     <button className="drawer-close" onClick={close}>×</button>
     <p className="eyebrow">{project.project_number}</p><h2>{displayProjectName(project.project_number, project.subject)}</h2>
     <div className="drawer-badges"><span>{contractTypeLabel(project.contract_type)}</span><span>{lifecycleLabel(project.lifecycle_status)}</span><span className={`risk ${project.risk_level}`}>{riskLabel(project.risk_level)}</span>{project.redacted_markings?.length ? <RedactionNote markings={project.redacted_markings} /> : null}</div>
-    {actionAlerts.length > 0 && <section className="alert-stack" aria-label="项目待处理事项"><div className="alert-stack-head"><div className="alert-stack-icon" aria-hidden="true">!</div><div><h3>项目待处理事项</h3><small>按优先级处理风险和人工维护事项</small></div><span className="alert-stack-count">{actionAlerts.length} 项</span><button type="button" className="ai-analysis-button" disabled={analyzing} onClick={() => void requestAiAnalysis()}>{analyzing ? "正在分析…" : aiAnalysis ? "重新分析" : "AI 分析"}</button></div><div className="alert-stack-list">{actionAlerts.map((alert, index) => <article className={`anomaly-alert ${alert.severity}`} key={`${alert.code}-${index}`}><span className="anomaly-alert-icon" aria-hidden="true">{alert.severity === "critical" ? "!" : "◷"}</span><div className="anomaly-alert-content"><div><strong>{alert.title}</strong><span>{alert.severity === "critical" ? "严重" : "关注"}</span></div><p>{alert.detail}</p></div></article>)}</div>{aiAnalysis && <article className="ai-analysis-result"><header><div><span>AI 项目研判</span><small>基于当前 CRM、工时、里程碑与回款资料</small></div><b>已生成</b></header><Markdown text={aiAnalysis.answer} /><footer>{aiAnalysis.sources.map(source => <small key={source}>{source}</small>)}</footer></article>}{analysisError && <p className="ai-analysis-error">{analysisError}</p>}</section>}
+    {actionAlerts.length > 0 && <section className="alert-stack" aria-label="项目待处理事项"><div className="alert-stack-head"><div className="alert-stack-icon" aria-hidden="true">!</div><div><h3>项目待处理事项</h3><small>按优先级处理风险和人工维护事项</small></div><span className="alert-stack-count">{actionAlerts.length} 项</span><button type="button" className="ai-analysis-button" disabled={analyzing} onClick={() => void requestAiAnalysis()}>{analyzing ? "正在分析…" : aiAnalysis ? "重新分析" : "AI 分析"}</button></div><div className="alert-stack-list">{actionAlerts.map((alert, index) => <article className={`anomaly-alert ${alert.severity}`} key={`${alert.code}-${index}`}><span className="anomaly-alert-icon" aria-hidden="true">{alert.severity === "critical" ? "!" : "◷"}</span><div className="anomaly-alert-content"><div><strong>{alert.title}</strong><span>{alert.severity === "critical" ? "严重" : "关注"}</span></div><p>{alert.detail}</p>{(() => { const action = aiActionFor(aiAnalysis?.review, alert); return action ? <p className="anomaly-alert-action"><span>AI 建议</span>{action}</p> : null; })()}</div></article>)}</div>{aiAnalysis && <ProjectReviewCard analysis={aiAnalysis} />}{analysisError && <p className="ai-analysis-error">{analysisError}</p>}</section>}
     {message && <div className={`inline-message ${message.tone}`} role={message.tone === "error" ? "alert" : "status"}><span>{message.text}</span><button type="button" aria-label="关闭提示" onClick={() => setMessageState(null)}>×</button></div>}
     <section className="detail-section source-section"><div className="section-title"><div><h3>项目主数据库汇总 <span className="source-tag">系统接口 · 只读</span></h3><small>{project.revenue_settlement_basis === "workload" ? "开口合同按工作量确认收入：合同金额仅作框架额参考，不用于计算回款完成率。" : "合同金额取 CRM 导入模板；工时与人工维护字段分别独立汇总"}</small></div></div><div className="detail-metrics six"><article><span>{project.revenue_settlement_basis === "workload" ? "合同框架额（CRM）" : "合同金额（CRM）"}</span><b>{money(project.contract_value)}</b></article><article><span>{project.revenue_settlement_basis === "workload" ? "确认收入（开票）" : "已开票（CRM）"}</span><b>{money(project.revenue_settlement_basis === "workload" ? project.recognized_revenue_amount : project.invoiced_amount)}</b></article><article><span>{project.revenue_settlement_basis === "workload" ? "实际已回款（CRM）" : "已回款（CRM）"}</span><b>{money(project.crm_received_amount)}</b></article><article><span>预算人天</span><b>{project.planned_person_days ? `${project.planned_person_days} 人天` : "未设置"}</b></article><article><span>累计实际人天</span><b>{project.actual_person_days} 人天</b></article><article className={Number(project.confirmation_gap_person_days) > 0 ? "metric-alert" : ""}><span>待客户确认缺口</span><b>{project.confirmation_gap_person_days} 人天</b></article></div></section>
 
@@ -1530,32 +1564,36 @@ function ProjectDrawer({ project, close, refresh }: { project: ProjectDetail; cl
 
     <PmoResourceTable project={project} />
 
-    <section className="detail-section todo-section"><div className="todo-section-head"><div><p className="todo-section-kicker">TO-DO</p><h3>待办处理区</h3><small>按当前日期自动计算；请在完成后确认，逾期事项会持续提示</small></div><label>当前确认人<input value={confirmedBy} onChange={e => setConfirmedBy(e.target.value)} placeholder="管理人员姓名" /></label></div>
-      <div className="todo-grid">{pendingTodoEvents.map(item => {
+    {/* To-dos: one compact row per pending milestone or payment; nothing pending folds the section to one line; completed items fold into a count. */}
+    <section className={`detail-section todo-section ${pendingTodoEvents.length ? "" : "idle"}`} aria-label="待办">
+      <div className="todo-section-head">
+        <div><h3>待办 <span className={`todo-count ${pendingTodoEvents.length ? "" : "none"}`}>{pendingTodoEvents.length ? `${pendingTodoEvents.length} 项待处理` : "暂无待处理"}</span></h3>{pendingTodoEvents.length > 0 && <small>按当前日期自动计算；完成后确认，逾期会持续提示</small>}</div>
+        {pendingTodoEvents.length > 0 && <label>当前确认人<input value={confirmedBy} onChange={e => setConfirmedBy(e.target.value)} placeholder="管理人员姓名" /></label>}
+      </div>
+      {pendingTodoEvents.length > 0 && <ul className="panel-rows">{pendingTodoEvents.map(item => {
         const linkedMilestone = item.event_type === "milestone" ? project.milestones.find(milestoneItem => milestoneItem.milestone_id === item.event_id) : null;
         const linkedPayment = item.event_type === "payment" ? project.payment_nodes.find(paymentItem => paymentItem.payment_node_id === item.event_id) : null;
         const paymentMilestone = linkedPayment ? project.milestones.find(milestoneItem => milestoneItem.payment_node_id === linkedPayment.payment_node_id) : null;
-        return <article className={`todo-card ${item.urgency}`} key={`${item.event_type}-${item.event_id}`}>
-          <div><span>{item.event_type === "payment" ? "回款" : "里程碑"}</span><b>{item.label}</b></div>
-          <h4>{item.name}</h4>
-          <p>{item.due_date}{item.amount && ` · ${money(item.amount)}`}{item.deliverable && ` · 输出物：${item.deliverable}`}</p>
-          {item.event_type === "milestone" ? <div className="todo-actions">
+        return <li className={`panel-row ${item.urgency}`} key={`${item.event_type}-${item.event_id}`}>
+          <span className="panel-row-lead">{item.event_type === "payment" ? "回款" : "里程碑"}</span>
+          <div className="panel-row-main"><strong>{item.name}</strong><small>{item.due_date}{item.amount && ` · ${money(item.amount)}`}{item.deliverable && ` · 输出物：${item.deliverable}`}</small></div>
+          <b className="panel-row-status">{item.label}</b>
+          {item.event_type === "milestone" ? <div className="panel-row-actions">
             {linkedMilestone && <button type="button" className="icon-action secondary-action" aria-label="编辑里程碑" title="编辑" disabled={saving} onClick={() => editMilestone(linkedMilestone)}>✎</button>}
             {linkedMilestone && <button type="button" className="icon-action danger-action" aria-label="删除里程碑" title="删除" disabled={saving} onClick={() => removeMilestone(linkedMilestone)}>×</button>}
             <button className="icon-action confirm-action" aria-label="确认完成" title="确认完成" disabled={saving} onClick={() => { const name = actor(); if (name) void run(() => confirmMilestone(project.project_number, item.event_id, name), "里程碑已确认完成"); }}>✓</button>
-          </div> : <div className="todo-actions">
+          </div> : <div className="panel-row-actions">
             {paymentMilestone && paymentMilestone.status !== "completed" && <button type="button" className="icon-action secondary-action" aria-label="编辑回款节点" title="编辑" disabled={saving} onClick={() => editMilestone(paymentMilestone)}>✎</button>}
             {linkedPayment && !paymentMilestone && <button type="button" className="icon-action secondary-action" aria-label="编辑回款节点" title="编辑" disabled={saving} onClick={() => editPaymentNode(linkedPayment)}>✎</button>}
             {paymentMilestone && paymentMilestone.status !== "completed" && <button type="button" className="icon-action danger-action" aria-label="删除回款节点" title="删除" disabled={saving} onClick={() => removeMilestone(paymentMilestone)}>×</button>}
             {linkedPayment && !paymentMilestone && <button type="button" className="icon-action danger-action" aria-label="删除回款节点" title="删除" disabled={saving} onClick={() => removePaymentNode(linkedPayment)}>×</button>}
             <button className="icon-action confirm-action" aria-label="确认到账" title="确认到账" disabled={saving} onClick={() => { const name = actor(); if (name) void run(() => confirmPayment(project.project_number, item.event_id, name), "回款已确认到账"); }}>✓</button>
           </div>}
-        </article>;
-      })}</div>
-      {pendingTodoEvents.length === 0 && <p className="detail-empty">当前没有待办事件</p>}
-      <details className={`completed-todo-section collapsible ${completedTodoEvents.length ? "" : "empty"}`}><summary className="completed-todo-head" onClick={event => { if (!completedTodoEvents.length) event.preventDefault(); }}><div><h4>已完成事项</h4><small>{completedTodoEvents.length ? `保留完成内容与实际完成状态，便于复核${completedTodoEvents.some(item => item.completion_state === "delayed") ? ` · 其中延期完成 ${completedTodoEvents.filter(item => item.completion_state === "delayed").length} 项` : ""}` : "暂无已完成事项"}</small></div><span>{completedTodoEvents.length} 项</span>{completedTodoEvents.length > 0 && <span className="collapsible-toggle" />}</summary>
-        {completedTodoEvents.length > 0 ? <div className="completed-todo-list">{completedTodoEvents.map(item => <article className={`completed-todo-row ${item.completion_state === "delayed" ? "delayed-completed" : ""}`} key={`${item.event_type}-${item.event_id}`}><span className="completed-todo-type">{item.event_type === "payment" ? "回款" : "里程碑"}</span><strong>{item.name}</strong><span className="completed-todo-status">{item.completion_label ?? "已完成"}</span><small>计划：{item.due_date}{item.amount && ` · ${money(item.amount)}`}{item.deliverable && ` · 输出物：${item.deliverable}`}</small><small>实际{item.event_type === "payment" ? "到账" : "完成"}：{item.completed_at ?? "未记录"}{item.confirmed_by && ` · 确认人：${item.confirmed_by}`}</small></article>)}</div> : <p className="detail-empty">暂无已完成事项</p>}
-      </details>
+        </li>;
+      })}</ul>}
+      {completedTodoEvents.length > 0 && <details className="completed-todo-section collapsible"><summary className="completed-todo-head"><div><h4>已完成 {completedTodoEvents.length} 项</h4><small>{completedTodoEvents.some(item => item.completion_state === "delayed") ? `其中延期完成 ${completedTodoEvents.filter(item => item.completion_state === "delayed").length} 项` : "均按期完成"}</small></div><span className="collapsible-toggle" /></summary>
+        <div className="completed-todo-list">{completedTodoEvents.map(item => <article className={`completed-todo-row ${item.completion_state === "delayed" ? "delayed-completed" : ""}`} key={`${item.event_type}-${item.event_id}`}><span className="completed-todo-type">{item.event_type === "payment" ? "回款" : "里程碑"}</span><strong>{item.name}</strong><span className="completed-todo-status">{item.completion_label ?? "已完成"}</span><small>计划：{item.due_date}{item.amount && ` · ${money(item.amount)}`}{item.deliverable && ` · 输出物：${item.deliverable}`}</small><small>实际{item.event_type === "payment" ? "到账" : "完成"}：{item.completed_at ?? "未记录"}{item.confirmed_by && ` · 确认人：${item.confirmed_by}`}</small></article>)}</div>
+      </details>}
     </section>
 
     <MaintenanceChecklist project={project} />
@@ -1585,13 +1623,44 @@ function ProjectDrawer({ project, close, refresh }: { project: ProjectDetail; cl
     </section>
 
     <section className="detail-section"><div className="section-title"><div><h3>合同回款约定 <span className="manual-tag">人工维护</span></h3><small>初始化时维护比例、节点内容和金额；不要求填写绝对回款日期。</small></div>{!paymentTermFormOpen && <button type="button" className="button secondary add-action" disabled={saving} onClick={() => setPaymentTermFormOpen(true)}>＋ 添加约定</button>}</div>
-      <div className="payment-term-list">{project.payment_terms.map(item => <article className={`payment-term-item ${item.linked_milestone_id ? "linked" : ""}`} key={item.payment_term_id}><div className="payment-term-copy"><strong>{item.name}</strong><small>{item.payment_ratio ? `${item.payment_ratio}% · ` : ""}{money(item.planned_amount)}{item.notes ? ` · ${item.notes}` : ""}</small></div><div className="payment-term-actions"><span className={item.linked_milestone_id ? "mini-state linked" : "mini-state"}>{item.linked_milestone_id ? "已关联里程碑" : "待关联"}</span><div className="row-action-buttons"><button type="button" className="row-action" disabled={saving} onClick={() => editPaymentTerm(item)}>编辑</button><button type="button" className="row-action danger-action" disabled={saving || Boolean(item.linked_milestone_id)} onClick={() => removePaymentTerm(item)}>删除</button></div></div></article>)}</div>
+      {(() => {
+        const received = (item: ProjectDetail["payment_terms"][number]) => project.payment_nodes.some(node => node.payment_node_id === item.payment_node_id && node.status === "paid");
+        const row = (item: ProjectDetail["payment_terms"][number]) => {
+          const paid = received(item);
+          return <li key={item.payment_term_id} className={`panel-row ${paid ? "completed" : item.linked_milestone_id ? "" : "due_soon"} ${editingPaymentTermId === item.payment_term_id ? "editing" : ""}`}>
+            <span className="panel-row-lead">{item.payment_ratio ? `${Number(item.payment_ratio)}%` : "—"}</span>
+            <div className="panel-row-main"><strong>{item.name}</strong><small>{money(item.planned_amount)}{item.notes ? ` · ${item.notes}` : ""}</small></div>
+            <b className="panel-row-status">{paid ? "已到账" : item.linked_milestone_id ? "已关联里程碑" : "待关联里程碑"}</b>
+            <div className="panel-row-actions">{!paid && <>
+              <button type="button" className="icon-action secondary-action" aria-label={`编辑回款约定 ${item.name}`} title="编辑" disabled={saving} onClick={() => editPaymentTerm(item)}>✎</button>
+              <button type="button" className="icon-action danger-action" aria-label={`删除回款约定 ${item.name}`} title={item.linked_milestone_id ? "已关联里程碑，请先在里程碑中解除关联" : "删除"} disabled={saving || Boolean(item.linked_milestone_id)} onClick={() => removePaymentTerm(item)}>×</button>
+            </>}</div>
+          </li>;
+        };
+        const open = project.payment_terms.filter(item => !received(item));
+        const done = project.payment_terms.filter(received);
+        return <>{open.length > 0 && <ul className="panel-rows">{open.map(row)}</ul>}<DoneFold title={`已到账 ${done.length} 个`} note={`合计 ${money(String(done.reduce((sum, item) => sum + Number(item.planned_amount || 0), 0)))}`}>{done.map(row)}</DoneFold></>;
+      })()}
       {project.payment_terms.length === 0 && !paymentTermFormOpen && <p className="detail-empty">暂无合同回款约定。可先录入比例、节点内容和金额，再在里程碑中关联。</p>}
       {paymentTermFormOpen && <form className="milestone-form" onSubmit={savePaymentTerm}><label>回款节点内容<input required value={paymentTerm.name} placeholder="如：合同生效首期款、蓝图确认款" onChange={e => setPaymentTerm({ ...paymentTerm, name: e.target.value })} /></label><label>回款比例（%）<input type="number" min="0" max="100" step="0.01" value={paymentTerm.payment_ratio} placeholder="如：30" onChange={e => setPaymentTerm({ ...paymentTerm, payment_ratio: e.target.value })} /></label><label>约定金额（元）<input type="number" required min="0" step="0.01" value={paymentTerm.planned_amount} placeholder="如：206700" onChange={e => setPaymentTerm({ ...paymentTerm, planned_amount: e.target.value })} /></label><label>付款条件 / 备注<input value={paymentTerm.notes} placeholder="如：收到等额发票后 30 日内支付" onChange={e => setPaymentTerm({ ...paymentTerm, notes: e.target.value })} /></label><div className="form-actions span-2"><button className="button primary" disabled={saving}>{editingPaymentTermId ? "保存约定" : "添加回款约定"}</button><button type="button" className="button secondary" disabled={saving} onClick={resetPaymentTermForm}>取消</button></div></form>}
     </section>
 
     <section className="detail-section"><div className="section-title"><div><h3>里程碑计划 <span className="manual-tag">人工维护</span></h3><small>关联回款约定后，系统将使用里程碑结束日期生成并跟踪回款事件。</small></div>{!milestoneFormOpen && <button type="button" className="button secondary add-action" disabled={saving} onClick={openNewMilestoneForm}>＋ 添加</button>}</div>
-      <div className="milestone-list">{project.milestones.map(item => <article key={item.milestone_id} className={`milestone-item ${item.deadline.urgency} ${editingMilestoneId === item.milestone_id ? "editing" : ""}`}><span className="sequence">{item.sequence_no ?? "—"}</span><div><strong>{item.name}</strong><small>{item.planned_start} 至 {item.planned_end} · {item.deadline.label}</small><small>输出物：{item.deliverable || "未填写"}{item.is_payment_node ? ` · 关联回款 ${item.payment_date} ${money(item.payment_amount)}` : ""}</small></div><div className="milestone-actions"><span className={`mini-state ${item.status}`}>{item.status === "completed" ? "已完成" : "待确认"}</span>{item.confirmed_by && <small>{item.confirmed_by}</small>}{item.status !== "completed" && <div className="row-action-buttons"><button type="button" className="row-action" onClick={() => editMilestone(item)}>编辑</button><button type="button" className="row-action danger-action" disabled={saving} onClick={() => removeMilestone(item)}>删除</button></div>}</div></article>)}</div>
+      {(() => {
+        const row = (item: ProjectDetail["milestones"][number]) => <li key={item.milestone_id} className={`panel-row ${item.deadline.urgency} ${editingMilestoneId === item.milestone_id ? "editing" : ""}`}>
+          <span className="panel-row-lead sequence-lead">{item.sequence_no ?? "—"}</span>
+          <div className="panel-row-main"><strong>{item.name}</strong><small>{item.planned_start} 至 {item.planned_end}{item.deliverable ? ` · 输出物：${item.deliverable}` : ""}{item.is_payment_node ? ` · 关联回款 ${money(item.payment_amount)}` : ""}</small></div>
+          <b className="panel-row-status">{item.status === "completed" ? `已完成${item.confirmed_by ? ` · ${item.confirmed_by}` : ""}` : item.deadline.label}</b>
+          <div className="panel-row-actions">{item.status !== "completed" && <>
+            <button type="button" className="icon-action secondary-action" aria-label={`编辑里程碑 ${item.name}`} title="编辑" disabled={saving} onClick={() => editMilestone(item)}>✎</button>
+            <button type="button" className="icon-action danger-action" aria-label={`删除里程碑 ${item.name}`} title="删除" disabled={saving} onClick={() => removeMilestone(item)}>×</button>
+          </>}</div>
+        </li>;
+        const open = project.milestones.filter(item => item.status !== "completed");
+        const done = project.milestones.filter(item => item.status === "completed");
+        return <>{open.length > 0 && <ul className="panel-rows">{open.map(row)}</ul>}<DoneFold title={`已完成 ${done.length} 个`} note={(() => { const late = done.filter(item => item.completed_date && item.completed_date > item.planned_end).length; return late ? `其中延期完成 ${late} 个` : "均按期完成"; })()}>{done.map(row)}</DoneFold></>;
+      })()}
+      {project.milestones.length === 0 && !milestoneFormOpen && <p className="detail-empty">暂无里程碑。</p>}
       {milestoneFormOpen && <>{editingMilestoneId ? <div className="editing-banner"><strong>编辑待确认里程碑</strong><span>保存后将重新计算待办日期和关联回款提醒</span></div> : <div className="editing-banner"><strong>添加里程碑</strong><span>选择回款约定后，会按该里程碑结束日期生成回款跟踪事件</span></div>}
       <form className="milestone-form" onSubmit={addMilestone}>
         <label>里程碑名称<input required value={milestone.name} onChange={e => setMilestone({ ...milestone, name: e.target.value })} /></label>
@@ -1606,13 +1675,20 @@ function ProjectDrawer({ project, close, refresh }: { project: ProjectDetail; cl
     </section>
 
     <section className="detail-section"><div className="section-title"><div><h3>管理干预 <span className="manual-tag">人工维护</span></h3><small>针对项目风险需要跟踪到关闭的事项；过了截止日期仍未关闭会进入待处理事项提醒，不影响风险等级。</small></div>{!interventionFormOpen && <button type="button" className="button secondary add-action" disabled={saving} onClick={() => { setIntervention({ ...emptyIntervention, owner: settings.project_manager }); setInterventionFormOpen(true); }}>＋ 发起干预</button>}</div>
-      <div className="payment-term-list intervention-list">{project.interventions.map(item => <article key={item.intervention_id} className={`payment-term-item intervention-item ${item.status} ${item.overdue ? "overdue" : ""}`}>
-        <div className="payment-term-copy"><strong>{item.title}</strong>
-          <small>{INTERVENTION_TYPE_LABELS[item.intervention_type] ?? item.intervention_type} · 负责人 {item.owner || "未指定"} · {item.due_date ? `截止 ${item.due_date}` : "未设截止日期"}{item.overdue ? " · 已逾期" : ""}</small>
-          {item.notes && <small>备注：{item.notes}</small>}</div>
-        <div className="payment-term-actions"><span className={`mini-state ${item.status === "closed" ? "completed" : item.overdue ? "overdue" : ""}`}>{INTERVENTION_STATUS_LABELS[item.status] ?? item.status}</span>
-          {item.status !== "closed" && <div className="row-action-buttons">{item.status === "open" && <button type="button" className="row-action" disabled={saving} onClick={() => moveIntervention(item, "in_progress")}>开始处理</button>}<button type="button" className="row-action" disabled={saving} onClick={() => moveIntervention(item, "closed")}>关闭</button></div>}</div>
-      </article>)}</div>
+      {(() => {
+        const row = (item: ProjectDetail["interventions"][number]) => <li key={item.intervention_id} className={`panel-row ${item.status === "closed" ? "completed" : item.overdue ? "overdue" : ""}`}>
+          <span className="panel-row-lead">{INTERVENTION_TYPE_LABELS[item.intervention_type] ?? item.intervention_type}</span>
+          <div className="panel-row-main"><strong>{item.title}</strong><small>负责人 {item.owner || "未指定"} · {item.due_date ? `截止 ${item.due_date}` : "未设截止日期"}{item.notes ? ` · ${item.notes}` : ""}</small></div>
+          <b className="panel-row-status">{INTERVENTION_STATUS_LABELS[item.status] ?? item.status}{item.overdue ? " · 已逾期" : ""}</b>
+          <div className="panel-row-actions">{item.status !== "closed" && <>
+            {item.status === "open" && <button type="button" className="row-action" disabled={saving} onClick={() => moveIntervention(item, "in_progress")}>开始处理</button>}
+            <button type="button" className="row-action" disabled={saving} onClick={() => moveIntervention(item, "closed")}>关闭</button>
+          </>}</div>
+        </li>;
+        const open = project.interventions.filter(item => item.status !== "closed");
+        const done = project.interventions.filter(item => item.status === "closed");
+        return <>{open.length > 0 && <ul className="panel-rows">{open.map(row)}</ul>}<DoneFold title={`已关闭 ${done.length} 项`} note="关闭后锁定，可展开查看处理结论">{done.map(row)}</DoneFold></>;
+      })()}
       {project.interventions.length === 0 && !interventionFormOpen && <p className="detail-empty">暂无管理干预。项目出现需要管理者介入的风险时，在这里发起并跟踪到关闭。</p>}
       {interventionFormOpen && <form className="milestone-form" onSubmit={saveIntervention}>
         <label className="span-2">事项<input required value={intervention.title} placeholder="如：协调测试资源、与客户确认验收范围" onChange={e => setIntervention({ ...intervention, title: e.target.value })} /></label>

@@ -57,7 +57,7 @@ describe("payment column progress line", () => {
   it("no sync hint when the CRM already shows at least what was confirmed, or when amounts are hidden", () => {
     const paid = { nodes: [2, 2] as [number, number], payment_term_summary: [term("首付款", "30", "n1", "paid"), term("尾款", "70", "n2", "paid")] };
     expect(paymentProgress(row({ ...paid, actual: "51675.00" }), money)).toHaveLength(1);
-    const hidden = row({ ...paid, actual: "172250.00", contract_value: null });
+    const hidden = row({ ...paid, actual: "172250.00", contract_value: null as unknown as string });
     expect(paymentProgress({ ...hidden, crm_received_amount: null as unknown as string, payment_summary: { ...hidden.payment_summary, actual_amount: null as unknown as string } }, money)).toHaveLength(1);
   });
 });

@@ -173,7 +173,10 @@ def test_project_analysis_uses_chat_without_tools(tmp_path, monkeypatch):
     body = sent[0]["body"]
     assert "tools" not in body and [m["role"] for m in body["messages"]] == ["system", "user"]
     assert "TPL149" in body["messages"][1]["content"]
-    assert response.json()["data"]["answer"] == "1. 风险判断：……"
+    review = response.json()["data"]["review"]
+    assert review["formatted"] is False, "free text is not taken as the model's review"
+    assert review["items"] and all(item["action"] is None for item in review["items"]), "the ontology's issues still show, without actions"
+    assert review["conclusion"].startswith("风险等级"), "the conclusion falls back to the ontology's own risk level"
 
 
 @pytest.mark.parametrize(("response", "message"), [

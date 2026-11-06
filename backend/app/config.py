@@ -7,6 +7,9 @@ from pathlib import Path
 
 # Default model per PM Assistant provider when TSG_PM_ASSISTANT_MODEL is not set.
 DEFAULT_ASSISTANT_MODELS = {"openai": "gpt-5.2", "cloudflare": "@cf/ibm-granite/granite-4.0-h-micro"}
+# The project review (项目详情「AI 分析」) links several facts into findings; the small Cloudflare chat model could not
+# (2026-11-06 probe), so on Cloudflare it uses a larger model by default. Other providers use the assistant model.
+DEFAULT_ANALYSIS_MODELS = {"cloudflare": "@cf/meta/llama-3.3-70b-instruct-fp8-fast"}
 
 
 @dataclass(frozen=True)
@@ -42,6 +45,11 @@ class Settings:
     cloudflare_api_token: str | None = None
     pm_assistant_timeout_seconds: float = 35.0
     pm_assistant_max_retries: int = 1
+    pm_analysis_model: str | None = None  # None: same as pm_assistant_model
+
+    @property
+    def analysis_model(self) -> str:
+        return self.pm_analysis_model or self.pm_assistant_model
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -73,6 +81,7 @@ class Settings:
             openai_api_key=os.getenv("OPENAI_API_KEY"),
             pm_assistant_model=os.getenv("TSG_PM_ASSISTANT_MODEL") or DEFAULT_ASSISTANT_MODELS.get(provider, "gpt-5.2"),
             pm_assistant_provider=provider,
+            pm_analysis_model=os.getenv("TSG_PM_ANALYSIS_MODEL") or DEFAULT_ANALYSIS_MODELS.get(provider),
             cloudflare_account_id=os.getenv("CLOUDFLARE_ACCOUNT_ID") or None,
             cloudflare_api_token=os.getenv("CLOUDFLARE_API_TOKEN") or None,
             pm_assistant_timeout_seconds=float(os.getenv("TSG_PM_ASSISTANT_TIMEOUT_SECONDS", "35")),

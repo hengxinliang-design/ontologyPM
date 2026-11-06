@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 
 from app.config import Settings
 from app.main import create_app
-from app.pm_assistant import _project_analysis_context, _provider_error
+from app.pm_assistant import _provider_error
 
 
 def settings(tmp_path: Path) -> Settings:
@@ -123,35 +123,6 @@ def test_pm_assistant_quota_error_is_actionable():
         request=httpx.Request("POST", "https://api.openai.com/v1/responses"),
     )
     assert "额度不足" in _provider_error(response)
-
-
-def test_project_analysis_context_aggregates_people_and_does_not_use_cost_rate():
-    context = _project_analysis_context(
-        {
-            "project_number": "TEST001",
-            "monthly_time_entries": [
-                {
-                    "month": "2026-08",
-                    "reported_person_days": "2.00",
-                    "overtime_person_days": "0.50",
-                    "approved_person_days": "2.00",
-                    "confirmation_gap_person_days": "0.50",
-                    "entry_count": 2,
-                    "entries": [
-                        {"employee_name": "张三", "hours": "8", "overtime_hours": "4"},
-                        {"employee_name": "李四", "hours": "8", "overtime_hours": "0"},
-                    ],
-                }
-            ],
-            "milestones": [],
-            "payment_nodes": [],
-            "crm_records": [],
-        }
-    )
-    assert context["worktime"]["team_top_by_reported_days"][0] == {
-        "employee_name": "张三", "reported_person_days": 1.5
-    }
-    assert "成本单价" in context["data_limitations"]
 
 
 def test_records_and_project_endpoints(tmp_path):
