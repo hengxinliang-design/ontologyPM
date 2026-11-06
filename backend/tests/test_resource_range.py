@@ -85,3 +85,16 @@ def test_the_internal_part_of_the_advice_is_from_the_advice_month(tmp_path):
         assert float(row["basis_internal_person_days"]) <= march_days < float(row["internal_nonproject_person_days"])
         assert float(row["available_person_days"]) >= float(row["basis_internal_person_days"])
 
+
+def test_health_notes_a_single_overloaded_month_without_calling_it_sustained(tmp_path):
+    """周航 showed 「健康」 next to 「本月负荷过高」 at 106.8%: one month over the line is noted, not 「持续过载」."""
+    with TestClient(create_app(settings(tmp_path))) as client:
+        import_entries(client, worked("一次超载", "E805", ["2030-02"]) + worked("一次超载", "E805", ["2030-03"], "10.00"))
+        response = client.post("/api/v1/ontology/functions/resourceHealth/execute", json={"parameters": {"month": "2030-03"}})
+        assert response.status_code == 200, response.text
+        row = next(r for r in response.json()["data"]["result"]["data"] if r["employee_name"] == "一次超载")
+        assert row["statuses"] == ["healthy"] and row["consecutive_overload_months"] == 1
+        assert any("超过过载线" in reason and "已连续 1 / 2 个月，未达持续过载" in reason for reason in row["reasons"])
+        staffing = by_name(operations(client, month="2030-03"))["一次超载"]
+        assert staffing["allocation_status"] == "本月负荷过高", "the staffing column keeps its single-month reading"
+

@@ -192,8 +192,14 @@ def resource_health(months: dict[str, dict[str, Any]], month: str, capacity_hour
     concurrent = len(current["projects"])
     first_month = month == min(months) if months else True
     reasons, statuses = [], []
-    if streak >= int(Decimal(policy["overload_consecutive_months"])):
+    needed = int(Decimal(policy["overload_consecutive_months"]))
+    if streak >= needed:
         statuses.append("overloaded"); reasons.append(f"连续 {streak} 个月利用率高于过载线 {overload_line}%")
+    elif streak > 0:
+        # Over the line this month but not yet 「持续过载」: say so, so 「健康」 next to 「本月负荷过高」 does not read as a
+        # contradiction (D13 keeps the two meanings apart). This is a note, not a status.
+        reasons.append(f"本月利用率 {util.quantize(Decimal('0.1'))}% 超过过载线 {overload_line}%"
+                       f"（已连续 {streak} / {needed} 个月，未达持续过载）")
     if overtime_share > Decimal(policy["overtime_share_attention_percent"]):
         statuses.append("fatigue"); reasons.append(f"加班占比 {overtime_share.quantize(Decimal('0.1'))}% 高于关注线 {policy['overtime_share_attention_percent']}%")
     if concurrent > int(Decimal(policy["max_concurrent_projects"])):
