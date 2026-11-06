@@ -248,7 +248,7 @@ version: v1
 definition:
   apiName: resourceOperations
   displayName: 资源运营监控
-  description: 按月份或月份区间给出每位员工的利用率、调剂状态（本月负荷过高、负荷较高、可优先调剂、可适度支持、安排基本均衡）、可调剂人天和项目投入；本月负荷过高指单月利用率高于过载线，与资源健康的持续过载不同。内部非项目工时（投入设置维护）不计入负荷，可调剂。
+  description: 按月份或月份区间给出每位员工的利用率、调剂状态（本月负荷过高、负荷较高、可优先调剂、可适度支持、安排基本均衡、期末无工时）、可调剂人天和项目投入；本月负荷过高指单月利用率高于过载线，与资源健康的持续过载不同。月份区间（D42）：调剂状态与可调剂人天按区间最后一个月判定，区间利用率只算有工时的月份，并给出超过过载线的月数；期末月没有工时的人员为期末无工时。内部非项目工时（投入设置维护）不计入负荷，可调剂。
   parameters:
     - {apiName: month, displayName: 月份, type: string, description: YYYY-MM，缺省为最近有工时的月份, format: month}
     - {apiName: startMonth, displayName: 开始月份, type: string, description: YYYY-MM，与结束月份一起使用, format: month}

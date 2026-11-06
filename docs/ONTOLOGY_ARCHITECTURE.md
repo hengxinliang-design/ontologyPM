@@ -556,6 +556,12 @@ when: [{property: contractType, notIn: [sales]}, {property: lifecycleStatus, not
 
 构建包见 [2026-11-05-parameter-constraints.yaml](./ontology-builds/2026-11-05-parameter-constraints.yaml)。
 
+### 11.35 资源运营监控的月份区间口径（v8.3.0）
+
+需求基线 D42。`derivations/resources.py` 的 `resource_operations` 在区间查询时按自然月拆分工时与产能：每月用 `worktime_rows` 算出各员工的月利用率与内部代码工时；调剂状态和可调剂人天调用同一个 `allocation`，但输入换成期末月的利用率、工时、产能与内部工时；区间利用率 = 在岗月份的项目工时 ÷ 在岗月份的产能。输出新增 `basis_month`、`basis_utilization_percent`、`present_months`、`total_months`、`overload_months`、`basis_internal_person_days`；期末月无工时为新状态「期末无工时」（`NO_BASIS`，排在最后）。单月查询的结果不变。原做法在区间上整体平均：无工时的月份被当作闲置产能，过去各月的缺口被累加（2026-07～09 合计 206.94 人天，单月 25–35 人天）。
+
+构建包见 [2026-11-06-resource-range.yaml](./ontology-builds/2026-11-06-resource-range.yaml)。
+
 ## 12. 代码结构
 
 ```text

@@ -1,0 +1,64 @@
+# 本体构建包（发布稿）：资源运营监控的月份区间口径。本体 8.3.0（函数 resourceOperations 的区间判定与说明，输出新增字段，非破坏性）。
+# 依据：用户 2026-11-06「当按照跨月查询，这里显示的调剂建议是否不太准确了，请核查逻辑」，选择「Latest month decides」；需求基线 D42。
+kind: OntologyBuild
+stage: release
+topic: 跨月查询时，调剂建议与可调剂人天按区间最后一个月判定；区间利用率只算有工时的月份，并给出超过过载线的月数
+ontologyVersion: 8.3.0
+date: 2026-11-06
+scope:
+  - CQ-R1 按 2026-07～09 查询时，现在谁可以调去支援其他项目、能调多少人天？
+  - CQ-R2 一个 9 月才入职的人，在 7～9 月的区间里算不算闲置？
+  - CQ-R3 区间里有几个月超过过载线？
+  - CQ-R4 区间的「可调剂人天」合计是多少，能直接用来排人吗？
+
+rules:
+  - id: R1
+    statement: 按月份区间查询时，调剂状态（本月负荷过高、负荷较高、可优先调剂、可适度支持、安排基本均衡）与可调剂人天按区间最后一个月（basisMonth）的利用率、工时与缺口计算，判定规则与单月相同；其中来自内部代码工时的部分（basisInternalPersonDays）也取期末月。
+    basis: 只有当下才能调剂；过去月份的空闲已经过去。核查 2026-07～09 时，按整段平均判定使 12 / 38 人的结论与各月不符，例如吴迪 9 月 77.3% 已基本均衡，却显示可优先调剂 33 人天。
+    acceptance: 2030-01～03 区间中，每月 10 小时 / 工作日的人员为本月负荷过高；区间的可调剂人天合计、负荷较高人数与单查 2030-03 相同。
+    verifiedBy: [test_a_range_is_judged_on_its_last_month, test_range_totals_are_the_last_months_not_the_sum_of_past_gaps, test_the_internal_part_of_the_advice_is_from_the_advice_month]
+    ontology: [resourceOperations]
+  - id: R2
+    statement: 区间利用率（utilization_percent）只算该员工有工时的月份（presentMonths），没有工时的月份不当作闲置产能；同时给出区间月数（totalMonths）和超过过载线的月数（overloadMonths）。
+    basis: 原做法把整段工作日都算作产能，9 月才有工时的易航显示 29.2%、可调剂 30.25 人天，金鑫 9 月 100% 却显示可优先调剂 27.5 人天。
+    acceptance: 只在 2030-03 有工时的新人，区间利用率等于 3 月利用率，presentMonths 为 1、totalMonths 为 3，不是可优先调剂；三个月都超载的人员 overloadMonths 为 3。
+    verifiedBy: [test_a_range_is_judged_on_its_last_month]
+    ontology: [resourceOperations]
+  - id: R3
+    statement: 区间最后一个月没有工时的人员仍列出（区间内有工时），调剂状态为「期末无工时」，可调剂人天为 0，排在最后，不给调剂建议。
+    basis: 不知道期末是否在岗时，不能推断其可调剂；与资源健康「首月不判闲置」同一思路（D14）。
+    acceptance: 只在 2030-02 有工时的人员，在 2030-01～03 区间为期末无工时、可调剂 0 人天，位于列表末尾。
+    verifiedBy: [test_a_range_is_judged_on_its_last_month, test_range_totals_are_the_last_months_not_the_sum_of_past_gaps]
+    ontology: [resourceOperations]
+  - id: R4
+    statement: 单月查询的结果不变；输出同样带 basisMonth、presentMonths（1）、totalMonths（1）、overloadMonths（0 或 1），页面可统一显示。
+    basis: D42 只改区间口径；单月是此前已确认的 D13 口径。
+    acceptance: 单查 2030-03 时，超负荷人员 basisMonth 为 2030-03、presentMonths / totalMonths 为 1 / 1、overloadMonths 为 1，利用率与判定月利用率相同。
+    verifiedBy: [test_a_single_month_is_unchanged]
+    ontology: [resourceOperations]
+
+exceptions:
+  - rule: R1
+    case: 区间的最后一个月还没过完（例如结束月份选了本月）。
+    handling: 照常按本月已录工时判定；月初工时少，可能显示可调剂。页面在调剂建议列标明判定月份，用户可改选上个月作为结束月份。
+    basis: 单月查询本月时也是同样口径，保持一致。
+  - rule: R1
+    case: 用户想看区间内哪一个月最空、能调多少。
+    handling: 不在区间视图中给出，改用单月查询逐月查看；区间只给期末建议、平均利用率和超载月数。
+    basis: 用户选择期末月决定（2026-11-06），未选择「按在岗月份平均」。
+  - rule: R2
+    case: 员工某月只有内部非项目工时（如 TSG999）。
+    handling: 该月算作在岗月份（有工时），项目利用率按项目工时计算，可能很低；内部工时仍按原规则计入可调剂。
+    basis: 内部非项目工时不计负荷、可调剂（D15）。
+  - rule: R2
+    case: 员工请长假，整月没有工时。
+    handling: 该月不计入在岗月份，也不算闲置；系统无法区分休假与离职，页面以「在岗 x / y 个月」提示。
+    basis: 请假、离职数据不在系统中（资源建议说明已注明）。
+  - rule: R3
+    case: 期末月刚离职、但区间内曾超载的人员。
+    handling: 显示期末无工时，不给调剂建议；超载月数仍显示，供复盘。
+    basis: 调剂建议只针对当下仍在岗的人员。
+  - rule: R4
+    case: 旧版本页面或接口调用方不认识新增字段（basisMonth、presentMonths、totalMonths、overloadMonths）。
+    handling: 字段只增不改，原有字段含义在单月查询下不变，旧调用方不受影响；区间查询下 utilization_percent 的口径改为只算有工时的月份，已在函数说明与 API 文档中写明。
+    basis: 非破坏性变更，次版本 8.3.0。

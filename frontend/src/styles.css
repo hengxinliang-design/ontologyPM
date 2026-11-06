@@ -738,3 +738,18 @@ tr.clickable:focus-visible { outline: 3px solid rgba(40, 88, 184, .35); outline-
 .function-controls .button, .review-settings-actions .button, .settings-page-head .button { min-height: var(--control-h); }
 .filters .crm-stage-filter, .employee-worktime-actions .search input, .employee-worktime-actions .search button { min-height: var(--control-h); }
 
+/* 资源运营监控 top area: toolbar, one status line (health chips or the range hint) and the folded method notes. */
+.resource-operations-panel > .resource-operation-filters { padding-top: 18px; }
+.resource-status-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 4px 22px 12px; border-bottom: 1px solid var(--line-subtle); }
+.resource-status-bar .resource-health-filter { padding: 0; }
+.resource-status-bar .resource-health-filter button { gap: 5px; }
+.resource-range-hint { margin: 0; color: var(--text-secondary); font-size: var(--fs-xs); }
+.resource-period-meta { margin-left: auto; color: var(--text-tertiary); font-size: var(--fs-xs); white-space: nowrap; }
+.resource-method { position: relative; }
+.resource-method summary { color: var(--primary); cursor: pointer; font-size: var(--fs-xs); font-weight: 700; list-style: none; }
+.resource-method summary::-webkit-details-marker { display: none; }
+.resource-method summary::after { content: " ▾"; }
+.resource-method[open] summary::after { content: " ▴"; }
+.resource-method ul { position: absolute; z-index: 6; top: calc(100% + 8px); right: 0; width: min(440px, 80vw); margin: 0; padding: 12px 14px 12px 28px; border: 1px solid var(--line-subtle); border-radius: var(--radius-md); background: var(--surface); box-shadow: var(--shadow-md); color: var(--text-secondary); font-size: var(--fs-xs); line-height: 1.6; }
+.resource-method li + li { margin-top: 6px; }
+.resource-operations-table td:nth-child(2) small, .resource-operations-table td:nth-child(3) small { white-space: nowrap; }

@@ -180,15 +180,21 @@ export function App() {
     };
   }
 
+  const loadTicket = useRef(0);
   const load = useCallback(async () => {
     if (!authUser) { setLoading(false); return; }
+    // Only the latest load may write: an older, slower response must not replace newer data (a range query
+    // finished after the one that followed it and showed 07–10 for a 07–09 selection, 2026-11-06).
+    const ticket = ++loadTicket.current;
+    const current = () => ticket === loadTicket.current;
+    const keep = <T,>(setter: (value: T) => void) => (value: T) => { if (current()) setter(value); };
     setLoading(true);
     setError(null);
     try {
-      if (canAccess("sync")) setSync(await fetchSyncStatus());
-      else setSync(null);
+      if (canAccess("sync")) keep(setSync)(await fetchSyncStatus());
+      else keep(setSync)(null);
       if (view === "projects") {
-        setHealth(await fetchProjectHealth(projectHealthFilters()));
+        keep(setHealth)(await fetchProjectHealth(projectHealthFilters()));
       } else if (view === "employeeWorktime") {
         const [assessment, baseline] = await Promise.all([
           fetchEmployeeWorktime({
@@ -199,10 +205,10 @@ export function App() {
           }),
           fetchWorktimeBaseline()
         ]);
-        setEmployeeWorktime(assessment);
-        setWorktimeBaseline(baseline);
+        keep(setEmployeeWorktime)(assessment);
+        keep(setWorktimeBaseline)(baseline);
       } else if (view === "settings") {
-        setWorktimeBaseline(await fetchWorktimeBaseline());
+        keep(setWorktimeBaseline)(await fetchWorktimeBaseline());
       } else if (view === "resource") {
         const operations = await fetchResourceOperations({
           month: resourcePeriodMode === "month" ? resourceMonth : undefined,
@@ -211,16 +217,17 @@ export function App() {
           employeeName: resourceEmployeeName || undefined,
           pageSize: ANALYTICS_PAGE_SIZE
         });
-        setResourceOperations(operations);
+        keep(setResourceOperations)(operations);
         // 资源健康 is judged per month (formerly a panel on 部门经营): load it for the month shown.
         const healthMonth = resourcePeriodMode === "month" ? operations.meta.start_date?.slice(0, 7) : undefined;
-        setResourceHealth(healthMonth ? await fetchResourceHealth(healthMonth).catch(() => null) : null);
+        keep(setResourceHealth)(healthMonth ? await fetchResourceHealth(healthMonth).catch(() => null) : null);
       } else if (view === "crm") {
-        setRecords(await fetchRecords({ dataType, query, status, salesStage, page, pageSize: PAGE_SIZE, cursor: page > 1 ? recordCursors[page - 2] : undefined }));
+        keep(setRecords)(await fetchRecords({ dataType, query, status, salesStage, page, pageSize: PAGE_SIZE, cursor: page > 1 ? recordCursors[page - 2] : undefined }));
       } else if (view === "sync") {
-        setCrmImportLogs(await fetchCrmImportLogs({ page: crmImportLogPage, pageSize: IMPORT_LOG_PAGE_SIZE }));
+        keep(setCrmImportLogs)(await fetchCrmImportLogs({ page: crmImportLogPage, pageSize: IMPORT_LOG_PAGE_SIZE }));
       }
     } catch (err) {
+      if (!current()) return;
       if (err instanceof ApiError && err.status === 401) {
         clearSession();
         setAuthUser(null);
@@ -228,7 +235,7 @@ export function App() {
       }
       setError(err instanceof Error ? err.message : "数据加载失败");
     } finally {
-      setLoading(false);
+      if (current()) setLoading(false);
     }
   }, [authUser, canAccess, view, query, contractType, riskLevel, maintenanceFilter, masterCategory, dataType, status, page, healthMode, healthMonth, healthStartMonth, healthEndMonth, worktimePeriod, worktimeMonth, worktimeYear, resourceMonth, resourcePeriodMode, resourceStartMonth, resourceEndMonth, resourceEmployeeName, crmImportLogPage, lifecycleStatus, projectCategory, salesStage, recordCursors]);
 
@@ -302,9 +309,9 @@ export function App() {
     { label: "严重不足", value: employeeWorktime?.summary.critical_count ?? "—", tone: "bad" }
   ] : view === "resource" ? [
     { label: "纳入监控人员", value: resourceOperations?.summary.total_employees ?? "—", tone: "" },
-    { label: "可调剂人员", value: resourceOperations?.summary.available_count ?? "—", tone: "good" },
-    { label: "负荷较高", value: resourceOperations?.summary.high_load_count ?? "—", tone: "warn" },
-    { label: "可调剂人天", value: resourceOperations?.summary.available_person_days ?? "—", tone: "" }
+    { label: resourcePeriodMode === "range" ? "可调剂人员（按期末月）" : "可调剂人员", value: resourceOperations?.summary.available_count ?? "—", tone: "good" },
+    { label: resourcePeriodMode === "range" ? "负荷较高（按期末月）" : "负荷较高", value: resourceOperations?.summary.high_load_count ?? "—", tone: "warn" },
+    { label: resourcePeriodMode === "range" ? "可调剂人天（按期末月）" : "可调剂人天", value: resourceOperations?.summary.available_person_days ?? "—", tone: "" }
   ] : view === "sync" ? [
     { label: "导入状态", value: statusLabel(sync?.status), tone: sync?.status === "succeeded" ? "green" : "amber" },
     { label: "合同 / 订单源记录", value: sync?.source_stats.contract_order ?? "—", tone: "" },
@@ -999,10 +1006,14 @@ function ResourceOperations({ data, health, loading, month, setMonth, periodMode
   const healthOf = (row: { employee_id: string | null; employee_name: string }) => healthByEmployee.get(row.employee_id ?? row.employee_name) ?? healthByEmployee.get(row.employee_name);
   const rows = (data?.data ?? []).filter(row => !healthFilter || healthOf(row)?.statuses.includes(healthFilter));
   useEffect(() => { setHealthFilter(null); }, [health]);
+  // One toolbar, one status line, the rules folded: the page title already names the page, so the panel has no
+  // second title, and the method notes sit behind 「计算口径」 (2026-11-06).
+  const calendarNotes = [
+    data?.meta.holiday_excluded_days ? `已扣除公休 ${data.meta.holiday_excluded_days} 天` : "",
+    data?.meta.makeup_workdays ? `含补班 ${data.meta.makeup_workdays} 天` : "",
+    data && !data.meta.calendar_available ? "节假日订阅暂不可用，按周末排除" : "",
+  ].filter(Boolean).join("，");
   return <section className="panel resource-operations-panel">
-    <div className="panel-head">
-      <div><h2>资源运营监控</h2><p>从人员负荷与项目计划缺口两端识别调剂机会，辅助 PMO 安排投入优先级。</p></div>
-    </div>
     <div className="filters health-filters resource-operation-filters">
       <div className="resource-filter-group">
         <span className="resource-filter-label">统计周期</span>
@@ -1027,30 +1038,39 @@ function ResourceOperations({ data, health, loading, month, setMonth, periodMode
         </div>
         {data?.meta.employee_name && <button className="resource-search-clear" type="button" onClick={clearEmployeeSearch}>清除</button>}
       </form>
-      <span className="result-count">统计范围：{data?.meta.start_date ?? "—"} 至 {data?.meta.end_date ?? "—"} · {data?.meta.employee_name ? `人员：${data.meta.employee_name} · ` : ""}{data?.meta.working_days ?? "—"} 个工作日 · 基线 {hoursToDays(data?.meta.baseline_hours)} 人天{data?.meta.holiday_excluded_days ? `（已扣除公休 ${data.meta.holiday_excluded_days} 天）` : ""}{data?.meta.makeup_workdays ? `（含补班 ${data.meta.makeup_workdays} 天）` : ""}{data && !data.meta.calendar_available ? "（节假日订阅暂不可用，当前按周末排除）" : ""}</span>
     </div>
-    <div className="resource-analysis-context">
-      <div className="resource-method-note"><span>资源建议</span><p>{data?.meta.recommendation_limitations ?? "基于已导入的工时、工时基线与项目计划计算。"}</p></div>
+    <div className="resource-status-bar">
+      {periodMode === "month" ? health && <div className="resource-health-filter" role="group" aria-label="按健康状态筛选">
+        <span className="resource-filter-label">资源健康</span>
+        <button type="button" className={healthFilter ? "" : "active"} onClick={() => setHealthFilter(null)}>全部</button>
+        {HEALTH_FILTER_ORDER.map(status => <button type="button" key={status} className={healthFilter === status ? "active" : ""} disabled={!health.summary[status]} onClick={() => setHealthFilter(healthFilter === status ? null : status)}>
+          <i className={`health-tag ${HEALTH_STATUS_TONE[status]}`}>{HEALTH_STATUS_LABEL[status]}</i>{health.summary[status] ?? 0}
+        </button>)}
+      </div> : <p className="resource-range-hint">跨月查询：调剂建议按 {data?.meta.end_month ?? "期末月"} 判定，利用率只算有工时的月份</p>}
+      <span className="resource-period-meta" title={`${data?.meta.start_date ?? ""} 至 ${data?.meta.end_date ?? ""}`}>{data?.meta.working_days ?? "—"} 个工作日 · 基线 {hoursToDays(data?.meta.baseline_hours)} 人天{data?.meta.employee_name ? ` · 人员：${data.meta.employee_name}` : ""}</span>
+      <details className="resource-method">
+        <summary>计算口径</summary>
+        <ul>
+          <li>统计范围：{data?.meta.start_date ?? "—"} 至 {data?.meta.end_date ?? "—"}，{data?.meta.working_days ?? "—"} 个工作日，基线 {hoursToDays(data?.meta.baseline_hours)} 人天{calendarNotes ? `（${calendarNotes}）` : ""}。</li>
+          <li>{data?.meta.recommendation_limitations ?? "基于已导入的工时、工时基线与项目计划计算。"}</li>
+          <li>资源健康按单月评估：持续过载、加班占比高、同期项目过多或利用率过低；阈值在系统设置的运营口径中维护，首次出现工时的月份不判闲置。</li>
+          <li>跨月查询：调剂建议、可调剂人天按区间最后一个月判定（只有当下才能调剂）；利用率只算有工时的月份，没有工时的月份不算闲置。</li>
+        </ul>
+      </details>
     </div>
-    {periodMode === "month" ? health && <div className="health-summary resource-health-filter" role="group" aria-label="按健康状态筛选">
-      <span className="resource-filter-label">资源健康（{health.month}）</span>
-      <button type="button" className={healthFilter ? "" : "active"} onClick={() => setHealthFilter(null)}>全部</button>
-      {HEALTH_FILTER_ORDER.map(status => <button type="button" key={status} className={healthFilter === status ? "active" : ""} disabled={!health.summary[status]} onClick={() => setHealthFilter(healthFilter === status ? null : status)}>
-        <i className={`health-tag ${HEALTH_STATUS_TONE[status]}`}>{HEALTH_STATUS_LABEL[status]}</i>{health.summary[status] ?? 0} 人
-      </button>)}
-      <small>持续过载、加班占比高、同期项目过多或利用率过低；阈值在系统设置的运营口径中维护，首次出现工时的月份不判闲置。</small>
-    </div> : <p className="resource-health-note">资源健康按单月评估，切换到「按单月」可查看并筛选。</p>}
-    <div className="table-wrap resource-operations-table"><table><thead><tr><th>人员</th><th>本期投入</th><th>加班</th><th>参与项目</th><th>健康状态</th><th>调剂建议</th><th>当前项目安排</th></tr></thead><tbody>
+    <div className="table-wrap resource-operations-table"><table><thead><tr><th>人员</th><th>本期投入</th><th>加班</th><th>参与项目</th><th>健康状态</th><th>{periodMode === "range" && data?.meta.end_month ? `调剂建议（按 ${data.meta.end_month}）` : "调剂建议"}</th><th>当前项目安排</th></tr></thead><tbody>
       {loading ? <LoadingRows colSpan={7} /> : rows.map(row => <tr key={`${row.employee_id}-${row.employee_name}`}>
         <td><strong className="project-code">{row.employee_name}</strong><small>{row.entry_count} 条项目工时{row.internal_nonproject_entry_count > 0 ? ` · ${row.internal_nonproject_entry_count} 条内部可调剂工时` : ""}</small></td>
-        <td><strong>{row.reported_person_days} 人天</strong><small>利用率 {row.utilization_percent}%</small></td>
+        <td><strong>{row.reported_person_days} 人天</strong>{(row.total_months ?? 1) > 1
+          ? <><small>在岗月均利用率 {row.utilization_percent}%</small><small>在岗 {row.present_months} / {row.total_months} 个月{row.overload_months ? <span className="overtime-text"> · {row.overload_months} 个月超过过载线</span> : ""}</small></>
+          : <small>利用率 {row.utilization_percent}%</small>}</td>
         <td className={Number(row.overtime_person_days) > 0 ? "overtime-text" : ""}>{row.overtime_person_days} 人天<small>加班占比 {row.reported_person_days === "0.00" ? "0" : `${(Number(row.overtime_person_days) / Number(row.reported_person_days) * 100).toFixed(1)}%`}</small></td>
         <td>{row.project_count} 个</td>
         <td className="resource-health-cell">{(() => { const state = healthOf(row); return state ? <>
           <div className="tag-row">{state.statuses.map(status => <span key={status} className={`health-tag ${HEALTH_STATUS_TONE[status]}`}>{HEALTH_STATUS_LABEL[status]}</span>)}</div>
           {state.reasons.length > 0 && <small title={state.reasons.join("\n")}>{state.reasons.join("；")}</small>}
         </> : <span className="resource-muted">{periodMode === "month" ? "—" : "按单月评估"}</span>; })()}</td>
-        <td><span className={`health-tag ${resourceAllocationClass(row.allocation_status)}`}>{row.allocation_status}</span>{Number(row.available_person_days) > 0 && <small><strong className="available-days">可调剂 {row.available_person_days} 人天</strong>{Number(row.internal_nonproject_person_days) > 0 && `（含 TSG999 ${row.internal_nonproject_person_days} 人天）`}</small>}</td>
+        <td><span className={`health-tag ${resourceAllocationClass(row.allocation_status)}`}>{row.allocation_status}</span>{Number(row.available_person_days) > 0 && <small><strong className="available-days">可调剂 {row.available_person_days} 人天</strong>{Number(row.basis_internal_person_days ?? row.internal_nonproject_person_days) > 0 && `（含内部工时 ${row.basis_internal_person_days ?? row.internal_nonproject_person_days} 人天）`}</small>}</td>
         <td>{row.assignments.length > 0 ? <div className="resource-project-list">{row.assignments.map(project => project.is_internal_nonproject ? <span className="internal-allocation" key={project.project_number}><strong>{project.project_number}</strong><small>{project.reported_person_days} 人天 · 可调剂</small></span> : <button key={project.project_number} type="button" onClick={() => void openProject(project.project_number)}>{project.project_number}<small>{project.reported_person_days} 人天</small></button>)}</div> : <span className="resource-muted">无项目</span>}</td>
       </tr>)}
       {!loading && data?.data.length === 0 && <tr><td className="empty" colSpan={7}>该筛选条件下暂无已导入员工工时，无法生成资源安排分析。</td></tr>}
@@ -1064,6 +1084,7 @@ function resourceAllocationClass(status: string) {
   if (status === "本月负荷过高") return "critical";
   if (status === "负荷较高") return "warning";
   if (status === "可优先调剂" || status === "可适度支持") return "healthy";
+  if (status === "期末无工时") return "baseline";
   return "baseline";
 }
 

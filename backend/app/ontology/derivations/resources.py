@@ -30,7 +30,10 @@ ZERO = Decimal("0")
 HUNDRED = Decimal("100")
 
 # Staffing recommendation, most urgent first. 「本月负荷过高」 is the single-month reading of the overload line (D13).
-ALLOCATION_ORDER = ("本月负荷过高", "负荷较高", "可优先调剂", "可适度支持", "安排基本均衡")
+# For a month range the recommendation is the range's last month (D42); a person without hours in that month gets
+# 「期末无工时」 instead of advice.
+NO_BASIS = "期末无工时"
+ALLOCATION_ORDER = ("本月负荷过高", "负荷较高", "可优先调剂", "可适度支持", "安排基本均衡", NO_BASIS)
 HIGH_LOAD = frozenset({"本月负荷过高", "负荷较高"})
 # Resource health, most urgent first; first_month replaces healthy for a first month without other findings (D14).
 HEALTH_ORDER = ("overloaded", "fatigue", "fragmented", "idle", "first_month", "healthy")
@@ -40,6 +43,15 @@ def _month_end(month: str) -> str:
     year, number = int(month[:4]), int(month[5:7])
     following = date(year + (number == 12), number % 12 + 1, 1)
     return date.fromordinal(following.toordinal() - 1).isoformat()
+
+
+def _months(first: str, last: str) -> list[str]:
+    """Calendar months from ``first`` to ``last`` inclusive (YYYY-MM)."""
+    result, current = [], first
+    while current <= last:
+        result.append(current)
+        current = _shift(current, 1)
+    return result
 
 
 def _shift(month: str, offset: int) -> str:
@@ -333,6 +345,22 @@ class ResourceMetrics:
             item["overtime_hours"] += _overtime_entry_hours(row)
             item["entry_count"] += 1
 
+        # D42: a range is judged on its last month (only the present can be re-staffed). Months without any hours do not
+        # count as idle capacity, and past gaps are not added up; the range adds the average over months with hours
+        # and the number of months over the overload line.
+        overload_line = Decimal(policy["overload_utilization_percent"])
+        months = _months(normalized_start_month, normalized_end_month)
+        by_month: dict[str, tuple[Decimal, dict[str, dict[str, Any]], dict[str, Decimal]]] = {}
+        for month_key in months:
+            month_start, month_end = max(f"{month_key}-01", start_date), min(_month_end(month_key), end_date)
+            month_rows = [row for row in rows if month_start <= row["work_date"] <= month_end]
+            month_capacity, _ = self.capacity(month_start, month_end, policy)
+            month_internal: dict[str, Decimal] = {}
+            for row in month_rows:
+                if _counts_as_effort(row) and is_internal(row, internal):
+                    month_internal[_employee_key(row)] = month_internal.get(_employee_key(row), ZERO) + _total_entry_hours(row)
+            by_month[month_key] = (month_capacity, {_employee_key(item): item for item in worktime_rows(month_rows, internal, policy, month_capacity)}, month_internal)
+
         employees: list[dict[str, Any]] = []
         total_available_days = ZERO
         available_count = high_load_count = overloaded_count = 0
@@ -340,9 +368,19 @@ class ResourceMetrics:
         for assessment in assessment_rows:
             key = _employee_key(assessment)
             own_internal = internal_time.get(key, empty)
-            status, available_hours = allocation(
-                Decimal(assessment["utilization_percent"]), Decimal(assessment["reported_hours"]), capacity_hours,
-                own_internal["reported_hours"], policy)
+            present = [m for m in months if key in by_month[m][1]]
+            present_hours = sum((Decimal(by_month[m][1][key]["reported_hours"]) for m in present), ZERO)
+            present_capacity = sum((by_month[m][0] for m in present), ZERO)
+            overload_months = sum(Decimal(by_month[m][1][key]["utilization_percent"]) > overload_line for m in present)
+            basis_capacity, basis_rows, basis_internal = by_month[normalized_end_month]
+            basis = basis_rows.get(key)
+            if basis is None:
+                status, available_hours = NO_BASIS, ZERO
+            else:
+                status, available_hours = allocation(
+                    Decimal(basis["utilization_percent"]), Decimal(basis["reported_hours"]), basis_capacity,
+                    basis_internal.get(key, ZERO), policy)
+            period_utilization = utilization_percent(present_hours, present_capacity)
             high_load_count += status in HIGH_LOAD
             overloaded_count += status == "本月负荷过高"
             available_count += available_hours > 0
@@ -362,6 +400,14 @@ class ResourceMetrics:
             total_available_days += available_days
             employees.append({
                 **assessment,
+                "utilization_percent": f"{period_utilization.quantize(Decimal('0.1'))}",
+                "basis_month": normalized_end_month,
+                "basis_utilization_percent": basis["utilization_percent"] if basis else None,
+                "present_months": len(present),
+                "total_months": len(months),
+                "overload_months": overload_months,
+                # Internal hours inside the advice month: the part of 可调剂人天 that comes from internal codes.
+                "basis_internal_person_days": days(basis_internal.get(key, ZERO)),
                 "allocation_status": status,
                 "available_person_days": _format_decimal(available_days),
                 "internal_nonproject_person_days": days(own_internal["reported_hours"]),

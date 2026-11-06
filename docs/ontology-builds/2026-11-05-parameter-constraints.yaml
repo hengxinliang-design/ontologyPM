@@ -2,6 +2,7 @@
 # 依据：测试报告 docs/test-reports/2026-11-01-ontology-browser.md（F9–F11a，用例 P07、P14、F10、F20、F23、F26）；用户 2026-11-05 选择「Fix the 6 failures」；需求基线 D41。
 kind: OntologyBuild
 stage: release
+supersededBy: 2026-11-06-resource-range.yaml
 topic: 非法输入一律拒绝并说明原因，不再四舍五入、不限长度或静默改成默认值；约束写在参数元数据里，动作与函数统一执行
 ontologyVersion: 8.2.0
 date: 2026-11-05
