@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
-import { fetchDepartmentReview, fetchResourceHealth, recordOperatingCost, saveAnnualPlan } from "./api";
+import { fetchDepartmentReview, recordOperatingCost, saveAnnualPlan } from "./api";
 import "./department.css";
-import { COST_FIELDS, COST_LABEL, HEALTH_STATUS_LABEL, HEALTH_STATUS_TONE, PLAN_FIELDS, PLAN_STATUS_LABEL } from "./types";
-import type { CostField, DepartmentReview, KpiKey, PlanCompletion, PlanField, ResourceHealthResponse, ResourceHealthStatus } from "./types";
+import { COST_FIELDS, COST_LABEL, PLAN_FIELDS, PLAN_STATUS_LABEL } from "./types";
+import type { CostField, DepartmentReview, KpiKey, PlanCompletion, PlanField } from "./types";
 
 // Annual plan metrics (requirements baseline D22–D29): operating metrics first, then the resource metrics that stay.
 const KPI_ORDER: KpiKey[] = ["new_contracts", "collections", "revenue_after_tax", "operating_cost", "gross_profit", "gross_margin",
@@ -19,7 +19,6 @@ const PLAN_LABEL: Record<PlanField, string> = {
   new_contract_target: "合同额（元）", collection_target: "经营收入·税前（元）", operating_cost_target: "经营成本（元）",
   capacity_person_days_target: "项目投入人天", headcount_target: "人员编制（人）", utilization_target_percent: "利用率（%）",
 };
-const HEALTH_ORDER: ResourceHealthStatus[] = ["overloaded", "fatigue", "fragmented", "idle", "first_month", "healthy"];
 
 export function money(value: string | null | undefined): string {
   if (value == null) return "—";
@@ -54,7 +53,6 @@ export function DepartmentOperationsPage({ canEditPlan }: { canEditPlan: boolean
   const [year, setYear] = useState(thisYear);
   const [month, setMonth] = useState("");
   const [review, setReview] = useState<DepartmentReview | null>(null);
-  const [health, setHealth] = useState<ResourceHealthResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [planOpen, setPlanOpen] = useState(false);
@@ -62,9 +60,7 @@ export function DepartmentOperationsPage({ canEditPlan }: { canEditPlan: boolean
   const load = useCallback(async () => {
     setLoading(true); setError(null);
     try {
-      const nextReview = await fetchDepartmentReview(year, month || undefined);
-      const nextHealth = await fetchResourceHealth(nextReview.month);
-      setReview(nextReview); setHealth(nextHealth);
+      setReview(await fetchDepartmentReview(year, month || undefined));
     } catch (err) {
       setError(errorMessage(err, "部门经营数据加载失败"));
     } finally {
@@ -100,7 +96,6 @@ export function DepartmentOperationsPage({ canEditPlan }: { canEditPlan: boolean
         <SignalPanel review={review} />
         <UtilizationPanel review={review} />
       </div>
-      {health && <HealthPanel health={health} />}
     </>}
   </div>;
 }
@@ -136,31 +131,56 @@ function AnnualPlanForm({ year, review, onSaved, reportError }: { year: number; 
   </form>;
 }
 
+// Annual indicators as one compact table: a row per indicator (actual, target, progress against time, status), grouped
+// into 经营 and 资源; the cost caveat (D25) is said once for the group instead of on every cost-based tile.
+const KPI_GROUPS: { title: string; keys: KpiKey[] }[] = [
+  { title: "经营", keys: ["new_contracts", "collections", "revenue_after_tax", "operating_cost", "gross_profit", "gross_margin"] },
+  { title: "资源", keys: ["capacity_used", "utilization", "headcount"] },
+];
+
+function percentText(value: number): string {
+  return `${value.toLocaleString("zh-CN", { maximumFractionDigits: 1 })}%`;
+}
+
 function KpiGrid({ review }: { review: DepartmentReview }) {
-  return <section className="department-kpis" aria-label="年度指标">
-    {KPI_ORDER.map(key => <KpiTile key={key} kpiKey={key} kpi={review.kpis[key]} missingCostMonths={review.operating.missing_cost_months} />)}
+  const missing = review.operating.missing_cost_months;
+  const asOf = review.kpis.operating_cost?.as_of;
+  const costNote = asOf
+    ? `经营成本、毛利润、毛利率截至 ${asOf}（最近已录成本的月份）${missing.length ? `；缺 ${missing.length} 个月成本，成本偏低、毛利偏高，仅供参考` : ""}`
+    : "尚未录入经营成本，成本与毛利暂无数据";
+  return <section className="panel kpi-table-panel" aria-label="年度指标">
+    <div className="table-wrap"><table className="kpi-table">
+      <thead><tr><th>指标</th><th>实际</th><th>目标</th><th>完成进度</th><th>状态</th></tr></thead>
+      {KPI_GROUPS.map(group => <tbody key={group.title}>
+        <tr className="kpi-group"><th colSpan={5}><span>{group.title}</span>{group.title === "经营" && <small>{costNote}</small>}</th></tr>
+        {group.keys.map(key => <KpiRow key={key} kpiKey={key} kpi={review.kpis[key]} />)}
+      </tbody>)}
+    </table></div>
+    <p className="kpi-legend"><i className="kpi-legend-bar" />完成比例 <i className="kpi-legend-tick" />时间进度（累计类指标）</p>
   </section>;
 }
 
-function KpiTile({ kpiKey, kpi, missingCostMonths }: { kpiKey: KpiKey; kpi: PlanCompletion; missingCostMonths: string[] }) {
+function KpiRow({ kpiKey, kpi }: { kpiKey: KpiKey; kpi: PlanCompletion }) {
   const cumulative = CUMULATIVE.has(kpiKey);
-  const tone = kpi.status === "behind" || kpi.status === "over_budget" ? "bad" : kpi.status === "on_track" ? "good" : "neutral";
-  const fill = kpi.completion_percent == null ? 0 : cumulative ? kpi.completion_percent : (Number(kpi.actual) / Math.max(Number(kpi.target), 1)) * 100;
-  return <article className={`department-kpi ${tone}`}>
-    <div className="department-kpi-head"><span>{kpi.label}</span><em className={`plan-status ${kpi.status}`}>{PLAN_STATUS_LABEL[kpi.status]}</em></div>
-    <strong>{formatKpi(kpiKey, kpi.actual)}</strong>
-    <small>目标 {formatKpi(kpiKey, kpi.target)}{cumulative && kpi.completion_percent != null ? ` · 完成 ${kpi.completion_percent}%` : ""}</small>
-    {COST_BASED.has(kpiKey) && <small className="kpi-asof">{kpi.as_of ? `截至 ${kpi.as_of}（最近已录成本的月份）` : "未录入经营成本"}</small>}
-    {COST_BASED.has(kpiKey) && kpi.as_of && missingCostMonths.length > 0 && <small className="kpi-warn">缺 {missingCostMonths.length} 个月成本，{kpiKey === "operating_cost" ? "成本偏低" : "毛利偏高"}，仅供参考</small>}
-    {kpi.target != null && <div className="kpi-meter" role="img" aria-label={cumulative ? `完成 ${kpi.completion_percent ?? 0}%，时间进度 ${kpi.time_progress_percent}%` : `实际 ${kpi.actual ?? "—"}，目标 ${kpi.target}`}>
-      <i style={{ width: `${Math.min(100, Math.max(0, fill))}%` }} />
-      {cumulative && <b style={{ left: `${Math.min(100, kpi.time_progress_percent)}%` }} title={`时间进度 ${kpi.time_progress_percent}%`} />}
-    </div>}
-    {cumulative && kpi.target != null && <small className="kpi-foot">时间进度 {kpi.time_progress_percent}%{kpi.lag_points != null && kpi.lag_points > 0 ? (kpi.status === "over_budget" ? `，超出 ${kpi.lag_points} 个百分点` : `，落后 ${kpi.lag_points} 个百分点`) : ""}</small>}
-  </article>;
+  const ratio = kpi.target == null || kpi.actual == null ? null
+    : cumulative ? kpi.completion_percent : (Number(kpi.actual) / Math.max(Number(kpi.target), 0.0001)) * 100;
+  const gap = kpi.lag_points != null && kpi.lag_points > 0
+    ? `${kpi.lag_points.toLocaleString("zh-CN", { maximumFractionDigits: 1 })} 个百分点` : null;
+  return <tr className={`kpi-row ${kpi.status}`}>
+    <td className="kpi-name">{kpi.label}</td>
+    <td className="kpi-actual">{formatKpi(kpiKey, kpi.actual)}</td>
+    <td className="kpi-target">{formatKpi(kpiKey, kpi.target)}</td>
+    <td className="kpi-progress">{ratio == null ? <span className="muted">—</span> : <div title={cumulative ? "条为完成比例，竖线为时间进度" : "条为实际 ÷ 目标"}>
+      <div className="kpi-meter" role="img" aria-label={cumulative ? `完成 ${percentText(ratio)}，时间进度 ${percentText(kpi.time_progress_percent)}` : `达成 ${percentText(ratio)}`}>
+        <i style={{ width: `${Math.min(100, Math.max(0, ratio))}%` }} />
+        {cumulative && <b style={{ left: `${Math.min(100, kpi.time_progress_percent)}%` }} />}
+      </div>
+      <small>{cumulative ? <>{percentText(ratio)}<span> / 时间 {percentText(kpi.time_progress_percent)}</span></> : percentText(ratio)}</small>
+    </div>}</td>
+    <td className="kpi-status"><em className={`plan-status ${kpi.status}`}>{PLAN_STATUS_LABEL[kpi.status]}</em>{gap && <small>{gap}</small>}</td>
+  </tr>;
 }
 
-// Operating costs (D24): finance provides them offline; enter or correct a month, months without an entry are listed.
 function OperatingCostPanel({ review, canEdit, onSaved, reportError }: { review: DepartmentReview; canEdit: boolean; onSaved: () => void; reportError: (message: string | null) => void }) {
   const operating = review.operating;
   const thisMonth = new Date().toISOString().slice(0, 7);
@@ -245,21 +265,3 @@ function UtilizationPanel({ review }: { review: DepartmentReview }) {
   </section>;
 }
 
-function HealthPanel({ health }: { health: ResourceHealthResponse }) {
-  return <section className="panel">
-    <div className="panel-head"><div><h2>资源健康（{health.month}）</h2><p>连续过载、加班占比高、同期项目过多或利用率过低的员工；阈值在系统设置的运营口径中维护。首次出现工时的月份不判闲置。</p></div></div>
-    <div className="health-summary">{HEALTH_ORDER.map(status => <span key={status}><i className={`health-tag ${HEALTH_STATUS_TONE[status]}`}>{HEALTH_STATUS_LABEL[status]}</i> {health.summary[status] ?? 0} 人</span>)}</div>
-    <div className="table-wrap"><table>
-      <thead><tr><th>员工</th><th>健康状态</th><th>当月利用率</th><th>加班占比</th><th>连续过载</th><th>同期项目</th><th>依据</th></tr></thead>
-      <tbody>{health.data.length === 0 ? <tr><td className="empty" colSpan={7}>该月没有工时数据</td></tr> : health.data.map(row => <tr key={row.employee_id ?? row.employee_name}>
-        <td><strong>{row.employee_name}</strong><small className="block">{row.employee_id ?? ""}</small></td>
-        <td><div className="tag-row">{row.statuses.map(status => <span key={status} className={`health-tag ${HEALTH_STATUS_TONE[status]}`}>{HEALTH_STATUS_LABEL[status]}</span>)}</div></td>
-        <td>{row.utilization_percent}%</td>
-        <td>{row.overtime_share_percent}%</td>
-        <td>{row.consecutive_overload_months} 个月</td>
-        <td>{row.concurrent_project_count} 个</td>
-        <td className="reasons">{row.reasons.length ? <ul>{row.reasons.map(item => <li key={item}>{item}</li>)}</ul> : "—"}</td>
-      </tr>)}</tbody>
-    </table></div>
-  </section>;
-}

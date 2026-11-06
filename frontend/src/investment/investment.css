@@ -71,9 +71,6 @@
 .flag.warn { background: var(--warning-soft); color: var(--warning); }
 .flag.bad { margin-left: 0; background: var(--danger-soft); color: var(--danger); }
 .inline-form-row td { background: var(--surface-subtle); }
-.outcome-form { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; white-space: normal; }
-.outcome-form select, .outcome-form input { min-height: 34px; padding: 0 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); font-size: var(--fs-sm); }
-.outcome-form small { flex-basis: 100%; color: var(--text-tertiary); font-size: var(--fs-xs); }
 .investment-columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; align-items: start; }
 
 @media (max-width: 1120px) {
@@ -88,3 +85,21 @@
 @media (max-width: 480px) {
   .investment-kpis { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* Inline row form (记录结论 / 重新激活), in the drawer form style. */
+.row-form { margin: 4px 0; padding: 14px 16px; border: 1px solid #d6e2f3; border-radius: var(--radius-md); background: var(--surface); white-space: normal; box-shadow: var(--shadow-sm); }
+.row-form-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; margin-bottom: 12px; }
+.row-form-head strong { color: var(--text); font-size: var(--fs-sm); }
+.row-form-head small { color: var(--text-tertiary); font-size: var(--fs-xs); }
+.row-form-fields { display: grid; grid-template-columns: repeat(3, minmax(140px, 180px)) minmax(200px, 1fr); gap: 12px 14px; align-items: start; }
+.row-form-fields label { color: var(--text-secondary); font-size: var(--fs-xs); font-weight: 700; }
+.row-form-fields label small { display: block; margin-top: 5px; color: var(--text-tertiary); font-weight: 400; }
+.row-form-fields select, .row-form-fields input[type="text"] { display: block; width: 100%; min-height: 40px; margin-top: 6px; padding: 0 12px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface); color: #314762; font-size: var(--fs-sm); outline: none; }
+.row-form-fields select:focus, .row-form-fields input[type="text"]:focus { border-color: #8fb0e6; box-shadow: 0 0 0 3px #e3edff; }
+.row-form-fields .date-picker { margin-top: 6px; }
+.row-form-fields .wide:only-child { grid-column: 1 / -1; max-width: 520px; }
+.row-form-actions { display: flex; gap: 10px; margin-top: 14px; }
+.row-form-actions .button { min-width: 96px; }
+.row-form-error { margin: 10px 0 0; color: var(--danger); font-size: var(--fs-xs); }
+@media (max-width: 760px) { .row-form-fields { grid-template-columns: 1fr; } }
+

@@ -1,5 +1,6 @@
 import { ChangeEvent, FormEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { CalendarDatePicker } from "./components/CalendarDatePicker";
 import { paymentProgress } from "./paymentProgress";
 import DatePicker, { registerLocale } from "react-datepicker";
 import { DayPicker } from "react-day-picker";
@@ -11,6 +12,9 @@ import { milestonePayload, showsLegacyPaymentNote } from "./milestoneForm";
 import { ROLE_OPTIONS, defaultMenus, menuAllowed, projectManagerHint, roleOption } from "./roles";
 import { InvestmentAnalysisPage } from "./investment/InvestmentAnalysis";
 import { DepartmentOperationsPage } from "./department/DepartmentOperations";
+import { fetchResourceHealth } from "./department/api";
+import { HEALTH_STATUS_LABEL, HEALTH_STATUS_TONE } from "./department/types";
+import type { ResourceHealthResponse, ResourceHealthRow, ResourceHealthStatus } from "./department/types";
 import "react-day-picker/style.css";
 import {
   confirmMilestone,
@@ -97,45 +101,6 @@ function formatMonth(value: Date): string {
   return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}`;
 }
 
-function parseDate(value: string): Date | null {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
-  if (!match) return null;
-  return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
-}
-
-function formatDate(value: Date): string {
-  return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
-}
-
-type ChinaHolidayCalendarMarkers = Record<string, ChinaHolidayCalendarDay>;
-
-let chinaHolidayCalendarCache: ChinaHolidayCalendarMarkers | null = null;
-let chinaHolidayCalendarRequest: Promise<ChinaHolidayCalendarMarkers> | null = null;
-
-function loadChinaHolidayCalendar(): Promise<ChinaHolidayCalendarMarkers> {
-  if (chinaHolidayCalendarCache) return Promise.resolve(chinaHolidayCalendarCache);
-  if (!chinaHolidayCalendarRequest) {
-    chinaHolidayCalendarRequest = fetchChinaHolidayCalendar()
-      .then(response => {
-        const markers = Object.fromEntries(response.data.map(day => [day.date, day]));
-        if (response.meta.available) chinaHolidayCalendarCache = markers;
-        return markers;
-      })
-      .catch(() => ({}))
-      .finally(() => { chinaHolidayCalendarRequest = null; });
-  }
-  return chinaHolidayCalendarRequest;
-}
-
-function useChinaHolidayCalendarMarkers(): ChinaHolidayCalendarMarkers {
-  const [markers, setMarkers] = useState<ChinaHolidayCalendarMarkers>(chinaHolidayCalendarCache ?? {});
-  useEffect(() => {
-    let active = true;
-    void loadChinaHolidayCalendar().then(days => { if (active) setMarkers(days); });
-    return () => { active = false; };
-  }, []);
-  return markers;
-}
 
 function MonthPicker({ value, onChange, label }: { value: string; onChange: (value: string) => void; label: string }) {
   return <div className="month-picker">
@@ -156,106 +121,6 @@ function MonthPicker({ value, onChange, label }: { value: string; onChange: (val
   </div>;
 }
 
-function CalendarDatePicker({ value, onChange, label, minDate, clearable = false }: {
-  value: string;
-  onChange: (value: string) => void;
-  label: string;
-  minDate?: string;
-  clearable?: boolean;
-}) {
-  const holidayMarkers = useChinaHolidayCalendarMarkers();
-  const wrapperRef = useRef<HTMLDivElement>(null);
-  const popoverRef = useRef<HTMLDivElement>(null);
-  const selectedDate = parseDate(value) ?? undefined;
-  const earliestDate = parseDate(minDate ?? "") ?? undefined;
-  const [open, setOpen] = useState(false);
-  const [month, setMonth] = useState<Date>(() => selectedDate ?? new Date());
-  const [position, setPosition] = useState({ left: 12, top: 12, placement: "bottom" });
-  const visibleYear = month.getFullYear();
-
-  const positionPopover = useCallback(() => {
-    const anchor = wrapperRef.current;
-    if (!anchor) return;
-    const rect = anchor.getBoundingClientRect();
-    const popoverRect = popoverRef.current?.getBoundingClientRect();
-    const width = popoverRect?.width ?? 282;
-    const height = popoverRect?.height ?? 310;
-    const canOpenAbove = rect.top - height - 8 >= 12;
-    const placement = rect.bottom + height + 8 > window.innerHeight - 12 && canOpenAbove ? "top" : "bottom";
-    const top = placement === "top"
-      ? Math.max(12, rect.top - height - 8)
-      : Math.min(rect.bottom + 8, Math.max(12, window.innerHeight - height - 12));
-    setPosition({ left: Math.max(12, Math.min(rect.left, window.innerWidth - width - 12)), top, placement });
-  }, []);
-
-  useEffect(() => {
-    if (selectedDate) setMonth(selectedDate);
-  }, [value]);
-
-  useEffect(() => {
-    if (!open) return;
-    const closeWhenOutside = (event: MouseEvent) => {
-      const target = event.target as Node;
-      if (!wrapperRef.current?.contains(target) && !popoverRef.current?.contains(target)) setOpen(false);
-    };
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setOpen(false);
-    };
-    document.addEventListener("mousedown", closeWhenOutside);
-    document.addEventListener("keydown", closeOnEscape);
-    return () => {
-      document.removeEventListener("mousedown", closeWhenOutside);
-      document.removeEventListener("keydown", closeOnEscape);
-    };
-  }, [open]);
-
-  useEffect(() => {
-    if (!open) return;
-    positionPopover();
-    const frame = window.requestAnimationFrame(positionPopover);
-    window.addEventListener("resize", positionPopover);
-    window.addEventListener("scroll", positionPopover, true);
-    return () => {
-      window.cancelAnimationFrame(frame);
-      window.removeEventListener("resize", positionPopover);
-      window.removeEventListener("scroll", positionPopover, true);
-    };
-  }, [open, positionPopover]);
-
-  return <div className="date-picker" ref={wrapperRef}>
-    <div className="date-picker-trigger">
-      <input aria-label={label} value={selectedDate ? formatDate(selectedDate).replaceAll("-", "/") : ""} placeholder="请选择日期" readOnly onClick={() => setOpen(true)} />
-      {clearable && selectedDate && <button type="button" className="date-picker-clear" aria-label="清除日期" onClick={() => onChange("")}>×</button>}
-      <button type="button" className="date-picker-toggle" aria-label="打开日历" aria-expanded={open} onClick={() => setOpen(current => !current)}>
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3v3m10-3v3M4.5 9.5h15M6 5h12a1.5 1.5 0 0 1 1.5 1.5v12A1.5 1.5 0 0 1 18 20H6a1.5 1.5 0 0 1-1.5-1.5v-12A1.5 1.5 0 0 1 6 5Z" /><path d="M8 13h3m2 0h3m-8 3h3m2 0h3" /></svg>
-      </button>
-    </div>
-    {open && createPortal(<div ref={popoverRef} className="day-picker-popover" data-placement={position.placement} role="dialog" aria-label={`${label}日历`} style={{ left: position.left, top: position.top }}>
-      <DayPicker
-        mode="single"
-        selected={selectedDate}
-        month={month}
-        onMonthChange={setMonth}
-        onSelect={date => { if (date) { onChange(formatDate(date)); setOpen(false); } }}
-        disabled={earliestDate ? { before: earliestDate } : undefined}
-        locale={zhCN}
-        weekStartsOn={1}
-        showOutsideDays
-        fixedWeeks
-        captionLayout="dropdown"
-        navLayout="around"
-        startMonth={new Date(visibleYear - 2, 0)}
-        endMonth={new Date(visibleYear + 2, 11)}
-        modifiers={{
-          holiday: date => holidayMarkers[formatDate(date)]?.kind === "holiday",
-          makeupWorkday: date => holidayMarkers[formatDate(date)]?.kind === "makeup_workday"
-        }}
-        modifiersClassNames={{ holiday: "rdp-day_holiday", makeupWorkday: "rdp-day_makeup-workday" }}
-      />
-      <div className="day-picker-legend" aria-label="日历标识说明"><span><i className="holiday" />法定节假日</span><span><i className="makeup" />调休补班</span></div>
-    </div>, document.body)}
-  </div>;
-}
 
 export function App() {
   const [view, setView] = useState<View>("projects");
@@ -264,6 +129,7 @@ export function App() {
   const [health, setHealth] = useState<ProjectHealthResponse | null>(null);
   const [employeeWorktime, setEmployeeWorktime] = useState<EmployeeWorktimeResponse | null>(null);
   const [resourceOperations, setResourceOperations] = useState<ResourceOperationsResponse | null>(null);
+  const [resourceHealth, setResourceHealth] = useState<ResourceHealthResponse | null>(null);
   const [worktimeBaseline, setWorktimeBaseline] = useState<WorktimeBaseline | null>(null);
   const [records, setRecords] = useState<RecordsResponse | null>(null);
   const [sync, setSync] = useState<SyncStatus | null>(null);
@@ -370,13 +236,17 @@ export function App() {
       } else if (view === "settings") {
         setWorktimeBaseline(await fetchWorktimeBaseline());
       } else if (view === "resource") {
-        setResourceOperations(await fetchResourceOperations({
+        const operations = await fetchResourceOperations({
           month: resourcePeriodMode === "month" ? resourceMonth : undefined,
           startMonth: resourcePeriodMode === "range" ? resourceStartMonth : undefined,
           endMonth: resourcePeriodMode === "range" ? resourceEndMonth : undefined,
           employeeName: resourceEmployeeName || undefined,
           pageSize: ANALYTICS_PAGE_SIZE
-        }));
+        });
+        setResourceOperations(operations);
+        // 资源健康 is judged per month (formerly a panel on 部门经营): load it for the month shown.
+        const healthMonth = resourcePeriodMode === "month" ? operations.meta.start_date?.slice(0, 7) : undefined;
+        setResourceHealth(healthMonth ? await fetchResourceHealth(healthMonth).catch(() => null) : null);
       } else if (view === "crm") {
         setRecords(await fetchRecords({ dataType, query, status, salesStage, page, pageSize: PAGE_SIZE, cursor: page > 1 ? recordCursors[page - 2] : undefined }));
       } else if (view === "sync") {
@@ -574,7 +444,7 @@ export function App() {
           />
         ) : view === "resource" ? (
           <ResourceOperations
-            data={resourceOperations} loading={loading} month={resourceMonth}
+            data={resourceOperations} health={resourceHealth} loading={loading} month={resourceMonth}
             setMonth={setPersistedResourceMonth}
             periodMode={resourcePeriodMode} setPeriodMode={setResourcePeriodMode}
             startMonth={resourceStartMonth} setStartMonth={setResourceStartMonth}
@@ -1130,8 +1000,11 @@ function RedactionNote({ markings }: { markings: string[] }) {
   return <span className="redaction-note" title="数据来自本体语义层，按安全标记脱敏">🔒 当前账号没有{markings.map(m => MARKING_LABEL[m] ?? m).join("、")}权限，相关数值已隐藏</span>;
 }
 
-function ResourceOperations({ data, loading, month, setMonth, periodMode, setPeriodMode, startMonth, setStartMonth, endMonth, setEndMonth, employeeInput, setEmployeeInput, submitEmployeeSearch, clearEmployeeSearch, openProject, loadMore }: {
+const HEALTH_FILTER_ORDER: ResourceHealthStatus[] = ["overloaded", "fatigue", "fragmented", "idle", "first_month", "healthy"];
+
+function ResourceOperations({ data, health, loading, month, setMonth, periodMode, setPeriodMode, startMonth, setStartMonth, endMonth, setEndMonth, employeeInput, setEmployeeInput, submitEmployeeSearch, clearEmployeeSearch, openProject, loadMore }: {
   data: ResourceOperationsResponse | null;
+  health: ResourceHealthResponse | null;
   loading: boolean;
   month: string;
   setMonth: (value: string) => void;
@@ -1148,6 +1021,11 @@ function ResourceOperations({ data, loading, month, setMonth, periodMode, setPer
   openProject: (projectNumber: string) => void;
   loadMore: () => Promise<void>;
 }) {
+  const [healthFilter, setHealthFilter] = useState<ResourceHealthStatus | null>(null);
+  const healthByEmployee = useMemo(() => new Map<string, ResourceHealthRow>((health?.data ?? []).map(row => [row.employee_id ?? row.employee_name, row])), [health]);
+  const healthOf = (row: { employee_id: string | null; employee_name: string }) => healthByEmployee.get(row.employee_id ?? row.employee_name) ?? healthByEmployee.get(row.employee_name);
+  const rows = (data?.data ?? []).filter(row => !healthFilter || healthOf(row)?.statuses.includes(healthFilter));
+  useEffect(() => { setHealthFilter(null); }, [health]);
   return <section className="panel resource-operations-panel">
     <div className="panel-head">
       <div><h2>资源运营监控</h2><p>从人员负荷与项目计划缺口两端识别调剂机会，辅助 PMO 安排投入优先级。</p></div>
@@ -1181,17 +1059,29 @@ function ResourceOperations({ data, loading, month, setMonth, periodMode, setPer
     <div className="resource-analysis-context">
       <div className="resource-method-note"><span>资源建议</span><p>{data?.meta.recommendation_limitations ?? "基于已导入的工时、工时基线与项目计划计算。"}</p></div>
     </div>
-    <div className="table-wrap resource-operations-table"><table><thead><tr><th>人员</th><th>本期投入</th><th>加班</th><th>参与项目</th><th>负荷评估</th><th>可调剂人天</th><th>当前项目安排</th></tr></thead><tbody>
-      {loading ? <LoadingRows colSpan={7} /> : data?.data.map(row => <tr key={`${row.employee_id}-${row.employee_name}`}>
+    {periodMode === "month" ? health && <div className="health-summary resource-health-filter" role="group" aria-label="按健康状态筛选">
+      <span className="resource-filter-label">资源健康（{health.month}）</span>
+      <button type="button" className={healthFilter ? "" : "active"} onClick={() => setHealthFilter(null)}>全部</button>
+      {HEALTH_FILTER_ORDER.map(status => <button type="button" key={status} className={healthFilter === status ? "active" : ""} disabled={!health.summary[status]} onClick={() => setHealthFilter(healthFilter === status ? null : status)}>
+        <i className={`health-tag ${HEALTH_STATUS_TONE[status]}`}>{HEALTH_STATUS_LABEL[status]}</i>{health.summary[status] ?? 0} 人
+      </button>)}
+      <small>持续过载、加班占比高、同期项目过多或利用率过低；阈值在系统设置的运营口径中维护，首次出现工时的月份不判闲置。</small>
+    </div> : <p className="resource-health-note">资源健康按单月评估，切换到「按单月」可查看并筛选。</p>}
+    <div className="table-wrap resource-operations-table"><table><thead><tr><th>人员</th><th>本期投入</th><th>加班</th><th>参与项目</th><th>健康状态</th><th>调剂建议</th><th>当前项目安排</th></tr></thead><tbody>
+      {loading ? <LoadingRows colSpan={7} /> : rows.map(row => <tr key={`${row.employee_id}-${row.employee_name}`}>
         <td><strong className="project-code">{row.employee_name}</strong><small>{row.entry_count} 条项目工时{row.internal_nonproject_entry_count > 0 ? ` · ${row.internal_nonproject_entry_count} 条内部可调剂工时` : ""}</small></td>
         <td><strong>{row.reported_person_days} 人天</strong><small>利用率 {row.utilization_percent}%</small></td>
         <td className={Number(row.overtime_person_days) > 0 ? "overtime-text" : ""}>{row.overtime_person_days} 人天<small>加班占比 {row.reported_person_days === "0.00" ? "0" : `${(Number(row.overtime_person_days) / Number(row.reported_person_days) * 100).toFixed(1)}%`}</small></td>
         <td>{row.project_count} 个</td>
-        <td><span className={`health-tag ${resourceAllocationClass(row.allocation_status)}`}>{row.allocation_status}</span></td>
-        <td>{Number(row.available_person_days) > 0 ? <><strong className="available-days">{row.available_person_days} 人天</strong>{Number(row.internal_nonproject_person_days) > 0 && <small>含 TSG999 {row.internal_nonproject_person_days} 人天</small>}</> : "—"}</td>
+        <td className="resource-health-cell">{(() => { const state = healthOf(row); return state ? <>
+          <div className="tag-row">{state.statuses.map(status => <span key={status} className={`health-tag ${HEALTH_STATUS_TONE[status]}`}>{HEALTH_STATUS_LABEL[status]}</span>)}</div>
+          {state.reasons.length > 0 && <small title={state.reasons.join("\n")}>{state.reasons.join("；")}</small>}
+        </> : <span className="resource-muted">{periodMode === "month" ? "—" : "按单月评估"}</span>; })()}</td>
+        <td><span className={`health-tag ${resourceAllocationClass(row.allocation_status)}`}>{row.allocation_status}</span>{Number(row.available_person_days) > 0 && <small><strong className="available-days">可调剂 {row.available_person_days} 人天</strong>{Number(row.internal_nonproject_person_days) > 0 && `（含 TSG999 ${row.internal_nonproject_person_days} 人天）`}</small>}</td>
         <td>{row.assignments.length > 0 ? <div className="resource-project-list">{row.assignments.map(project => project.is_internal_nonproject ? <span className="internal-allocation" key={project.project_number}><strong>{project.project_number}</strong><small>{project.reported_person_days} 人天 · 可调剂</small></span> : <button key={project.project_number} type="button" onClick={() => void openProject(project.project_number)}>{project.project_number}<small>{project.reported_person_days} 人天</small></button>)}</div> : <span className="resource-muted">无项目</span>}</td>
       </tr>)}
       {!loading && data?.data.length === 0 && <tr><td className="empty" colSpan={7}>该筛选条件下暂无已导入员工工时，无法生成资源安排分析。</td></tr>}
+      {!loading && (data?.data.length ?? 0) > 0 && rows.length === 0 && <tr><td className="empty" colSpan={7}>已加载的人员中没有「{healthFilter ? HEALTH_STATUS_LABEL[healthFilter] : ""}」{data?.meta.next_cursor ? "，可加载更多人员后再看" : ""}</td></tr>}
     </tbody></table></div>
     {data?.meta.next_cursor && <div className="pagination cursor-pagination"><button type="button" onClick={() => void loadMore()}>加载更多人员</button></div>}
   </section>;

@@ -630,3 +630,53 @@ tr.clickable:focus-visible { outline: 3px solid rgba(40, 88, 184, .35); outline-
 .anomaly-alert-action { display: flex; gap: 8px; align-items: baseline; margin-top: 6px !important; color: #244d88 !important; }
 .anomaly-alert-action span { flex: none; padding: 1px 6px; border-radius: 4px; background: #e6efff; color: #2b61ad; font-size: var(--fs-xs); font-weight: 750; }
 
+/* Table tools on the investment page: search, filter, count. */
+.list-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 0 22px 12px; color: var(--text-tertiary); font-size: var(--fs-xs); }
+.list-tools input[type="search"] { width: 240px; max-width: 100%; min-height: 34px; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px; font-size: var(--fs-sm); }
+.list-tools > span { margin-left: auto; }
+.list-tools-check { display: inline-flex; align-items: center; gap: 6px; color: var(--text-secondary); cursor: pointer; }
+.list-tools-check input { margin: 0; }
+
+/* Indicator tables (部门经营、投入成本分析): one compact row per indicator, grouped, in one panel. */
+.kpi-table-panel { padding: 6px 0 4px; }
+.kpi-table { width: 100%; min-width: 760px; border-collapse: collapse; }
+.kpi-table th, .kpi-table td { padding: 7px 16px; border-bottom: 1px solid var(--line-subtle); text-align: left; vertical-align: middle; }
+.kpi-table thead th { color: var(--text-tertiary); font-size: var(--fs-xs); font-weight: 700; }
+.kpi-table th:nth-child(1) { width: 22%; } .kpi-table th:nth-child(2), .kpi-table th:nth-child(3) { width: 14%; }
+.kpi-table th:nth-child(4) { width: 32%; } .kpi-table th:nth-child(5) { width: 18%; }
+.kpi-group th { padding-top: 9px; background: #f7f9fc; color: var(--text); font-size: var(--fs-sm); font-weight: 800; }
+.kpi-group small { margin-left: 12px; color: #a3670a; font-size: var(--fs-xs); font-weight: 500; }
+.kpi-name { color: var(--text-secondary); font-size: var(--fs-sm); font-weight: 650; }
+.kpi-name small { display: block; margin-top: 2px; color: var(--text-tertiary); font-size: var(--fs-xs); font-weight: 400; }
+.kpi-actual { color: var(--text); font-size: var(--fs-md); font-variant-numeric: tabular-nums; font-weight: 760; white-space: nowrap; }
+.kpi-target { color: var(--text-secondary); font-size: var(--fs-sm); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.kpi-progress > div { display: grid; grid-template-columns: minmax(80px, 200px) auto; align-items: center; gap: 10px; }
+.kpi-progress .kpi-meter { margin-top: 0; }
+.kpi-progress small span { color: var(--text-tertiary); opacity: .8; }
+.kpi-progress small, .kpi-status small { color: var(--text-secondary); white-space: nowrap; font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
+.kpi-status { white-space: nowrap; }
+.kpi-status small { display: inline; margin-left: 8px; }
+.kpi-row.behind .kpi-meter i, .kpi-row.over_budget .kpi-meter i { background: var(--danger); }
+.kpi-row.on_track .kpi-meter i { background: var(--success); }
+.kpi-legend { display: flex; align-items: center; gap: 6px; margin: 0; padding: 8px 16px 6px; color: var(--text-tertiary); font-size: var(--fs-xs); }
+.kpi-legend-bar { display: inline-block; width: 18px; height: 6px; border-radius: 999px; background: var(--primary); }
+.kpi-legend-tick { display: inline-block; width: 2px; height: 12px; margin-left: 10px; border-radius: 1px; background: var(--text); }
+
+.kpi-table.plain th:nth-child(1) { width: 22%; } .kpi-table.plain th:nth-child(2) { width: 18%; } .kpi-table.plain th:nth-child(3) { width: auto; }
+.kpi-table .kpi-note { color: var(--text-secondary); font-size: var(--fs-xs); }
+.kpi-row.warn .kpi-actual { color: #a3670a; }
+.kpi-row.bad .kpi-actual { color: var(--danger); }
+@media (max-width: 760px) { .kpi-table { min-width: 560px; } }
+
+/* 资源运营监控: health status counts as filters, and the health column (merged from 部门经营's 资源健康, 2026-11-06). */
+.resource-health-filter { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 4px 22px 12px; }
+.resource-health-filter .resource-filter-label { margin-right: 4px; }
+.resource-health-filter button { display: inline-flex; align-items: center; gap: 6px; min-height: 30px; padding: 0 10px 0 4px; border: 1px solid transparent; border-radius: 999px; background: transparent; color: var(--text-secondary); cursor: pointer; font-size: var(--fs-xs); }
+.resource-health-filter button:first-of-type { padding: 0 12px; border-color: var(--line); }
+.resource-health-filter button.active { border-color: #9dbcf0; background: #eef4ff; color: var(--primary); font-weight: 700; }
+.resource-health-filter button:disabled { cursor: default; opacity: .45; }
+.resource-health-filter small { flex-basis: 100%; color: var(--text-tertiary); font-size: var(--fs-xs); }
+.resource-health-note { margin: 0; padding: 4px 22px 12px; color: var(--text-tertiary); font-size: var(--fs-xs); }
+.resource-health-cell .tag-row { display: flex; flex-wrap: wrap; gap: 4px; }
+.resource-health-cell small { display: -webkit-box; max-width: 260px; margin-top: 4px; overflow: hidden; color: var(--text-tertiary); font-size: var(--fs-xs); line-height: 1.45; white-space: normal; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+
