@@ -1,11 +1,9 @@
 import { ChangeEvent, FormEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { CalendarDatePicker } from "./components/CalendarDatePicker";
+import { MonthPicker } from "./components/MonthPicker";
 import { paymentProgress } from "./paymentProgress";
-import DatePicker, { registerLocale } from "react-datepicker";
 import { DayPicker } from "react-day-picker";
-import { zhCN } from "date-fns/locale";
-import "react-datepicker/dist/react-datepicker.css";
 import { Markdown } from "./AssistantMarkdown";
 import { OntologyExplorer } from "./ontology/OntologyExplorer";
 import { milestonePayload, showsLegacyPaymentNote } from "./milestoneForm";
@@ -89,37 +87,7 @@ const WORKTIME_MONTH_STORAGE_KEY = "tsg-pm-worktime-month";
 const RESOURCE_MONTH_STORAGE_KEY = "tsg-pm-resource-month";
 type View = "projects" | "investment" | "department" | "resource" | "employeeWorktime" | "crm" | "sync" | "ontology" | "settings";
 
-registerLocale("zh-CN", zhCN);
 
-function parseMonth(value: string): Date | null {
-  const match = /^(\d{4})-(\d{2})$/.exec(value);
-  if (!match) return null;
-  return new Date(Number(match[1]), Number(match[2]) - 1, 1);
-}
-
-function formatMonth(value: Date): string {
-  return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}`;
-}
-
-
-function MonthPicker({ value, onChange, label }: { value: string; onChange: (value: string) => void; label: string }) {
-  return <div className="month-picker">
-    <DatePicker
-      aria-label={label}
-      selected={parseMonth(value)}
-      onChange={(date: Date | null) => onChange(date ? formatMonth(date) : "")}
-      dateFormat="yyyy年MM月"
-      locale="zh-CN"
-      placeholderText="选择月份"
-      showMonthYearPicker
-      showFullMonthYearPicker
-      showIcon
-      toggleCalendarOnIconClick
-      calendarStartDay={1}
-      popperPlacement="bottom-start"
-    />
-  </div>;
-}
 
 
 export function App() {
@@ -328,25 +296,25 @@ export function App() {
 
   // The project management page shows no summary cards (removed at the user's request, 2026-11-01).
   const cards = useMemo(() => view === "projects" ? [] : view === "employeeWorktime" ? [
-    { label: "统计员工", value: employeeWorktime?.summary.total_employees ?? "—", tone: "blue" },
-    { label: "工时充足", value: employeeWorktime?.summary.sufficient_count ?? "—", tone: "green" },
-    { label: "需要关注", value: employeeWorktime?.summary.attention_count ?? "—", tone: "amber" },
-    { label: "严重不足", value: employeeWorktime?.summary.critical_count ?? "—", tone: "violet" }
+    { label: "统计员工", value: employeeWorktime?.summary.total_employees ?? "—", tone: "" },
+    { label: "工时充足", value: employeeWorktime?.summary.sufficient_count ?? "—", tone: "good" },
+    { label: "需要关注", value: employeeWorktime?.summary.attention_count ?? "—", tone: "warn" },
+    { label: "严重不足", value: employeeWorktime?.summary.critical_count ?? "—", tone: "bad" }
   ] : view === "resource" ? [
-    { label: "纳入监控人员", value: resourceOperations?.summary.total_employees ?? "—", tone: "blue" },
-    { label: "可调剂人员", value: resourceOperations?.summary.available_count ?? "—", tone: "green" },
-    { label: "负荷较高", value: resourceOperations?.summary.high_load_count ?? "—", tone: "amber" },
-    { label: "可调剂人天", value: resourceOperations?.summary.available_person_days ?? "—", tone: "violet" }
+    { label: "纳入监控人员", value: resourceOperations?.summary.total_employees ?? "—", tone: "" },
+    { label: "可调剂人员", value: resourceOperations?.summary.available_count ?? "—", tone: "good" },
+    { label: "负荷较高", value: resourceOperations?.summary.high_load_count ?? "—", tone: "warn" },
+    { label: "可调剂人天", value: resourceOperations?.summary.available_person_days ?? "—", tone: "" }
   ] : view === "sync" ? [
     { label: "导入状态", value: statusLabel(sync?.status), tone: sync?.status === "succeeded" ? "green" : "amber" },
-    { label: "合同 / 订单源记录", value: sync?.source_stats.contract_order ?? "—", tone: "blue" },
-    { label: "销售机会源记录", value: sync?.source_stats.sales_opportunity ?? "—", tone: "amber" },
-    { label: "转项目已合并", value: sync?.validation.merged_opportunities ?? "—", tone: "violet" }
+    { label: "合同 / 订单源记录", value: sync?.source_stats.contract_order ?? "—", tone: "" },
+    { label: "销售机会源记录", value: sync?.source_stats.sales_opportunity ?? "—", tone: "" },
+    { label: "转项目已合并", value: sync?.validation.merged_opportunities ?? "—", tone: "" }
   ] : view === "settings" || view === "ontology" || view === "investment" || view === "department" ? [] : [
-    { label: "有效记录", value: records?.meta.total_records ?? "—", tone: "blue" },
-    { label: "合同 / 订单", value: sync?.source_stats.contract_order ?? "—", tone: "green" },
-    { label: "销售机会", value: sync?.source_stats.sales_opportunity ?? "—", tone: "amber" },
-    { label: "转项目商机", value: sync?.validation.merged_opportunities ?? "—", tone: "violet" }
+    { label: "有效记录", value: records?.meta.total_records ?? "—", tone: "" },
+    { label: "合同 / 订单", value: sync?.source_stats.contract_order ?? "—", tone: "" },
+    { label: "销售机会", value: sync?.source_stats.sales_opportunity ?? "—", tone: "" },
+    { label: "转项目商机", value: sync?.validation.merged_opportunities ?? "—", tone: "" }
   ], [view, health, employeeWorktime, resourceOperations, records, sync]);
 
   function switchView(next: View) {
@@ -402,13 +370,13 @@ export function App() {
         <div className="sidebar-foot">
           <span className={`status-dot ${sync?.status === "succeeded" ? "ok" : "warn"}`} />
           <div><strong>{authUser.username}</strong><small>{authUser.role_label ?? (authUser.is_admin ? "管理员" : "受限访问用户")}{authUser.data_scope === "own" ? " · 仅本人项目" : ""}</small></div>
-          <button type="button" className="logout-button" onClick={() => void handleLogout()}>Logout</button>
+          <button type="button" className="logout-button" onClick={() => void handleLogout()}>退出登录</button>
         </div>
       </aside>
 
       <main>
         <header className="topbar">
-          <div><p className="eyebrow">PROJECT LIFECYCLE CONTROL</p><h1>{view === "projects" ? "项目管理" : view === "investment" ? "投入成本分析" : view === "department" ? "部门经营" : view === "resource" ? "资源运营监控" : view === "employeeWorktime" ? "员工工时数据" : view === "sync" ? "项目/商机数据维护" : view === "settings" ? "系统设置" : view === "ontology" ? "本体浏览器" : "CRM 数据查询"}</h1></div>
+          <div><p className="eyebrow">{VIEW_GROUP[view]}</p><h1>{view === "projects" ? "项目管理" : view === "investment" ? "投入成本分析" : view === "department" ? "部门经营" : view === "resource" ? "资源运营监控" : view === "employeeWorktime" ? "员工工时数据" : view === "sync" ? "项目/商机数据维护" : view === "settings" ? "系统设置" : view === "ontology" ? "本体浏览器" : "CRM 数据查询"}</h1></div>
           {view === "crm" && <div className="top-actions">
             <button className="button secondary" onClick={() => void downloadExport("csv")}>导出 CSV</button>
           </div>}
@@ -492,12 +460,18 @@ export function App() {
   );
 }
 
+// The sidebar group each page sits in, shown above the page title so the header says where you are.
+const VIEW_GROUP: Record<View, string> = {
+  projects: "查询与运营监控", investment: "查询与运营监控", department: "查询与运营监控", resource: "查询与运营监控", crm: "查询与运营监控",
+  employeeWorktime: "数据维护", sync: "数据维护", ontology: "语义层", settings: "系统",
+};
+
 const MENU_OPTIONS: Array<{ value: MenuPermission; label: string; group: string }> = [
   { value: "projects", label: "项目管理（查看与维护）", group: "查询与运营监控" },
   { value: "health", label: "项目管理（只读查看）", group: "查询与运营监控" },
-  { value: "resource", label: "资源运营监控", group: "查询与运营监控" },
+  { value: "resource", label: "资源运营监控（含资源健康）", group: "查询与运营监控" },
   { value: "investment", label: "投入成本分析", group: "查询与运营监控" },
-  { value: "department", label: "部门经营（含金额与人员健康）", group: "查询与运营监控" },
+  { value: "department", label: "部门经营（含金额）", group: "查询与运营监控" },
   { value: "crm", label: "CRM 数据查询", group: "查询与运营监控" },
   { value: "employeeWorktime", label: "员工工时数据", group: "数据维护" },
   { value: "sync", label: "项目/商机数据维护", group: "数据维护" },
@@ -526,13 +500,12 @@ function LoginScreen({ onLogin }: { onLogin: (user: AuthenticatedUser) => void }
   return <main className="login-page">
     <form className="login-card" onSubmit={submit}>
       <div className="login-brand"><span className="brand-mark">PM</span><span>TSG PM</span></div>
-      <p className="eyebrow">PROJECT LIFECYCLE CONTROL</p>
-      <h1>Login</h1>
+      <h1>登录</h1>
       <p>登录后按账户权限访问项目运营与数据维护功能。</p>
       {error && <div className="login-error" role="alert">{error}</div>}
       <label>账号<input autoComplete="username" value={username} onChange={event => setUsername(event.target.value)} disabled={submitting} /></label>
       <label>密码<input type="password" autoComplete="current-password" value={password} onChange={event => setPassword(event.target.value)} disabled={submitting} /></label>
-      <button type="submit" className="button primary login-submit" disabled={submitting}>{submitting ? "登录中…" : "Login"}</button>
+      <button type="submit" className="button primary login-submit" disabled={submitting}>{submitting ? "登录中…" : "登录"}</button>
     </form>
   </main>;
 }

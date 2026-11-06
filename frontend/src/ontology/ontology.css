@@ -354,3 +354,14 @@ tr.selected-row { background: var(--primary-soft) !important; }
 details.action-meta > summary { color: var(--text-tertiary); }
 details.action-meta > p { margin: 6px 0 0; }
 
+/* Unified style (2026-11-06): the header is a standard white panel; the counts use the shared stat row look. */
+.ontology .panel.ontology-hero { background: var(--surface); color: var(--text); }
+.ontology-hero .eyebrow { color: var(--text-tertiary); font-size: var(--fs-sm); font-weight: 600; letter-spacing: 0; }
+.ontology-hero h2 { font-size: var(--fs-xl); font-weight: 740; }
+.ontology-hero p { color: var(--text-secondary); }
+.ontology-stats { gap: 0; overflow: hidden; border: 1px solid var(--line-subtle); border-radius: var(--radius-md); }
+.ontology-stats div { padding: 10px 18px; border: 0; border-left: 1px solid var(--line-subtle); border-radius: 0; background: none; }
+.ontology-stats div:first-child { border-left: 0; }
+.ontology-stats dt { color: var(--text-secondary); }
+.ontology-stats dd { color: var(--text); font-size: var(--fs-xl); }
+

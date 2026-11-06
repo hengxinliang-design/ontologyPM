@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
 import { fetchDepartmentReview, recordOperatingCost, saveAnnualPlan } from "./api";
+import { MonthPicker } from "../components/MonthPicker";
 import "./department.css";
 import { COST_FIELDS, COST_LABEL, PLAN_FIELDS, PLAN_STATUS_LABEL } from "./types";
 import type { CostField, DepartmentReview, KpiKey, PlanCompletion, PlanField } from "./types";
@@ -81,7 +82,7 @@ export function DepartmentOperationsPage({ canEditPlan }: { canEditPlan: boolean
           <select value={year} aria-label="选择年度" onChange={e => { setYear(Number(e.target.value)); setMonth(""); }}>
             {[thisYear - 1, thisYear, thisYear + 1].map(y => <option key={y} value={y}>{y} 年</option>)}
           </select>
-          <label>截至<input type="month" value={month || review?.month || ""} min={`${year}-01`} max={`${year}-12`} onChange={e => setMonth(e.target.value)} aria-label="截至月份" /></label>
+          <label>截至<MonthPicker value={month || review?.month || ""} onChange={setMonth} label="截至月份" min={`${year}-01`} max={`${year}-12`} /></label>
           {canEditPlan && <button type="button" className="button secondary" onClick={() => setPlanOpen(!planOpen)}>{planOpen ? "收起年度计划" : review?.plan ? "调整年度计划" : "设定年度计划"}</button>}
         </div>
       </div>

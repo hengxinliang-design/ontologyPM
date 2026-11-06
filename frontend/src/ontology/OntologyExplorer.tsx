@@ -47,7 +47,7 @@ export function OntologyExplorer() {
   return <div className="ontology">
     <section className="panel ontology-hero">
       <div>
-        <p className="eyebrow">SEMANTIC LAYER · v{schema.version} · {schema.checksum.slice(0, 8)}</p>
+        <p className="eyebrow">本体版本 v{schema.version}（内容指纹 {schema.checksum.slice(0, 8)}）</p>
         <h2>{schema.displayName}</h2>
         <p>{schema.description}</p>
       </div>

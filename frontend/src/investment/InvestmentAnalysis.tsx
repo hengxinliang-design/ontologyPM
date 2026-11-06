@@ -3,6 +3,7 @@ import { ApiError } from "../api";
 import { applyAction } from "../ontology/api";
 import { fetchInvestmentAnalysis, updateInvestmentSettings } from "./api";
 import { CalendarDatePicker } from "../components/CalendarDatePicker";
+import { MonthPicker } from "../components/MonthPicker";
 import { ListToolbar, Pager, useListQuery } from "./ListTools";
 import { PERIOD_LABELS, currentMonth, periodRange, periodText, previousMonth, type PeriodMode } from "./period";
 import "./investment.css";
@@ -86,11 +87,11 @@ export function InvestmentAnalysisPage({ canSeeCost, canEditOutcome }: { canSeeC
           <select value={mode} aria-label="统计期间" onChange={e => setMode(e.target.value as PeriodMode)}>
             {(Object.keys(PERIOD_LABELS) as PeriodMode[]).map(key => <option key={key} value={key}>{PERIOD_LABELS[key]}</option>)}
           </select>
-          {mode === "month" && <input type="month" aria-label="统计月份" value={month} max={now} onChange={e => setMonth(e.target.value)} />}
+          {mode === "month" && <MonthPicker value={month} onChange={setMonth} label="统计月份" max={now} />}
           {mode === "range" && <>
-            <input type="month" aria-label="开始月份" value={startMonth} max={endMonth || now} onChange={e => setStartMonth(e.target.value)} />
+            <MonthPicker value={startMonth} onChange={setStartMonth} label="开始月份" max={endMonth || now} />
             <span>至</span>
-            <input type="month" aria-label="结束月份" value={endMonth} min={startMonth} max={now} onChange={e => setEndMonth(e.target.value)} />
+            <MonthPicker value={endMonth} onChange={setEndMonth} label="结束月份" min={startMonth} max={now} />
           </>}
           <button type="button" className="button secondary" onClick={() => setShowSettings(value => !value)}>{showSettings ? "收起设置" : "分析设置"}</button>
         </div>
