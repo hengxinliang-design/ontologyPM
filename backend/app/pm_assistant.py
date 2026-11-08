@@ -504,17 +504,46 @@ def _tool(name: str, description: str, properties: dict[str, Any], required: lis
             "parameters": {"type": "object", "properties": properties, "required": required}}
 
 
+FORMAT_HINTS = {"month": "YYYY-MM", "year": "YYYY"}
+DECIMAL_TYPES = {"decimal", "money", "percent"}
+
+
 def _parameter_json(param: dict[str, Any]) -> dict[str, Any]:
-    schema: dict[str, Any] = {"type": JSON_TYPES.get(param["dataType"], "string")}
+    """One tool parameter, with the limits the ontology declares (D41) so the model does not guess and hit a 422.
+
+    Integers and texts carry the JSON-schema keys (minimum / maximum, maxLength); amounts travel as strings, so their
+    range and the two-decimal rule go into the description, which every provider passes to the model.
+    """
+    data_type = param["dataType"]
+    schema: dict[str, Any] = {"type": JSON_TYPES.get(data_type, "string")}
     description = param.get("description") or param["displayName"]
-    if param["dataType"] == "enum" and param.get("enumValues"):
+    if data_type == "enum" and param.get("enumValues"):
         schema["enum"] = [v["value"] for v in param["enumValues"]]
-    if param["dataType"] == "object_ref":
+    if data_type == "object_ref":
         description = f"{param['displayName']}：{param['objectType']} 的主键"
-    if param["dataType"] == "date":
+    if data_type == "date":
         description = f"{description}（YYYY-MM-DD）"
-    schema["description"] = description
+    low, high = param.get("minimum"), param.get("maximum")
+    limits = []
+    if data_type == "integer":
+        if low is not None:
+            schema["minimum"] = int(low)
+        if high is not None:
+            schema["maximum"] = int(high)
+    elif data_type in DECIMAL_TYPES:
+        if low is not None or high is not None:
+            limits.append(f"取值 {_plain_number(low) if low is not None else '不限'}–{_plain_number(high) if high is not None else '不限'}")
+        limits.append("最多两位小数")
+    if param.get("maxLength") and data_type == "string":
+        schema["maxLength"] = param["maxLength"]
+    if param.get("format") in FORMAT_HINTS and FORMAT_HINTS[param["format"]] not in description:
+        limits.append(f"格式 {FORMAT_HINTS[param['format']]}")
+    schema["description"] = f"{description}（{'，'.join(limits)}）" if limits else description
     return schema
+
+
+def _plain_number(value: float) -> str:
+    return str(int(value)) if float(value).is_integer() else str(value)
 
 
 def _base_type(object_set: Any) -> str | None:

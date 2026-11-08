@@ -226,17 +226,20 @@ def plan_targets(revenue_target: Any, cost_target: Any, tax_rate_percent: Decima
 
 
 def plan_completion(actual: Decimal | None, target: Decimal | None, month: int, tolerance_points: Decimal, cumulative: bool = True,
-                    lower_is_better: bool = False) -> dict[str, Any]:
-    """R14: year-to-date completion against time progress (cumulative KPIs) or against the target (rates).
+                    lower_is_better: bool = False, measure: str | None = None) -> dict[str, Any]:
+    """R14: year-to-date completion against time progress (cumulative KPIs) or against the target (rates, counts).
 
     A cost (``lower_is_better``) is over budget when it runs ahead of time progress by more than the tolerance.
+    D43: ``completion_percent`` is always actual ÷ target; the gap is in the KPI's own unit — percentage points for
+    cumulative and rate KPIs (``lag_points``), people for a count such as headcount (``shortfall``).
     """
+    measure = measure or ("cumulative" if cumulative else "rate")
     time_progress = Decimal(month) / Decimal(12) * HUNDRED
     if actual is None:
-        return {"actual": None, "target": money(target), "completion_percent": None,
+        return {"measure": measure, "actual": None, "target": money(target), "completion_percent": None,
                 "time_progress_percent": float(time_progress.quantize(Decimal("0.01"))), "status": "no_data"}
     if target is None or target <= 0:
-        return {"actual": money(actual), "target": None, "completion_percent": None,
+        return {"measure": measure, "actual": money(actual), "target": None, "completion_percent": None,
                 "time_progress_percent": float(time_progress.quantize(Decimal("0.01"))), "status": "no_target"}
     if cumulative and lower_is_better:
         completion = actual / target * HUNDRED
@@ -247,12 +250,14 @@ def plan_completion(actual: Decimal | None, target: Decimal | None, month: int, 
         lag = time_progress - completion
         status = "behind" if lag > tolerance_points else "on_track"
     else:
-        completion, lag = actual, target - actual
+        completion, lag = actual / target * HUNDRED, target - actual
         status = "behind" if actual < target else "on_track"
-    return {"actual": money(actual), "target": money(target),
-            "completion_percent": float(completion.quantize(Decimal("0.01"), ROUND_HALF_UP)),
-            "time_progress_percent": float(time_progress.quantize(Decimal("0.01"), ROUND_HALF_UP)),
-            "lag_points": float(lag.quantize(Decimal("0.01"), ROUND_HALF_UP)), "status": status}
+    result = {"measure": measure, "actual": money(actual), "target": money(target),
+              "completion_percent": float(completion.quantize(Decimal("0.01"), ROUND_HALF_UP)),
+              "time_progress_percent": float(time_progress.quantize(Decimal("0.01"), ROUND_HALF_UP)), "status": status}
+    gap = float(lag.quantize(Decimal("0.01"), ROUND_HALF_UP))
+    result["shortfall" if measure == "count" else "lag_points"] = gap
+    return result
 
 
 def backlog_coverage(remaining_disposable_days: Decimal, next_year_capacity_days: Decimal) -> Decimal | None:
@@ -441,7 +446,8 @@ class DepartmentAnalysis:
             "capacity_used": {"label": "项目投入人天", **plan_completion(used_days_ytd, target("capacity_person_days_target"), month_no, tolerance)},
             "utilization": {"label": "产能利用率", **plan_completion(Decimal(str(ytd_utilization)) if ytd_utilization is not None else None,
                                                                  target("utilization_target_percent"), month_no, tolerance, cumulative=False)},
-            "headcount": {"label": "在岗人数", **plan_completion(Decimal(headcount), target("headcount_target"), month_no, tolerance, cumulative=False)},
+            "headcount": {"label": "在岗人数", **plan_completion(Decimal(headcount), target("headcount_target"), month_no, tolerance, cumulative=False,
+                                                              measure="count")},
         }
 
         # Signals that do not need person-day economics (R15): acceptance, low utilisation, planned releases.

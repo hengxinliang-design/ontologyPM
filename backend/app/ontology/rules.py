@@ -244,6 +244,7 @@ def derive_project_facts(ctx: OntologyContext, objects: list[dict[str, Any]], ob
             "revenueSettlementBasis": p.get("revenue_settlement_basis"),
             "outstandingReceivableAmount": p.get("outstanding_receivable_amount"),
             "receivedAmount": p["received_amount"],
+            "crmSyncPendingAmount": p["crm_sync_pending_amount"],
             "reportedPersonDays": p["reported_person_days"],
             "customerConfirmedPersonDays": p["customer_confirmed_person_days"],
             "confirmationGapPersonDays": p["confirmation_gap_person_days"],

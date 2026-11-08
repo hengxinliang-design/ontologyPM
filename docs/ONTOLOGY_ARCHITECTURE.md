@@ -562,6 +562,18 @@ when: [{property: contractType, notIn: [sales]}, {property: lifecycleStatus, not
 
 构建包见 [2026-11-06-resource-range.yaml](./ontology-builds/2026-11-06-resource-range.yaml)。
 
+### 11.36 本体检查的修正（v8.4.0）
+
+2026-11-06 对 8.1.0–8.3.0 期间的多轮修改做了一次本体检查：诊断四个阶段、lint、版本差异与 361 个接口边界用例都通过，界面与样式改动没有触及本体；发现五项差距，按需求基线 D43–D45 修正：
+
+- **计划达成的单位（D43）**：`economics.plan_completion` 增加 `measure`（cumulative / rate / count）。非累计指标的 `completion_percent` 改为实际 ÷ 目标，比率类的差距仍为 `lag_points`（百分点），人数类改为 `shortfall`（人）。此前在岗人数按比率处理，35 / 40 返回「完成 35%、落后 5 个百分点」，部门经营页另行算出 87.5%。页面和本体浏览器的结果视图现在直接显示本体给出的比例。
+- **CRM 待同步（D44）**：新增派生属性 `Project.crmSyncPendingAmount`（推导规则 `projectFacts`，FINANCE），原来只在 `frontend/src/paymentProgress.ts` 中比较。项目监控行带 `crm_sync_pending_amount`，属性名以 `_amount` 结尾，由 `_mask_finance` 统一脱敏。
+- **补登两条口径（D44、D45）**：回款约定的排序（v1.34.2）与资源健康的单月超载说明（v1.35.2）此前只在代码和业务规则中，现已登记基线并纳入构建包；`resourceHealth` 的函数说明写明这一点。
+- **助手工具的参数约束**：`pm_assistant._parameter_json` 读取 schema 中的 `minimum`、`maximum`、`maxLength`、`format`，整数和文本用 JSON Schema 关键字，金额范围、两位小数与月份格式写进说明。约束只有元数据一份，助手不另写。
+- **基线附录 A**：构建包索引更新为 35 个，当前为本包。
+
+构建包见 [2026-11-06-ontology-audit.yaml](./ontology-builds/2026-11-06-ontology-audit.yaml)。
+
 ## 12. 代码结构
 
 ```text

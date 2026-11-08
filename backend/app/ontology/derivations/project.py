@@ -285,6 +285,9 @@ def derive_project(
         for term in ordered_payment_terms
     ]
     received_amount = Decimal(payment_summary["actual_amount"])
+    # D44: receipts confirmed in the system that the CRM has not recorded yet. The two figures stay independent
+    # (a later CRM import does not overwrite a confirmation); the gap is only reported, never netted off.
+    crm_sync_pending_amount = max(received_amount - contract_received_amount, Decimal("0"))
     successful_opportunities = [
         record for record in opportunities if record.get("status") == "成功"
     ]
@@ -410,6 +413,7 @@ def derive_project(
         "recognized_revenue_amount": _format_decimal(recognized_revenue_amount),
         "outstanding_receivable_amount": _format_decimal(outstanding_receivable_amount),
         "received_amount": _format_decimal(received_amount),
+        "crm_sync_pending_amount": _format_decimal(crm_sync_pending_amount),
         "invoiced_amount": _format_decimal(invoiced_amount),
         "planned_person_days": _format_decimal(planned_days) if planned_days is not None else None,
         "budget_hours": _format_decimal(budget_hours) if budget_hours is not None else None,
@@ -973,6 +977,7 @@ def _project_health_row(
         "risk_level": project.get("risk_level"),
         "contract_value": project.get("contract_value"),
         "crm_received_amount": project.get("crm_received_amount"),
+        "crm_sync_pending_amount": project.get("crm_sync_pending_amount"),
         "revenue_settlement_basis": project.get("revenue_settlement_basis"),
         "recognized_revenue_amount": project.get("recognized_revenue_amount"),
         "outstanding_receivable_amount": project.get("outstanding_receivable_amount"),

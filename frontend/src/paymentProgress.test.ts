@@ -7,14 +7,16 @@ type Term = PaymentRow["payment_term_summary"][number];
 const term = (name: string, ratio: string | null, node: string | null, status: string | null = null): Term =>
   ({ name, payment_ratio: ratio, planned_amount: "0", linked_milestone_id: node ? `ms_${node}` : null, payment_node_id: node, node_status: status, planned_date: null });
 
+// CRM shows ¥51,675 received; the ontology's crmSyncPendingAmount is what the system confirmed beyond that (D44).
+const CRM_RECEIVED = 51675;
 function row(overrides: Partial<PaymentRow> & { nodes?: [number, number]; actual?: string; next?: PaymentRow["payment_summary"]["next_node"] } = {}): PaymentRow {
   const [paid, total] = overrides.nodes ?? [0, 0];
+  const actual = overrides.actual ?? "0";
   return {
-    contract_value: "172250.00",
-    crm_received_amount: "51675.00",
+    crm_sync_pending_amount: Math.max(Number(actual) - CRM_RECEIVED, 0).toFixed(2),
     payment_term_summary: overrides.payment_term_summary ?? [],
-    payment_summary: { total_nodes: total, paid_nodes: paid, planned_amount: "0", actual_amount: overrides.actual ?? "0", next_node: overrides.next ?? null },
-    ...("contract_value" in overrides ? { contract_value: overrides.contract_value! } : {}),
+    payment_summary: { total_nodes: total, paid_nodes: paid, planned_amount: "0", actual_amount: actual, next_node: overrides.next ?? null },
+    ...("crm_sync_pending_amount" in overrides ? { crm_sync_pending_amount: overrides.crm_sync_pending_amount! } : {}),
   } as PaymentRow;
 }
 
@@ -57,7 +59,7 @@ describe("payment column progress line", () => {
   it("no sync hint when the CRM already shows at least what was confirmed, or when amounts are hidden", () => {
     const paid = { nodes: [2, 2] as [number, number], payment_term_summary: [term("首付款", "30", "n1", "paid"), term("尾款", "70", "n2", "paid")] };
     expect(paymentProgress(row({ ...paid, actual: "51675.00" }), money)).toHaveLength(1);
-    const hidden = row({ ...paid, actual: "172250.00", contract_value: null as unknown as string });
-    expect(paymentProgress({ ...hidden, crm_received_amount: null as unknown as string, payment_summary: { ...hidden.payment_summary, actual_amount: null as unknown as string } }, money)).toHaveLength(1);
+    const hidden = row({ ...paid, actual: "172250.00", crm_sync_pending_amount: null });
+    expect(paymentProgress({ ...hidden, payment_summary: { ...hidden.payment_summary, actual_amount: null as unknown as string } }, money)).toHaveLength(1);
   });
 });

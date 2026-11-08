@@ -210,7 +210,7 @@ POST /api/v1/pm-assistant/chat
 Content-Type: application/json
 ```
 
-服务端以提问用户的身份运行（本体 7.8.0 起，需求基线 G5）：模型通过工具调用本体函数和对象集查询（`query_objects`、`aggregate_objects`、`get_object`、`get_linked_objects`、`describe_type`），菜单权限、安全标记和项目经理的数据范围都按该用户生效；项目经理可以使用。最多 6 轮工具调用。写操作只能通过 `suggest_action` 提出，服务端做预检、不执行。模型服务的密钥只保存在服务端，不会发送到浏览器，配置见下方「模型服务」。
+服务端以提问用户的身份运行（本体 7.8.0 起，需求基线 G5）：模型通过工具调用本体函数和对象集查询（`query_objects`、`aggregate_objects`、`get_object`、`get_linked_objects`、`describe_type`），菜单权限、安全标记和项目经理的数据范围都按该用户生效；项目经理可以使用。最多 6 轮工具调用。函数工具的参数带上本体声明的约束（8.4.0 起）：整数给 `minimum` / `maximum`，文本给 `maxLength`，月份 / 年度、金额范围与「最多两位小数」写在参数说明中，模型不必猜测后被 422 拒绝。写操作只能通过 `suggest_action` 提出，服务端做预检、不执行。模型服务的密钥只保存在服务端，不会发送到浏览器，配置见下方「模型服务」。
 
 请求：
 
@@ -501,6 +501,7 @@ GET /api/v1/projects
 | 类别 | `master_category` | 有合同为“项目”，仅有商机为“商机” |
 | 状态 | `status` / `lifecycle_status` | 人工维护生命周期状态 |
 | CRM 回款金额 | `crm_received_amount` | 全部导入合同/订单的回款金额汇总 |
+| CRM 待同步到账 | `crm_sync_pending_amount` | 本体 `Project.crmSyncPendingAmount`（8.4.0，D44）：max(节点已到账 − CRM 已回款，0)；大于 0 时页面提示「系统已确认 ¥x · CRM 待同步」；无财务权限时为 null |
 | 待回款金额 | `outstanding_receivable_amount` | 导入合同总金额减导入回款金额，最小为零 |
 | 里程碑 | `current_milestone` | 当前未完成的最近里程碑；全部完成则返回最后完成节点 |
 | 项目类型 | `contract_type` | 建设类、维护类、开口类、销售类、未分类 |

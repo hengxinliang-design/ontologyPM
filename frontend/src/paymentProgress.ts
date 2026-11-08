@@ -1,11 +1,12 @@
 import type { ProjectHealthRow } from "./types";
 
-export type PaymentRow = Pick<ProjectHealthRow, "payment_summary" | "payment_term_summary" | "crm_received_amount" | "contract_value">;
+export type PaymentRow = Pick<ProjectHealthRow, "payment_summary" | "payment_term_summary" | "crm_sync_pending_amount">;
 export interface PaymentLine { text: string; tone: "muted" | "warning" | "danger" | "done" }
 
 // The payment column: the CRM figure (official, imported) on top, then where the system's payment nodes stand.
 // Every case gets one plain line: no terms yet, terms waiting for a milestone, the next unpaid node (with its
-// deadline), or everything received; plus a hint when the confirmed receipts are ahead of the CRM.
+// deadline), or everything received; plus a hint when the confirmed receipts are ahead of the CRM — the
+// ontology's Project.crmSyncPendingAmount (D44), so the page does not compare the two figures itself.
 export function paymentProgress(row: PaymentRow, money: (value: string | null) => string): PaymentLine[] {
   const summary = row.payment_summary;
   const terms = row.payment_term_summary ?? [];
@@ -26,9 +27,8 @@ export function paymentProgress(row: PaymentRow, money: (value: string | null) =
     lines.push({ text: `✓ 回款节点已全部到账（${summary.paid_nodes}/${summary.total_nodes}）`, tone: "done" });
   }
   if (unlinked > 0) lines.push({ text: `另有 ${unlinked} 个回款约定待关联里程碑`, tone: "warning" });
-  const confirmed = Number(summary.actual_amount);
-  const crm = Number(row.crm_received_amount);
-  if (row.contract_value !== null && summary.actual_amount !== null && Number.isFinite(confirmed) && Number.isFinite(crm) && confirmed - crm > 0.005) {
+  // Null when amounts are masked (no FINANCE permission): no amount, no hint.
+  if (row.crm_sync_pending_amount != null && Number(row.crm_sync_pending_amount) > 0 && summary.actual_amount != null) {
     lines.push({ text: `系统已确认 ${money(summary.actual_amount)} · CRM 待同步`, tone: "warning" });
   }
   return lines;

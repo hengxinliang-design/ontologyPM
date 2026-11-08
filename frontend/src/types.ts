@@ -265,6 +265,8 @@ export interface ProjectSummary {
   opportunity_count: number;
   contract_value: string;
   crm_received_amount: string;
+  /** 本体 Project.crmSyncPendingAmount（D44）：系统已确认到账但 CRM 尚未记录的金额；无财务权限时为 null。 */
+  crm_sync_pending_amount: string | null;
   /** 开口合同按已确认工作量结算，不以框架合同额计算回款比例。 */
   revenue_settlement_basis: "contract" | "workload";
   /** CRM 开票金额，作为开口合同的已确认收入。 */
@@ -433,6 +435,8 @@ export interface ProjectHealthRow {
   risk_level: ProjectSummary["risk_level"];
   contract_value: string;
   crm_received_amount: string;
+  /** 本体 Project.crmSyncPendingAmount（D44）：系统已确认到账但 CRM 尚未记录的金额；无财务权限时为 null。 */
+  crm_sync_pending_amount: string | null;
   revenue_settlement_basis: ProjectSummary["revenue_settlement_basis"];
   recognized_revenue_amount: string;
   outstanding_receivable_amount: string | null;

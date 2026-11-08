@@ -13,7 +13,6 @@ const KPI_UNIT: Record<KpiKey, "money" | "days" | "percent" | "people"> = {
   new_contracts: "money", collections: "money", revenue_after_tax: "money", operating_cost: "money", gross_profit: "money",
   gross_margin: "percent", capacity_used: "days", utilization: "percent", headcount: "people",
 };
-const CUMULATIVE = new Set<KpiKey>(["new_contracts", "collections", "revenue_after_tax", "operating_cost", "gross_profit", "capacity_used"]);
 // Cost, gross profit and margin run up to the latest month with costs entered (D25).
 const COST_BASED = new Set<KpiKey>(["operating_cost", "gross_profit", "gross_margin"]);
 const PLAN_LABEL: Record<PlanField, string> = {
@@ -162,11 +161,11 @@ function KpiGrid({ review }: { review: DepartmentReview }) {
 }
 
 function KpiRow({ kpiKey, kpi }: { kpiKey: KpiKey; kpi: PlanCompletion }) {
-  const cumulative = CUMULATIVE.has(kpiKey);
-  const ratio = kpi.target == null || kpi.actual == null ? null
-    : cumulative ? kpi.completion_percent : (Number(kpi.actual) / Math.max(Number(kpi.target), 0.0001)) * 100;
-  const gap = kpi.lag_points != null && kpi.lag_points > 0
-    ? `${kpi.lag_points.toLocaleString("zh-CN", { maximumFractionDigits: 1 })} 个百分点` : null;
+  // The ratio and the gap come from the ontology (D43); the page only formats them.
+  const cumulative = kpi.measure === "cumulative";
+  const ratio = kpi.completion_percent;
+  const [gapValue, gapUnit] = kpi.measure === "count" ? [kpi.shortfall, " 人"] : [kpi.lag_points, " 个百分点"];
+  const gap = gapValue != null && gapValue > 0 ? `${gapValue.toLocaleString("zh-CN", { maximumFractionDigits: 1 })}${gapUnit}` : null;
   return <tr className={`kpi-row ${kpi.status}`}>
     <td className="kpi-name">{kpi.label}</td>
     <td className="kpi-actual">{formatKpi(kpiKey, kpi.actual)}</td>

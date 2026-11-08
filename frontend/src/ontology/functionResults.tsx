@@ -355,7 +355,7 @@ function DepartmentReviewView({ result }: { result: Json }) {
     <div className="fr-stats">{Object.entries(kpis).map(([key, kpi]) => {
       const [statusLabel, tone] = PLAN_STATUS[String(kpi.status)] ?? [String(kpi.status), "neutral" as Tone];
       return <Stat key={key} label={String(kpi.label)} value={kpi.actual == null ? "—" : String(kpi.actual)} tone={tone}
-        hint={`${statusLabel}${kpi.target != null ? ` · 目标 ${kpi.target}` : ""}${kpi.completion_percent != null ? ` · 完成 ${kpi.completion_percent}% / 时间 ${kpi.time_progress_percent}%` : ""}`} />;
+        hint={`${statusLabel}${kpi.target != null ? ` · 目标 ${kpi.target}` : ""}${kpi.completion_percent == null ? "" : kpi.measure === "cumulative" ? ` · 完成 ${kpi.completion_percent}% / 时间 ${kpi.time_progress_percent}%` : ` · 达成 ${kpi.completion_percent}%`}`} />;
     })}</div>
     <Section title="策略信号（按优先级，只作建议）">
       <ul className="fr-alerts">{signals.map(signal => <li key={String(signal.signal)} className={signal.signal === "hold" ? "" : Number(signal.priority) <= 2 ? "critical" : "warning"}>

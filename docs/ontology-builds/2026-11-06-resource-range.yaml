@@ -2,6 +2,7 @@
 # 依据：用户 2026-11-06「当按照跨月查询，这里显示的调剂建议是否不太准确了，请核查逻辑」，选择「Latest month decides」；需求基线 D42。
 kind: OntologyBuild
 stage: release
+supersededBy: 2026-11-06-ontology-audit.yaml
 topic: 跨月查询时，调剂建议与可调剂人天按区间最后一个月判定；区间利用率只算有工时的月份，并给出超过过载线的月数
 ontologyVersion: 8.3.0
 date: 2026-11-06

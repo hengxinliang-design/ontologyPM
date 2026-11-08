@@ -154,10 +154,12 @@ describe("FunctionResultView", () => {
 
   it("ranks strategy signals in the department review", () => {
     const review = render("DepartmentOperatingReview", {
-      year: 2026, month: "2026-09", headcount: 12, kpis: { collections: { label: "回款", actual: "600000.00", target: "1000000.00", completion_percent: 60, time_progress_percent: 75, status: "behind" } },
+      year: 2026, month: "2026-09", headcount: 12, kpis: { collections: { label: "回款", measure: "cumulative", actual: "600000.00", target: "1000000.00", completion_percent: 60, time_progress_percent: 75, status: "behind" },
+        headcount: { label: "在岗人数", measure: "count", actual: "35.00", target: "40.00", completion_percent: 87.5, time_progress_percent: 75, shortfall: 5, status: "behind" } },
       signals: [{ signal: "push_acceptance", label: "推动验收回款", priority: 1, evidence: ["SEY103：1 个回款节点逾期未到账"] }]
     });
     expect(review).toContain("落后 · 目标 1000000.00 · 完成 60% / 时间 75%");
+    expect(review).toContain("落后 · 目标 40.00 · 达成 87.5%");  // D43: a count is actual ÷ target, not a rate
     expect(review).toContain("1. 推动验收回款");
   });
 

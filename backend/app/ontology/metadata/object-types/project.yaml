@@ -47,6 +47,7 @@ definition:
     - {apiName: revenueSettlementBasis, displayName: 收入结算方式, type: enum, valueType: SettlementBasis, sourceKind: derived, source: 项目类型为开口合同，或开票/回款金额超过合同总额时按工作量结算，否则按合同额结算, derivedFrom: projectFacts}
     - {apiName: outstandingReceivableAmount, displayName: 待回款, type: money, sourceKind: derived, source: 按合同额结算：max(合同总额 − CRM 已回款，0)；按工作量结算：max(CRM 开票 − CRM 已回款，0), marking: FINANCE, derivedFrom: projectFacts, unit: yuan}
     - {apiName: receivedAmount, displayName: 节点已到账, type: money, sourceKind: derived, source: Σ payment_nodes.actual_amount, marking: FINANCE, derivedFrom: projectFacts, unit: yuan}
+    - {apiName: crmSyncPendingAmount, displayName: CRM 待同步到账, type: money, sourceKind: derived, source: max(节点已到账 − CRM 已回款，0)；系统已确认到账但 CRM 尚未记录的金额，两者独立、不互相覆盖，只作提示（D44）, marking: FINANCE, derivedFrom: projectFacts, unit: yuan}
     - {apiName: plannedPersonDays, displayName: 预算人天, type: decimal, sourceKind: manual, source: project_settings.planned_person_days, unit: personDay}
     - {apiName: reportedPersonDays, displayName: 已填报人天, type: decimal, sourceKind: derived, source: Σ(正常工时 + 加班工时) / 项目每人天小时数（默认 8，可配置）；只计有效工时：已提交和已确认计入（不以审批通过为前提），已驳回和草稿不计入, derivedFrom: projectFacts, unit: personDay}
     - {apiName: customerConfirmedPersonDays, displayName: 客户确认人天, type: decimal, sourceKind: derived, source: 仅审批状态为 approved 的 approved_hours 之和 / 每人天小时数, derivedFrom: projectFacts, unit: personDay}

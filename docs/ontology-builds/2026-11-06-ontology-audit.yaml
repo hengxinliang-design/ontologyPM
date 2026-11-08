@@ -1,0 +1,84 @@
+# 本体构建包（发布稿）：本体检查发现的五项差距。本体 8.4.0（新增派生属性 Project.crmSyncPendingAmount，部门复盘指标增加 measure 与 shortfall，两条函数说明更新，非破坏性）。
+# 依据：用户 2026-11-06「接下来对我们的本体层做一个检查，我们目前的多轮修改和优化对本体是否有影响？」，检查后选择「Fix all five」；需求基线 D43–D45。
+kind: OntologyBuild
+stage: release
+topic: 计划达成的单位按指标类型区分；两条只在代码里的口径补登基线；「CRM 待同步」移入本体；PM Assistant 的工具参数带上本体声明的约束；基线构建包索引更新
+ontologyVersion: 8.4.0
+date: 2026-11-06
+scope:
+  - CQ-A1 编制 40 人、在岗 35 人，人数指标完成多少、差几个人？
+  - CQ-A2 毛利率目标 40%、实际 35%，差几个百分点？
+  - CQ-A3 哪些项目系统已确认到账、但 CRM 还没记上，差多少？
+  - CQ-A4 一个项目的回款约定先看哪一笔？
+  - CQ-A5 本月刚超过过载线的员工，为什么资源健康还是「健康」？
+  - CQ-A6 PM Assistant 调用函数时，怎么知道月份格式、测算月数和文本长度的限制？
+
+rules:
+  - id: R1
+    statement: 部门经营复盘每个指标带 measure：累计类（cumulative）完成比例与时间进度比较；比率类（rate：毛利率、利用率）与人数类（count：在岗人数）的完成比例都是实际 ÷ 目标 × 100。差距用指标自己的单位：累计类与比率类为 lag_points（百分点），人数类为 shortfall（人）。页面直接显示本体给出的完成比例，不再自行计算。
+    basis: 本体检查发现：在岗 35 人、编制 40 人时，本体返回 completion_percent 35、lag_points 5，页面显示「落后 5 个百分点」，同时自行算出 87.5%，同一指标两份口径；PM Assistant 读本体会答「完成 35%」。原则 5（单位要对齐）与经验库 L10（同一条规则只有一份实现）。
+    acceptance: plan_completion(35, 40, 人数) 返回 measure count、completion_percent 87.5、shortfall 5、状态落后，没有 lag_points；利用率 72 / 目标 80 返回 completion_percent 90、lag_points 8；累计类 60 / 100、9 月时仍为 60% 与 15 个百分点；部门复盘的九个指标依次为 cumulative ×5、rate、cumulative、rate、count。
+    verifiedBy: [test_a_count_kpi_is_a_ratio_of_people_not_a_rate, test_the_department_review_says_which_kind_each_kpi_is]
+    ontology: [departmentOperatingReview]
+  - id: R2
+    statement: 项目的回款约定（payment_term_summary）按以下顺序列出：未到账且有日期的按日期最早在前（日期取回款节点，没有节点时取关联里程碑的计划结束），里程碑已完成但款项未到的仍在前；未关联里程碑的其次，按最近更新；已到账的最后，按计划日期。
+    basis: v1.34.2 已实现（SEY104 节点全部到账后仍显示「下一回款约定：尾款 · 已到账」），但只写在推导代码和业务规则 4.1，未在基线登记，本次补登为 D44。最需要催收的是里程碑已完成而款未到的一笔。
+    acceptance: WDR101 的首期款里程碑已完成、未到账时排序为首期款、尾款、质保金；首期款和尾款到账后为质保金、首期款、尾款。
+    verifiedBy: [test_payment_term_order_puts_received_terms_last_and_keeps_unpaid_completed_milestones_first]
+    ontology: [Project, projectFacts]
+  - id: R3
+    statement: 新增派生属性 Project.crmSyncPendingAmount（CRM 待同步到账）= max(节点已到账 − CRM 已回款，0)，带 FINANCE 标记。大于 0 时页面「回款」列提示「系统已确认 ¥x · CRM 待同步」；两者独立，CRM 晚于人工确认时不覆盖，只提示。
+    basis: 原判断只在 frontend/src/paymentProgress.ts 中计算，本体浏览器、PM Assistant 与页面以外的调用方都看不到；原则 6（每个属性写清来源）与 D44。
+    acceptance: TPL149 确认首期款 106000 后，crmSyncPendingAmount 等于节点已到账 − CRM 已回款且大于 0，项目监控接口的 crm_sync_pending_amount 与之相同；schema 中该属性为 derived、FINANCE；只有项目监控权限的用户读到 null；页面情形测试改为读这个字段。
+    verifiedBy: [test_crm_sync_pending_is_an_ontology_property, test_crm_sync_pending_is_hidden_without_finance_access]
+    ontology: [Project.crmSyncPendingAmount, projectFacts]
+  - id: R4
+    statement: 资源健康中，只有本月超过过载线、连续月数未达到持续过载要求时，状态仍为健康，依据中注明「本月利用率 x% 超过过载线 y%（已连续 n / N 个月，未达持续过载）」；资源运营监控的「本月负荷过高」不变。
+    basis: v1.35.2 已实现（周航 106.8% 显示「健康」与「本月负荷过高」并列，看似矛盾），只在代码和业务规则中，本次补登为 D45，并写进 resourceHealth 的函数说明。D13 两种含义分开。
+    acceptance: 2 月正常、3 月每天 10 小时的员工在 2030-03 为 healthy、连续过载 1 个月，依据含「已连续 1 / 2 个月，未达持续过载」，资源运营监控为本月负荷过高。
+    verifiedBy: [test_health_notes_a_single_overloaded_month_without_calling_it_sustained]
+    ontology: [resourceHealth]
+  - id: R5
+    statement: PM Assistant 的函数工具参数带上本体声明的约束：整数参数给 minimum / maximum，文本参数给 maxLength，月份 / 年度参数在说明中写格式（YYYY-MM / YYYY），金额、小数、百分比参数在说明中写取值范围和「最多两位小数」。约束直接读 schema，不在助手中另写一份。
+    basis: 8.2.0（D41）的约束只公布在 schema 中，助手的工具定义（_parameter_json）只给类型和枚举，模型会填出被运行时拒绝的值（422）再重试；G5「工具由本体生成」。
+    acceptance: 管理员会话中 resourceForecast.months 为 1–6、departmentOperatingReview.year 最小 2000、resourceHealth.month 的说明含 YYYY-MM；每个函数的文本参数 maxLength 与 schema 相同；金额参数说明含「最多两位小数」，回款比例说明含「取值 0–100」。
+    verifiedBy: [test_assistant_tools_carry_the_declared_limits]
+    ontology: [resourceForecast, departmentOperatingReview, resourceHealth]
+
+exceptions:
+  - rule: R1
+    case: 没有设定人员编制或利用率目标（目标为空或 0）。
+    handling: 状态为「未设目标」，完成比例与差距都不给；measure 仍然给出，页面显示「—」。
+    basis: plan_completion 对 target 为空或不大于 0 的处理不变（R14）。
+  - rule: R1
+    case: 在岗人数超过编制（例如 42 / 40）。
+    handling: 完成比例 105%，shortfall 为 −2，状态为达成；页面只在差距大于 0 时显示「差 N 人」，超编不显示差距。
+    basis: 超编不是落后；是否需要「超编」提示不在本次范围，需要时另提需求。
+  - rule: R1
+    case: 旧调用方读非累计指标的 completion_percent，期望它是实际值（例如毛利率 35）。
+    handling: 含义改为实际 ÷ 目标；实际值仍在 actual 字段。已核对仓库中的调用方：部门经营页原本就自行计算实际 ÷ 目标，本体浏览器的结果视图改为对非累计指标显示「达成 x%」，PM Assistant 只转述函数结果。
+    basis: 字段只增不删，属于口径修正，按次版本 8.4.0 发布并写入 API 文档与 CHANGELOG。
+  - rule: R2
+    case: 两个约定的日期相同。
+    handling: 按回款约定编号排序，结果稳定；不按金额或比例排。
+    basis: 推导代码的排序键为（日期，约定编号），与 L19「数据源输出顺序要确定」一致。
+  - rule: R3
+    case: CRM 已回款多于系统确认到账（CRM 先记、项目经理还没确认节点）。
+    handling: crmSyncPendingAmount 为 0，不提示；这种情况由经营核算的「回款对账差异」提示（按里程碑确认收入的项目），本属性只说 CRM 落后的一侧。
+    basis: 业务规则 4.1：两者独立；economics.compute_project_economics 已有双向的对账差异提示。
+  - rule: R3
+    case: 一个项目有多份合同，CRM 已回款是各合同之和。
+    handling: 按项目汇总比较（节点已到账合计 vs CRM 已回款合计），不按合同逐份比较。
+    basis: 回款节点挂在项目上，不挂在合同上，无法逐份对应。
+  - rule: R4
+    case: 统计月份是员工的首月，且首月就超过过载线。
+    handling: 状态为「首月」（没有其他发现时首月代替健康），依据中同样注明「已连续 1 / N 个月，未达持续过载」；首月只不评价闲置，不影响过载的说明。
+    basis: D14 首月只针对闲置；resources.py 中首月状态在没有其他状态时追加，过载说明在此之前写入依据。
+  - rule: R5
+    case: 建议动作（suggest_action）的参数。
+    handling: 动作参数以对象形式整体提交，不逐个生成工具参数；越界值由预检报出原因（例如「约定金额：最多保留两位小数」），模型据此修改后再建议。
+    basis: D16 写操作只给经预检的建议；预检与动作执行用同一套 _coerce。
+  - rule: R5
+    case: 模型服务不支持 JSON Schema 中的 minimum / maxLength。
+    handling: 约束同时写在说明里（整数范围、格式、小数位），说明是所有服务都会交给模型的；不认识的关键字被忽略，不影响调用。运行时校验仍是最后一道关。
+    basis: Cloudflare 与 OpenAI 两种服务的工具定义共用同一份 schema（G5）。

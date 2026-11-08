@@ -26,11 +26,14 @@ export interface ResourceHealthResponse {
 
 export interface PlanCompletion {
   label: string;
+  // D43: cumulative KPIs compare with time progress; rates and counts compare with the target directly.
+  measure: "cumulative" | "rate" | "count";
   actual: string | null;
   target: string | null;
   completion_percent: number | null;
   time_progress_percent: number;
-  lag_points?: number;
+  lag_points?: number;  // percentage points (cumulative and rate KPIs)
+  shortfall?: number;   // people (count KPIs)
   status: PlanStatus;
   // Cost, gross profit and margin run up to the latest month with costs entered (requirements baseline D25).
   as_of?: string | null;

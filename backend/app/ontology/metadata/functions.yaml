@@ -136,7 +136,7 @@ version: v1
 definition:
   apiName: resourceHealth
   displayName: 资源健康
-  description: 按月评估员工的持续过载（连续 N 个月高于过载线）、疲劳、碎片化与闲置风险，统计窗口内第一个有工时的月份标为首月（不评价闲置），并汇总各状态人数。利用率与资源运营监控、员工工时评价同一份实现。
+  description: 按月评估员工的持续过载（连续 N 个月高于过载线）、疲劳、碎片化与闲置风险，统计窗口内第一个有工时的月份标为首月（不评价闲置），并汇总各状态人数。利用率与资源运营监控、员工工时评价同一份实现。只有本月超过过载线、未达到连续月数时不判为持续过载，但在依据中注明「已连续 n / N 个月，未达持续过载」（D45）。
   parameters:
     - {apiName: month, displayName: 月份, type: string, description: YYYY-MM，缺省为最近有工时的月份, format: month}
   outputType: ResourceHealth
@@ -148,7 +148,7 @@ version: v1
 definition:
   apiName: departmentOperatingReview
   displayName: 部门经营复盘
-  description: 按年度经营计划和时间进度对照合同额、经营收入（税前 / 税后）、经营成本、毛利润、毛利率，以及投入人天、利用率与人数，给出带证据的策略信号（推动验收回款、争取新合同、释放资源）。经营收入为当年到账回款，毛利截至最近已录成本的月份（需求基线 D22–D25）。
+  description: 按年度经营计划和时间进度对照合同额、经营收入（税前 / 税后）、经营成本、毛利润、毛利率，以及投入人天、利用率与人数，给出带证据的策略信号（推动验收回款、争取新合同、释放资源）。经营收入为当年到账回款，毛利截至最近已录成本的月份（需求基线 D22–D25）。每个指标的 measure 区分累计类（cumulative，完成比例与时间进度比较，差距 lag_points 为百分点）、比率类（rate：毛利率、利用率，完成比例 = 实际 ÷ 目标，差距 lag_points 为百分点）与人数类（count：在岗人数，完成比例 = 实际 ÷ 目标，差距 shortfall 为人数），见 D43。
   parameters:
     - {apiName: year, displayName: 年度, type: integer, minimum: 2000, maximum: 2100}
     - {apiName: month, displayName: 截至月份, type: string, description: YYYY-MM，缺省为本月与最近工时月份中较早者, format: month}

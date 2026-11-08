@@ -4,6 +4,7 @@
 
 | 产品版本 | 本体版本 | 日期 | 构建包 |
 | --- | --- | --- | --- |
+| v1.36.0 | 8.4.0 | 2026-11-08 | [2026-11-06-ontology-audit](docs/ontology-builds/2026-11-06-ontology-audit.yaml) |
 | v1.35.2 | 8.3.0 | 2026-11-06 | —（本体元数据不变） |
 | v1.35.1 | 8.3.0 | 2026-11-06 | [2026-11-06-resource-range](docs/ontology-builds/2026-11-06-resource-range.yaml) |
 | v1.35.0 | 8.2.0 | 2026-11-06 | —（只改界面） |
@@ -28,6 +29,16 @@
 | v1.22.0 | 7.6.0 | 2026-10-30 | [2026-10-29-logical-delete](docs/ontology-builds/2026-10-29-logical-delete.yaml) |
 | v1.21.0 | 7.5.0 | 2026-10-29 | [2026-10-29-rule-homes-and-linkages](docs/ontology-builds/2026-10-29-rule-homes-and-linkages.yaml) |
 | v1.20.0 | 7.4.0 | 2026-10-29 | [2026-10-29-milestone-span-period](docs/ontology-builds/2026-10-29-milestone-span-period.yaml) |
+
+## v1.36.0 — 本体检查修正（本体 8.4.0）
+
+对 8.1.0–8.3.0 的多轮修改做了本体检查（诊断、lint、版本差异、361 个接口边界用例均通过），修正发现的五项差距（需求基线 D43–D45，构建包 [2026-11-06-ontology-audit](docs/ontology-builds/2026-11-06-ontology-audit.yaml)）：
+
+- 部门经营：在岗人数不再按比率计算。编制 40、在岗 35 时，本体此前返回「完成 35%」、页面显示「落后 5 个百分点」；现在为 87.5%、差 5 人。每个指标带 `measure`（累计 / 比率 / 人数），非累计指标的 `completion_percent` 为实际 ÷ 目标，人数类差距为 `shortfall`。页面不再自算比例。
+- 新增本体派生属性「CRM 待同步到账」`Project.crmSyncPendingAmount`：项目「回款」列的「系统已确认 ¥x · CRM 待同步」改为读本体，本体浏览器与 PM Assistant 也能看到。
+- 回款约定的排序（v1.34.2）与资源健康的单月超载说明（v1.35.2）补登需求基线（D44、D45）。
+- PM Assistant 的函数工具带上参数约束（范围、长度、月份格式、两位小数），减少被拒绝后重试。
+- 需求基线附录 A 的构建包索引更新到 35 个包。
 
 ## v1.35.2 — 资源健康注明单月超载（本体 8.3.0 不变）
 
