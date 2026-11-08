@@ -46,6 +46,8 @@ class Settings:
     pm_assistant_timeout_seconds: float = 35.0
     pm_assistant_max_retries: int = 1
     pm_analysis_model: str | None = None  # None: same as pm_assistant_model
+    # D46: train the load forecast at start-up and hourly when a new month begins (off in tests unless asked for).
+    load_forecast_auto_train: bool = False
 
     @property
     def analysis_model(self) -> str:
@@ -82,6 +84,7 @@ class Settings:
             pm_assistant_model=os.getenv("TSG_PM_ASSISTANT_MODEL") or DEFAULT_ASSISTANT_MODELS.get(provider, "gpt-5.2"),
             pm_assistant_provider=provider,
             pm_analysis_model=os.getenv("TSG_PM_ANALYSIS_MODEL") or DEFAULT_ANALYSIS_MODELS.get(provider),
+            load_forecast_auto_train=os.getenv("TSG_PM_LOAD_FORECAST_AUTO_TRAIN", "true").lower() in {"1", "true", "yes"},
             cloudflare_account_id=os.getenv("CLOUDFLARE_ACCOUNT_ID") or None,
             cloudflare_api_token=os.getenv("CLOUDFLARE_API_TOKEN") or None,
             pm_assistant_timeout_seconds=float(os.getenv("TSG_PM_ASSISTANT_TIMEOUT_SECONDS", "35")),

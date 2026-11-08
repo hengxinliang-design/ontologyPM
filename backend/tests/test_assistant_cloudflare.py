@@ -183,6 +183,8 @@ def test_project_analysis_uses_chat_without_tools(tmp_path, monkeypatch):
     (httpx.Response(401, json={"success": False, "errors": [{"code": 10000, "message": "Authentication error"}]}), "授权不可用"),
     (httpx.Response(429, json={"errors": [{"code": 3036, "message": "You have used up your daily free allocation of 10,000 neurons"}]}), "Cloudflare Workers AI 的用量额度"),
     (httpx.Response(429, json={"errors": [{"code": 3040, "message": "Capacity temporarily exceeded"}]}), "请求较多"),
+    (httpx.Response(403, json={"errors": [{"code": 5035, "message": "AiError: Model @cf/deepseek-ai/deepseek-v4.1-flash-1017 is not "
+                                           "available on the Workers Free plan. Upgrade to access this model"}]}), "Workers 付费计划"),
     (httpx.Response(400, json={"errors": [{"code": 5007, "message": "AiError: No such model: @cf/x"}]}), "模型配置无效"),
     (httpx.Response(200, json={"choices": []}), "无法解析"),
     (httpx.Response(200, json=completion("   ")), "未返回有效回答"),
@@ -254,3 +256,67 @@ def test_granite_argument_quirks_are_tolerated(tmp_path, monkeypatch):
     assert "plannedPersonDays" in tool_messages(sent[1]["body"])["twice"]
     assert "plannedPersonDays" in tool_messages(sent[2]["body"])["text_call_0"]
     assert data["answer"] == "两个项目的预算情况如上。"
+
+
+# What gpt-oss-120b returned through the chat endpoint on 2026-11-08: reasoning, then a harmony tool call with the
+# channel token removed (so the name runs into "commentary") and broken JSON (a missing quote, keys with spaces).
+LEAKED = ('analysis\n\nWe attempted to call projectList with select parameter … So call projectList with riskLevel '
+          'critical.<|end|><|start|>assistant to=functions.projectListcommentary json{\n " riskLevel": "critical,\n'
+          ' " pageSize": 100\n}<|call|>')
+
+
+def test_gpt_oss_harmony_text_is_never_shown_and_its_tool_calls_run(tmp_path, monkeypatch):
+    sent = scripted(monkeypatch, [
+        LEAKED,
+        'analysis\n先取高风险项目。<|end|><|start|>assistant to=functions.projectListcommentary json{" riskLevel": "critical", '
+        '"pageSize": 50}<|call|>',
+        "analysis\n整理结论。<|end|><|start|>assistant<|channel|>final<|message|>需要优先关注 SEY104：预算已超支。",
+    ])
+    with TestClient(cloudflare(tmp_path, pm_assistant_model="@cf/openai/gpt-oss-120b")) as client:
+        data = client.post("/api/v1/pm-assistant/chat", json={"message": "哪些项目需要优先关注？"}).json()["data"]
+    broken = tool_messages(sent[1]["body"])["harmony_call_0"]
+    assert "参数无法解析" in broken["error"], "broken JSON goes back as an error so the model can retry"
+    retried = tool_messages(sent[2]["body"])["harmony_call_0"]
+    assert "error" not in retried, "the retry with keys padded by spaces runs"
+    assert data["answer"] == "需要优先关注 SEY104：预算已超支。"
+    assert all("<|" not in m.get("content", "") and "analysis" not in (m.get("content") or "")
+               for body in (sent[1]["body"], sent[2]["body"]) for m in body["messages"] if m["role"] == "assistant")
+
+
+def test_gpt_oss_role_and_channel_words_without_tokens_are_removed():
+    assert pm_assistant_module._visible_text("assistantfinal **结论**\nSEY104 需要关注。", False) == "**结论**\nSEY104 需要关注。"
+    assert pm_assistant_module._visible_text("analysis先查询。assistantfinal 结论：无逾期。", False) == "结论：无逾期。"
+    assert pm_assistant_module._visible_text("**结论**\n本 assistant final 版本说明", False) == "**结论**\n本 assistant final 版本说明", \
+        "only a leading prefix is removed"
+
+
+GARBLED = "**结结结 conclusion**\n目前 **没有项目存在已延期的里 milestone**，query returned 24 project records but all of them are zero, thus none meet the condition."
+
+
+def test_garbled_answer_is_rewritten_once_from_the_gathered_results(tmp_path, monkeypatch):
+    sent = scripted(monkeypatch, [
+        [tool_call("projectBudgetStatus", {"project": "WDR101"}, "c1")],
+        GARBLED,
+        "**结论**\nWDR101 没有逾期里程碑。",
+    ])
+    with TestClient(cloudflare(tmp_path, pm_assistant_model="@cf/openai/gpt-oss-120b")) as client:
+        data = client.post("/api/v1/pm-assistant/chat", json={"message": "WDR101 有逾期里程碑吗？"}).json()["data"]
+    assert data["answer"] == "**结论**\nWDR101 没有逾期里程碑。"
+    rewrite = sent[2]["body"]
+    assert "tools" not in rewrite and "格式异常" in rewrite["messages"][0]["content"], "rewritten without tools, told why"
+    assert "c1" in tool_messages(rewrite), "from the tool results already gathered"
+    assert all(GARBLED not in (m.get("content") or "") for m in rewrite["messages"]), "the garbled text is not fed back"
+
+
+def test_a_second_garbled_answer_is_not_shown(tmp_path, monkeypatch):
+    scripted(monkeypatch, [GARBLED, "assistantfinal【结结结】 still missing cost records for July"])
+    with TestClient(cloudflare(tmp_path, pm_assistant_model="@cf/openai/gpt-oss-120b")) as client:
+        response = client.post("/api/v1/pm-assistant/chat", json={"message": "今年哪些月份没录成本？"})
+    assert response.status_code == 503 and "格式异常" in response.json()["detail"]
+
+
+def test_normal_answers_with_field_names_and_enum_values_are_not_garbled():
+    normal = ("**结论**\n当前风险等级为「严重」（系统口径对应 **critical**）的项目有 SEY104，状态 behind，落后 11.6 个百分点。\n\n"
+              "**依据**\n调用 `projectRiskAssessment`，返回字段 `riskLevel`、`riskReasons`、`anomalyAlerts`、`overdueMilestones`。")
+    assert not pm_assistant_module._looks_garbled(normal)
+    assert pm_assistant_module._looks_garbled("需要优先关注：结结结")

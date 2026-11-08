@@ -1,0 +1,113 @@
+# 本体构建包（发布稿）：员工负荷预测——由系统自己判断能否采用。本体 8.5.0（新增对象类型 LoadForecastModel、函数 employeeLoadForecast、运营口径 5 个门槛参数，非破坏性）。
+# 依据：用户 2026-11-08「给我们的规则模型或者机器学习模型做一个优化，能实际被系统采用的」，选择「模型自动把关」「每月初自动训练」「运营口径参数」「按输出分别启用」「函数 + 页面列」，并确认真实环境已有超过 12 个月工时；需求基线 D46–D49（在 D35–D39、G10 之上）；设计稿 docs/ontology-design/2026-11-01-small-model-pilot.md。
+kind: OntologyBuild
+stage: release
+topic: 负荷预测的数据核对、滚动回测与门槛判断做进系统，每月初用真实工时自动训练并登记版本，达标的输出才对外提供
+ontologyVersion: 8.5.0
+date: 2026-11-08
+scope:
+  - CQ-F1 下个月谁可能超过过载线、可能性多大、主要因为什么？
+  - CQ-F2 这个月的负荷预测能不能用？哪一项没达标、差多少？
+  - CQ-F3 系统里的工时够不够训练模型？
+  - CQ-F4 负荷预测是哪个版本、用到哪个月的数据、按什么门槛判定的？
+  - CQ-F5 管理员把门槛调严以后，预测会怎样变化？
+
+rules:
+  - id: R1
+    statement: 训练前先核对数据量：截止月及以前有项目工时的月份不少于「负荷预测最少历史月数」（默认 12），有项目工时的「员工 × 月份」不少于「负荷预测最少『人 × 月』」（默认 600）；不足时不回测、不保存模型，登记状态为「历史数据不足」并写明差多少。
+    basis: 设计稿第 8 节第 0 步的门槛（D39）；用户确认真实环境已超过 12 个月（2026-11-08）。
+    acceptance: 3 人 × 4 个月的工时训练后状态为 insufficient_data、没有启用的输出，说明含「需 12」「需 600」；函数返回 insufficient_data、空列表和同样的说明。
+    verifiedBy: [test_too_little_history_trains_nothing_and_says_why]
+    ontology: [LoadForecastModel, employeeLoadForecast, OperatingPolicy.forecastMinHistoryMonths, OperatingPolicy.forecastMinPersonMonths]
+  - id: R2
+    statement: 系统启动时与此后每小时检查一次：当前截止月（上一个完整自然月与最近有工时月份中较早者）还没有模型版本，或者已有版本但运营口径的门槛、截止月及以前的工时变化了，就训练一次：数据核对、滚动回测（每个月份只用当时已知的数据训练、预测下个月）、与门槛比较，登记一个新的模型版本，并以执行人「系统」写入审计。同一截止月、门槛与数据都没变时不再训练。
+    basis: D46（每月初自动训练，由系统用真实数据判断）；设计稿 7.3（模型像本体一样登记版本，回测不达标的版本不能启用）。门槛或补录工时变化后重训，避免改了门槛要等一个月才生效。
+    acceptance: 2030-08-03 训练出截止 2030-07 的版本；同月再检查不训练；导入 8 月工时后 2030-09-05 检查训练出截止 2030-08 的下一个版本；两次训练在审计中执行人为「系统」、渠道为 system；调低数据门槛或补录 8 月工时后同一截止月重新训练。
+    verifiedBy: [test_training_runs_once_per_month_and_is_audited, test_a_changed_gate_or_a_late_import_retrains_the_same_month]
+    ontology: [LoadForecastModel]
+  - id: R3
+    statement: 按输出分别启用：利用率估计在回测平均误差不超过「照抄上月」×（1 − 误差改进门槛）时启用，取误差最低的候选；过载概率在过载 AUC 不低于最低 AUC 且校准误差不超过最大校准误差时启用，取通过者中 AUC 最高的；闲置概率同理。回测期内过载（或闲置）样本少于 5 个时该项不评估、不启用。候选为线性回归 + 逻辑回归、梯度提升树两种。
+    basis: D48；设计稿第 5、6 节的指标、朴素做法与两种模型。
+    acceptance: 构造的回测成绩中，梯度提升树误差 7.9 ≤ 10 × 0.8 时启用利用率估计；只有线性模型校准合格时过载概率取线性模型；闲置样本 3 个时闲置概率不启用并说明「只有 3 个」；误差门槛调到 25% 时利用率估计不启用。可学习的交替工时（每人一月 10 小时 / 天、一月 4 小时 / 天）三项输出都启用。
+    verifiedBy: [test_each_output_is_switched_on_by_its_own_gate, test_a_learnable_history_passes_every_gate_and_predicts_next_month]
+    ontology: [LoadForecastModel.utilizationEnabled, LoadForecastModel.overloadEnabled, LoadForecastModel.idleEnabled]
+  - id: R4
+    statement: 五个门槛是运营口径参数（OperatingPolicy），默认 12 个月、600 个「人 × 月」、误差改进 20%、AUC 0.75、校准误差 0.05；用「调整运营口径」修改并留审计，范围与系统设置页共用一张表：最少月数 3–120、最少「人 × 月」30–100000、误差改进 0–90%、AUC 0.5–1、校准误差 0.01–0.5。
+    basis: D47；原则 7（数值做成参数，可被查看和审计）；经验库 L10（两条写入路径一份范围）。
+    acceptance: 运营口径对象的五个参数为 12、600、20.00、0.75、0.05；把最低 AUC 改为 0.4 返回 422，改为 0.8 成功并保存为 0.80。
+    verifiedBy: [test_gates_are_operating_policy_parameters_with_ranges]
+    ontology: [OperatingPolicy.forecastMinHistoryMonths, OperatingPolicy.forecastMinPersonMonths, OperatingPolicy.forecastMaeImprovementPercent, OperatingPolicy.forecastMinAuc, OperatingPolicy.forecastMaxCalibrationError, updateOperatingPolicy]
+  - id: R5
+    statement: 函数「员工负荷预测」只返回最新模型版本中已启用的输出：每位在统计月份有项目工时的员工给出下个月的预计利用率与区间（回测残差的 10%–90% 分位）、过载概率、闲置概率中已启用的几项，以及影响最大的三个因素（排列重要度）；未启用的输出不返回数值，只在 outputs 中说明差距。权限与资源运营监控相同（资源菜单）；资源运营监控页在有输出启用时才显示「预计 YYYY-MM」列，始终在一行中显示模型状态。
+    basis: D35、D37、D38、D49；设计稿 7.1、7.5（措辞「预计」，不用于排班和绩效）。
+    acceptance: 可学习的交替工时中，8 月只做 4 小时 / 天的人预计 9 月利用率高于 100%、过载概率高于 50%，区间包含估计值，并给出可读的因素；8 月 10 小时 / 天的人预计低于 70%、闲置概率高于 50%；按姓名筛选只返回该员工；只有项目菜单的用户执行该函数返回 403；页面在未启用时只显示「负荷预测：未启用（回测未达门槛）」。
+    verifiedBy: [test_a_learnable_history_passes_every_gate_and_predicts_next_month, test_the_forecast_needs_the_resource_menu]
+    ontology: [employeeLoadForecast]
+  - id: R6
+    statement: 特征只用截止月及以前的工时；训练目标只取已经结束的月份。截止月之后导入的工时不改变截止月的特征和样本。特征定义只有一份（derivations/load_forecast.py），评测脚本 eval_three_layers.py 从这里取特征。
+    basis: 设计稿第 4 节的硬性要求（防止数据泄漏）；经验库 L10。
+    acceptance: 截止 2030-05 的样本与特征，在导入 2030-06 的工时前后完全相同，所有样本的目标月不晚于 2030-05。
+    verifiedBy: [test_features_use_nothing_after_the_cutoff]
+    ontology: [employeeLoadForecast, LoadForecastModel]
+
+exceptions:
+  - rule: R1
+    case: 演示环境（preview.sqlite3）有 22 个月、730 个「人 × 月」，满足数据门槛。
+    handling: 照常回测；2026-11-08 在演示数据副本上三项输出都未达标（利用率误差 16.73 vs 照抄上月 18.16，需 ≤ 14.53；过载 AUC 0.72；闲置 AUC 0.69），所以演示环境不显示预测列。演示数据的成绩不作为采用依据（D39），真实环境由系统自己判断。
+    basis: 演示员工的工时按固定规律生成（设计稿第 8 节）。
+  - rule: R1
+    case: 员工只有内部代码（如 TSG999）工时、没有项目工时的月份。
+    handling: 不计入「人 × 月」，也不作为样本或预测对象；内部工时只作为特征「内部工时占比」。
+    basis: 利用率只算项目工时（D15）；与资源运营监控同一份实现。
+  - rule: R2
+    case: 服务以多个进程（多个 worker）运行，同时进入新月份。
+    handling: 训练锁只在单个进程内；两个进程可能各训练一次，登记两个相同截止月的版本，函数总是用编号最大的版本，结果等价。本地与演示环境以单进程运行。
+    basis: LoadForecastService 使用 threading.Lock；版本号自增。
+  - rule: R2
+    case: 「每月初」按哪个时区。
+    handling: 按服务配置的时区（XTCRM_TIMEZONE，默认 America/Detroit）判断今天所在的月份；北京时间月初的前半天可能仍按上个月判断，下一次每小时检查时进入新月份。
+    basis: ProjectRepository.today() 使用配置时区（经验库 L31：不凭印象写时区）。
+  - rule: R2
+    case: 本月还在录入、上个月的工时补录较晚。
+    handling: 截止月及以前工时的条数、小时数或最近更新时间变化时，下一次每小时检查会以同一截止月重新训练并登记新版本；本月的工时不触发重训。
+    basis: data_fingerprint 只统计截止月月末及以前的工时。
+  - rule: R2
+    case: 训练失败（例如数据异常导致模型无法拟合）。
+    handling: 记录错误日志，不登记版本，下一小时重试；已登记的版本继续使用。
+    basis: main.py 的 load_forecast_loop 捕获异常后继续。
+  - rule: R3
+    case: 两种候选在不同输出上各有所长。
+    handling: 每项输出各自选模型：例如利用率估计用梯度提升树，过载概率用逻辑回归；同一员工的几项输出可能来自不同模型。
+    basis: D48 按输出分别判断；试点回测显示梯度提升树估值更准、逻辑回归预警更好（设计稿第 6 节）。
+  - rule: R3
+    case: 项目与里程碑的计划结束日期是当前值，不是当时的值。
+    handling: 回测中「下月计划结束的项目」「下月到期的里程碑」用的是现在的计划日期，对过去月份有轻微的前视；预测时这正是已知信息，不受影响。系统不保存计划日期的历史版本。
+    basis: project_settings 与 milestones 只保存当前计划。
+  - rule: R4
+    case: 管理员把门槛调松到接近瞎猜（例如 AUC 0.5）。
+    handling: 允许，但范围下限即为 0.5；修改留审计，模型版本中记录训练时所用的门槛，可追溯「是在什么门槛下启用的」。
+    basis: 门槛需看到真实数据后再定（设计稿第 5 节），决定权在管理员。
+  - rule: R4
+    case: 系统设置页（非本体动作）修改门槛。
+    handling: 走同一个范围表 POLICY_RANGES，超出范围同样拒绝；系统设置页暂不单独展示这五个参数，可在本体浏览器的运营口径对象上用「调整运营口径」修改。
+    basis: project_repository._validate_worktime_baseline 与提交条件 policyRangesValid 都读 POLICY_RANGES。
+  - rule: R5
+    case: 统计月份的某位员工下个月已离职或长期休假。
+    handling: 仍给出预测（系统没有人事数据）；页面说明预测只用于提前安排，不用于排班和绩效。
+    basis: 设计稿第 7.5 节；试点回测说明剩余误差主要来自系统中没有的人员安排与人事信息。
+  - rule: R5
+    case: D36 中「同时给出未来三个月的趋势参考」。
+    handling: 本期不做（D49 只到第 2 步），函数只预测下一个月；部门层面的未来三个月需求与产能仍由资源测算 resourceForecast 给出。
+    basis: 用户选择「函数 + 页面列」（2026-11-08）。
+  - rule: R5
+    case: 设计稿 7.2 提出新增属性来源「模型」（sourceKind model）。
+    handling: 本期预测只作为函数输出（每项带模型版本与数据截止月），不写成对象属性，所以没有属性需要新的来源类型，暂不扩展 sourceKind；模型版本对象的属性来源为 system。
+    basis: 原则 2（没有对应问题的概念不收）；需要把预测存成属性时再加。
+  - rule: R6
+    case: 模型文件以 pickle 存在数据库中。
+    handling: 只由 LoadForecastService 写入系统自己的数据库，读取时不接受外部来源；模型只在有输出启用时保存，未启用的版本只登记成绩。
+    basis: load_forecast_models.model_blob 只有 train() 写入。
+  - rule: R6
+    case: 评测脚本的「最近三个月平均」与纯 Python 线性模型。
+    handling: 只在评测报告中作为额外对比，不参与系统内的门槛判断；系统内的候选只有两种 scikit-learn 模型，基准为「照抄上月」。
+    basis: 设计稿第 5 节以「照抄上月」为门槛基准。

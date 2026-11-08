@@ -170,67 +170,23 @@ def run_rules(ontology) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------------------------- layer 2
-FEATURES = ("util_m", "util_m1", "util_m2", "mean3", "overtime_share", "projects", "tenure", "overload_streak",
-            "internal_share", "ending_projects", "continuing_projects", "milestones_due_next", "next_workdays")
+# Features and samples come from the system's own implementation (app/ontology/derivations/load_forecast.py, D46), so
+# this evaluation and the in-system gate judge the same thing; only the extra comparisons below live here.
+from app.ontology.derivations.load_forecast import FEATURES  # noqa: E402
 
 
 def load_samples(ontology, facts: Facts, today: date) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    """One sample per person-month with project hours whose following month is complete; features use data up to
-    the month's end only, except planned end dates, which are today's values (a known leakage, reported)."""
-    from app.ontology.derivations.resources import ResourceMetrics, _month_end, _shift, monthly_buckets, utilization_percent
+    """One sample per person-month with project hours whose following month is complete (see build_samples)."""
+    from app.ontology.derivations.load_forecast import build_samples
+    from app.ontology.derivations.resources import ResourceMetrics, _month_end, _shift
 
     metrics = ResourceMetrics(ontology.projects)
     policy = ontology.projects.get_worktime_baseline()
-    with ontology.database.connect() as connection:
-        span = connection.execute("SELECT MIN(work_date) AS first, MAX(work_date) AS last FROM time_entries").fetchone()
-    first, last = span["first"][:7], span["last"][:7]
+    last = metrics.latest_work_month()
     last_complete = last if _month_end(last) < today.isoformat() else _shift(last, -1)
-    months = [first]
-    while months[-1] < last_complete:
-        months.append(_shift(months[-1], 1))
-    capacity = metrics.monthly_capacity(months, policy)
-    workdays = {m: capacity[m] / Decimal(policy["standard_hours_per_day"]) for m in months}
-    people = monthly_buckets(metrics.entries(f"{first}-01", _month_end(last_complete)), metrics.internal_codes())
-    ends = {r["project_number"]: (r.get("planned_end") or "")[:7] for r in facts.projects}
-    due: dict[str, Counter] = {r["project_number"]: Counter((m.get("planned_end") or "")[:7] for m in r.get("milestones") or [])
-                               for r in facts.projects}
-    overload = float(policy["overload_utilization_percent"])
-    attention = float(policy["attention_utilization_percent"])
-
-    def util(person: dict[str, Any], month: str) -> float:
-        bucket = person["months"].get(month)
-        return float(utilization_percent(bucket["project_hours"], capacity[month])) if bucket and month in capacity else 0.0
-
-    samples = []
-    for key, person in people.items():
-        streak = tenure = 0
-        for month in months[:-1]:
-            bucket = person["months"].get(month)
-            if not bucket or bucket["project_hours"] <= 0:
-                streak = 0
-                continue
-            tenure += 1
-            u = util(person, month)
-            streak = streak + 1 if u > overload else 0
-            following = _shift(month, 1)
-            total = bucket["project_hours"] + bucket["internal_hours"]
-            recent = [util(person, _shift(month, -i)) for i in range(3)]
-            target = util(person, following)
-            samples.append({
-                "person": key, "month": month, "target_month": following,
-                "util_m": recent[0], "util_m1": recent[1], "util_m2": recent[2], "mean3": sum(recent) / 3,
-                "overtime_share": float(bucket["overtime_hours"] / total * 100) if total else 0.0,
-                "projects": len(bucket["projects"]), "tenure": tenure, "overload_streak": streak,
-                "internal_share": float(bucket["internal_hours"] / total * 100) if total else 0.0,
-                "ending_projects": sum(ends.get(p) == following for p in bucket["projects"]),
-                # Projects still planned to run next month (no planned end counts as running): none left means the
-                # person is likely between projects next month.
-                "continuing_projects": sum(not ends.get(p) or ends[p] >= following for p in bucket["projects"]),
-                "milestones_due_next": sum(due.get(p, Counter())[following] for p in bucket["projects"]),
-                "next_workdays": float(workdays[following]),
-                "y": target, "y_over": target > overload, "y_idle": target <= attention,
-            })
-    return samples, {"months": months, "overload": overload, "attention": attention, "last_complete": last_complete}
+    data = build_samples(metrics, policy, last_complete)
+    return data["samples"], {"months": data["months"], "overload": data["overload"], "attention": data["attention"],
+                             "last_complete": last_complete}
 
 
 def _standardize(train: list[list[float]]) -> tuple[list[float], list[float]]:
@@ -593,7 +549,11 @@ def report(rules: dict | None, small: dict | None, llm: dict | None, database: P
                 lines.append(f"| {spec} | {run['error']} |" + " |" * 14)
                 continue
             rs = [r for r in run["results"] if not _unanswered(r)]
-            by = {g: [r for r in rs if r["group"] == g] for g in groups}
+            if not rs:  # every request failed (e.g. the daily quota ran out): report why instead of crashing
+                reasons = sorted({r["error"] for r in run["results"] if r.get("error")})
+                lines.append(f"| `{run['model']}` | 0/{len(run['results'])} 作答：{'；'.join(reasons)[:200]} |" + " |" * 14)
+                continue
+            by ={g: [r for r in rs if r["group"] == g] for g in groups}
             passed = sum(r["passed"] for r in rs)
             lines.append(
                 f"| `{run['model']}` | {len(rs)}/{len(run['results'])} | {passed} | {pct(passed, len(rs))} | "

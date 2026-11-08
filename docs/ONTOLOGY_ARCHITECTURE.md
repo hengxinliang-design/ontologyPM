@@ -574,6 +574,20 @@ when: [{property: contractType, notIn: [sales]}, {property: lifecycleStatus, not
 
 构建包见 [2026-11-06-ontology-audit.yaml](./ontology-builds/2026-11-06-ontology-audit.yaml)。
 
+### 11.37 员工负荷预测：系统自己把关（v8.5.0）
+
+需求基线 D46–D49，设计稿 `docs/ontology-design/2026-11-01-small-model-pilot.md` 第 2 步。实现只有一份：`derivations/load_forecast.py`。
+
+- **特征与样本** `build_samples(metrics, policy, cutoff)`：利用率、过载线、关注线来自 `ResourceMetrics`（与资源运营监控同一份实现）；只读截止月月末及以前的工时，计划结束日期与里程碑取当前值。评测脚本 `eval_three_layers.py` 从这里取特征。
+- **回测与门槛** `backtest()`、`gate()`：滚动回测两种候选（scikit-learn 的 Ridge + LogisticRegression、HistGradientBoosting），基准「照抄上月」；门槛读运营口径的 5 个参数，按输出分别判定。
+- **模型版本** 表 `load_forecast_models`（数据集登记在 `OBJECT_DATASETS`），对象类型 `LoadForecastModel`：截止月、数据量、回测成绩、当时的门槛、每项输出的判定与原因、数据指纹；只有有输出启用时才保存模型（pickle）。
+- **训练时机** `LoadForecastService.ensure_current()`：`main.py` 的 lifespan 启动一个每小时检查的后台任务（`TSG_PM_LOAD_FORECAST_AUTO_TRAIN`，默认开启；测试默认关闭），训练在线程中运行（约 20 秒 / 22 个月数据），每次训练写一条审计（`trainLoadForecastModel`，渠道 system）。
+- **函数** `employeeLoadForecast`：权限同资源运营监控（`resource`），只返回已启用输出的数值；未启用的输出在 `outputs` 中说明差距。
+- scikit-learn 由可选依赖改为必需依赖（`backend/requirements.txt`）。
+- 设计稿 7.2 的属性来源「模型」本期未加：预测只作为函数输出，没有属性需要它（构建包例外表）。
+
+构建包见 [2026-11-08-load-forecast.yaml](./ontology-builds/2026-11-08-load-forecast.yaml)。
+
 ## 12. 代码结构
 
 ```text

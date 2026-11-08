@@ -271,3 +271,17 @@ definition:
   outputType: ResourceForecast
   permissions: [resource, department]
   implementation: resourceForecast
+---
+kind: Function
+version: v1
+definition:
+  apiName: employeeLoadForecast
+  displayName: 员工负荷预测
+  description: 预计每位员工下个月的项目利用率（含区间）、过载概率与闲置概率，并给出影响最大的三个因素。只给出最新模型版本中回测达到门槛的输出（D46–D48），未启用的输出说明差距；措辞为「预计」，不用于排班和绩效（D35、设计稿 7.5）。过载线、关注线读运营口径参数，利用率与资源运营监控同一份实现。
+  parameters:
+    - {apiName: month, displayName: 统计月份, type: string, description: YYYY-MM，缺省为模型的数据截止月；预测其下一个月, format: month}
+    - {apiName: employeeName, displayName: 员工姓名, type: string, description: 模糊匹配}
+  outputType: EmployeeLoadForecast
+  permissions: [resource]
+  implementation: employeeLoadForecast
+

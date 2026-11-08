@@ -203,8 +203,35 @@ CREATE TABLE IF NOT EXISTS worktime_baseline_config (
     backlog_coverage_percent TEXT NOT NULL DEFAULT '50.00',
     plan_lag_tolerance_points TEXT NOT NULL DEFAULT '5.00',
     control_cost_exceeded_projects TEXT NOT NULL DEFAULT '2',
+    forecast_min_history_months TEXT NOT NULL DEFAULT '12',
+    forecast_min_person_months TEXT NOT NULL DEFAULT '600',
+    forecast_mae_improvement_percent TEXT NOT NULL DEFAULT '20.00',
+    forecast_min_auc TEXT NOT NULL DEFAULT '0.75',
+    forecast_max_calibration_error TEXT NOT NULL DEFAULT '0.05',
     notes TEXT,
     updated_at TEXT NOT NULL
+);
+
+-- Load forecast model versions (requirements baseline D46-D48): one row per monthly training, with the backtest,
+-- the gates it was judged against and which outputs passed. The model itself is kept only when an output passed.
+CREATE TABLE IF NOT EXISTS load_forecast_models (
+    version INTEGER PRIMARY KEY AUTOINCREMENT,
+    trained_at TEXT NOT NULL,
+    data_cutoff_month TEXT NOT NULL,
+    target_month TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('active', 'not_enabled', 'insufficient_data')),
+    history_months INTEGER NOT NULL,
+    person_months INTEGER NOT NULL,
+    sample_count INTEGER NOT NULL,
+    backtest_json TEXT NOT NULL DEFAULT '{}',
+    outputs_json TEXT NOT NULL DEFAULT '{}',
+    thresholds_json TEXT NOT NULL DEFAULT '{}',
+    features_json TEXT NOT NULL DEFAULT '[]',
+    library_json TEXT NOT NULL DEFAULT '{}',
+    data_fingerprint TEXT NOT NULL DEFAULT '',
+    model_blob BLOB,
+    notes TEXT,
+    actor TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS milestones (
@@ -410,6 +437,11 @@ POLICY_COLUMN_DEFAULTS = {
     "backlog_coverage_percent": "50.00",
     "plan_lag_tolerance_points": "5.00",
     "control_cost_exceeded_projects": "2",
+    "forecast_min_history_months": "12",
+    "forecast_min_person_months": "600",
+    "forecast_mae_improvement_percent": "20.00",
+    "forecast_min_auc": "0.75",
+    "forecast_max_calibration_error": "0.05",
 }
 
 PROJECT_ECONOMICS_COLUMNS = (
@@ -445,6 +477,7 @@ OBJECT_DATASETS = (
     "worktime_baseline_config",
     "annual_operating_plans",
     "operating_costs",
+    "load_forecast_models",
 )
 
 

@@ -4,6 +4,7 @@ import csv
 import json
 import io
 import json
+import asyncio
 import logging
 import time
 from contextlib import asynccontextmanager
@@ -30,6 +31,7 @@ from .crm_import import CrmImportValidationError, parse_crm_import_base64, templ
 from .db import Database
 from .plans import AnnualPlanRepository
 from .investment import InvestmentService
+from .ontology.derivations.load_forecast import LoadForecastService
 from .ontology import (
     DEFAULT_METADATA_DIR,
     ActionValidationError,
@@ -79,6 +81,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         project_repository,
         repository,
     )
+    # D46: the load forecast trains itself once per month on the system's own time entries.
+    load_forecast = LoadForecastService(database, project_repository, ontology_service.log_action)
+
+    async def load_forecast_loop() -> None:
+        while True:
+            try:
+                await asyncio.to_thread(load_forecast.ensure_current)
+            except Exception:  # noqa: BLE001 - a failed training must not stop the service; it retries next hour
+                logging.getLogger(__name__).exception("load forecast training failed")
+            await asyncio.sleep(3600)
+
     # G5: the assistant answers from the ontology, as the asking user.
     pm_assistant = PmAssistantService(settings, ontology_service, database)
 
@@ -99,7 +112,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         elif settings.source_file.name.endswith(".example.json"):
             project_repository.ensure_demo_data()
         ontology_service.warm_index()
+        forecast_task = asyncio.create_task(load_forecast_loop()) if settings.load_forecast_auto_train else None
         yield
+        if forecast_task:
+            forecast_task.cancel()
 
     app = FastAPI(
         title="TSG PM Data API",
@@ -118,6 +134,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.pm_assistant = pm_assistant
     app.state.auth_service = auth_service
     app.state.ontology_service = ontology_service
+    app.state.load_forecast = load_forecast
     app.state.investment_service = investment_service
     app.state.china_holiday_calendar = china_holiday_calendar
     app.add_middleware(

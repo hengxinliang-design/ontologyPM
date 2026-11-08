@@ -2,6 +2,7 @@
 # 依据：用户 2026-11-06「接下来对我们的本体层做一个检查，我们目前的多轮修改和优化对本体是否有影响？」，检查后选择「Fix all five」；需求基线 D43–D45。
 kind: OntologyBuild
 stage: release
+supersededBy: 2026-11-08-load-forecast.yaml
 topic: 计划达成的单位按指标类型区分；两条只在代码里的口径补登基线；「CRM 待同步」移入本体；PM Assistant 的工具参数带上本体声明的约束；基线构建包索引更新
 ontologyVersion: 8.4.0
 date: 2026-11-06

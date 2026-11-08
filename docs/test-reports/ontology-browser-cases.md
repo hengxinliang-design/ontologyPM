@@ -1,6 +1,6 @@
 # 本体浏览器边界与异常测试：用例与结果
 
-由 `backend/scripts/ontology_browser_check.py` 生成。共 361 个用例，通过 361，未通过 0。
+由 `backend/scripts/ontology_browser_check.py` 生成。共 365 个用例，通过 365，未通过 0。
 阶段 A：本地演示数据、管理员；阶段 B：开启登录的测试数据、五种角色。
 
 | 阶段 | 编号 | 范围 | 用例 | 预期 | 实际 | 结果 | 说明 |
@@ -30,6 +30,7 @@
 | A | L-OperatingPolicy | 对象列表 | OperatingPolicy 首页 | 200 | 200 | 通过 |  |
 | A | L-AnnualOperatingPlan | 对象列表 | AnnualOperatingPlan 首页 | 200 | 200 | 通过 |  |
 | A | L-OperatingCost | 对象列表 | OperatingCost 首页 | 200 | 200 | 通过 |  |
+| A | L-LoadForecastModel | 对象列表 | LoadForecastModel 首页 | 200 | 200 | 通过 |  |
 | A | L01 | 对象列表 | 不存在的对象类型 | 404 | 404 | 通过 |  |
 | A | L02 | 对象列表 | 对象类型大小写不符（project） | 404 | 404 | 通过 |  |
 | A | L03 | 对象列表 | pageSize=0 | 422 | 422 | 通过 |  |
@@ -95,6 +96,8 @@
 | A | AC-AnnualOperatingPlan | 可用动作 | AnnualOperatingPlan 可用动作 | 200 | 200 | 通过 |  |
 | A | D-OperatingCost | 对象详情 | OperatingCost 详情 | 200 | 200 | 通过 |  |
 | A | AC-OperatingCost | 可用动作 | OperatingCost 可用动作 | 200 | 200 | 通过 |  |
+| A | D-LoadForecastModel | 对象详情 | LoadForecastModel 详情 | 200 | 200 | 通过 |  |
+| A | AC-LoadForecastModel | 可用动作 | LoadForecastModel 可用动作 | 200 | 200 | 通过 |  |
 | A | D01 | 对象详情 | 不存在的主键 | 404 | 404 | 通过 |  |
 | A | D02 | 对象详情 | 超长主键（1000 字符） | 404 | 404 | 通过 |  |
 | A | D03 | 对象详情 | 主键含空格与中文 | 404 | 404 | 通过 |  |
@@ -303,6 +306,7 @@
 | A | F-employeeWorktimeAssessment | 函数 | employeeWorktimeAssessment 默认参数 | 200 | 200 | 通过 |  |
 | A | F-resourceOperations | 函数 | resourceOperations 默认参数 | 200 | 200 | 通过 |  |
 | A | F-resourceForecast | 函数 | resourceForecast 默认参数 | 200 | 200 | 通过 |  |
+| A | F-employeeLoadForecast | 函数 | employeeLoadForecast 默认参数 | 200 | 200 | 通过 |  |
 | A | F01 | 函数 | 不存在的函数 | 404 | 404 | 通过 |  |
 | A | F02 | 函数 | 缺少必填项目参数 | 422 | 422 | 通过 |  |
 | A | F03 | 函数 | 项目不存在 | 404/422 | 422 | 通过 |  |

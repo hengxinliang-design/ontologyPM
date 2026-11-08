@@ -161,6 +161,11 @@ definition:
     - {apiName: maxConcurrentProjects, displayName: 同期项目数上限, type: integer, sourceKind: manual, source: 默认 4；超过即碎片化, unit: count}
     - {apiName: planLagTolerancePoints, displayName: 年度计划落后容差, type: decimal, sourceKind: manual, source: 默认 5 个百分点, unit: percentagePoint}
     - {apiName: defaultTaxRatePercent, displayName: 增值税率, type: percent, sourceKind: manual, source: worktime_baseline_config.default_tax_rate_percent；默认 6%；经营收入（税后）= 回款 ÷ (1 + 增值税率)（需求基线 D22）, unit: percent}
+    - {apiName: forecastMinHistoryMonths, displayName: 负荷预测最少历史月数, type: integer, sourceKind: manual, source: 默认 12；有工时的月份少于此数时不训练负荷预测模型（D47）, unit: month}
+    - {apiName: forecastMinPersonMonths, displayName: 负荷预测最少「人 × 月」, type: integer, sourceKind: manual, source: 默认 600；有项目工时的「员工 × 月份」少于此数时不训练（D47）, unit: count}
+    - {apiName: forecastMaeImprovementPercent, displayName: 负荷预测误差改进门槛, type: percent, sourceKind: manual, source: 默认 20%；回测平均误差须比「照抄上月」低这么多，利用率估计才启用（D47、D48）, unit: percent}
+    - {apiName: forecastMinAuc, displayName: 负荷预测最低 AUC, type: decimal, sourceKind: manual, source: 默认 0.75；过载、闲置概率的回测判别能力不低于此值才启用（0.5 等于瞎猜，1 等于完美）, unit: none}
+    - {apiName: forecastMaxCalibrationError, displayName: 负荷预测最大校准误差, type: decimal, sourceKind: manual, source: 默认 0.05；概率的回测校准误差不超过此值才启用（说七成的人实际约七成过载）, unit: none}
     - {apiName: notes, displayName: 备注, type: string, sourceKind: manual, source: worktime_baseline_config.notes}
     - {apiName: updatedAt, displayName: 更新时间, type: datetime, sourceKind: manual, source: worktime_baseline_config.updated_at}
 ---

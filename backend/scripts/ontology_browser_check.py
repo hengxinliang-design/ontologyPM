@@ -93,9 +93,12 @@ def phase_a() -> None:
     # The active version and the project count come from the server, so the cases keep working after a version
     # bump or a change to the demo data.
     current = next(v["version"] for v in data(c.get(f"{O}/versions").json()) if v["active"])
+    from app.ontology import load_ontology
+    declared = len(load_ontology().object_types)
 
     # ---- schema, versions, index
-    A("S01", "元数据", "读取 schema", "GET", f"{O}/schema", check=lambda p: len(data(p)["objectTypes"]) == 14)
+    # The server serves the metadata in this repository: as many object types as it declares (not a fixed number).
+    A("S01", "元数据", "读取 schema", "GET", f"{O}/schema", check=lambda p: len(data(p)["objectTypes"]) == declared)
     A("S02", "元数据", "版本列表", "GET", f"{O}/versions", check=lambda p: any(v["active"] for v in data(p)))
     A("S03", "元数据", "同一版本自比较：无差异", "GET", f"{O}/versions/diff", params={"from": current, "to": current},
       check=lambda p: data(p)["summary"].get("breaking", 0) == 0)
@@ -105,7 +108,7 @@ def phase_a() -> None:
     A("S07", "元数据", "版本文档：不存在的版本", "GET", f"{O}/versions/9.9.9", expect=404)
     A("S08", "元数据", "版本文档：路径穿越样式的版本号", "GET", f"{O}/versions/..%2F..%2Fetc", expect={404, 422})
     A("S09", "元数据", "版本文档：当前版本", "GET", f"{O}/versions/{current}", check=lambda p: len(data(p)) > 0)
-    A("S10", "索引", "索引状态", "GET", f"{O}/index", check=lambda p: len(data(p)["objectTypes"]) == 14)
+    A("S10", "索引", "索引状态", "GET", f"{O}/index", check=lambda p: len(data(p)["objectTypes"]) == declared)
     A("S11", "索引", "刷新索引", "POST", f"{O}/index/refresh", check=lambda p: "rebuilt" in data(p))
 
     # ---- object lists

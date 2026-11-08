@@ -67,3 +67,36 @@ definition:
     - {apiName: costPhase, displayName: 成本类别, type: enum, valueType: CostPhase, sourceKind: derived, source: 按项目代码的商机结论与签约日划分, derivedFrom: costObjectInvestment}
     - {apiName: workContent, displayName: 工作内容, type: string, sourceKind: system, source: time_entries.work_content, searchable: true}
     - {apiName: sourceUpdatedAt, displayName: 源更新时间, type: datetime, sourceKind: system, source: time_entries.source_updated_at}
+---
+kind: ObjectType
+version: v1
+definition:
+  apiName: LoadForecastModel
+  displayName: 负荷预测模型版本
+  pluralDisplayName: 负荷预测模型版本
+  description: 独立对象：模型版本只记录训练与回测，不属于某个员工或项目。每月初系统用真实工时自动训练一次（D46）：先核对数据量，再滚动回测，与运营口径中的接入门槛比较（D47），按输出分别启用（D48）。函数「员工负荷预测」只使用最新版本中已启用的输出。
+  primaryKey: version
+  titleProperty: dataCutoffMonth
+  datasource: loadForecastModels
+  backingDatasets: [load_forecast_models]
+  readPermissions: [resource, employeeWorktime, department, settings]
+  icon: target
+  displayOrder: 14
+  defaultOrder: -trainedAt
+  properties:
+    - {apiName: version, displayName: 版本, type: string, sourceKind: system, source: load_forecast_models.version（每次训练递增）}
+    - {apiName: trainedAt, displayName: 训练时间, type: datetime, sourceKind: system, source: load_forecast_models.trained_at}
+    - {apiName: status, displayName: 状态, type: string, sourceKind: system, source: active 有输出启用；not_enabled 回测未达门槛；insufficient_data 历史数据不足}
+    - {apiName: dataCutoffMonth, displayName: 数据截止月, type: string, sourceKind: system, source: 训练只用到这个月为止的工时（上一个完整月份）}
+    - {apiName: targetMonth, displayName: 预测月份, type: string, sourceKind: system, source: 数据截止月的下一个月}
+    - {apiName: historyMonths, displayName: 有工时的月份, type: integer, sourceKind: system, source: 截止月及以前有项目工时的月份数, unit: month}
+    - {apiName: personMonths, displayName: 「人 × 月」, type: integer, sourceKind: system, source: 截止月及以前有项目工时的「员工 × 月份」数, unit: count}
+    - {apiName: sampleCount, displayName: 训练样本, type: integer, sourceKind: system, source: 下个月已知的「员工 × 月份」数, unit: count}
+    - {apiName: utilizationEnabled, displayName: 利用率估计已启用, type: boolean, sourceKind: system, source: 回测平均误差比「照抄上月」低于门槛（D48）}
+    - {apiName: overloadEnabled, displayName: 过载概率已启用, type: boolean, sourceKind: system, source: 回测过载 AUC 与校准误差都达到门槛（D48）}
+    - {apiName: idleEnabled, displayName: 闲置概率已启用, type: boolean, sourceKind: system, source: 回测闲置 AUC 与校准误差都达到门槛（D48）}
+    - {apiName: outputs, displayName: 各输出判定, type: json, sourceKind: system, source: 每项输出是否启用、所选模型与原因}
+    - {apiName: backtest, displayName: 回测成绩, type: json, sourceKind: system, source: 「照抄上月」与两种模型的误差、AUC、校准误差、区间}
+    - {apiName: thresholds, displayName: 当时的门槛, type: json, sourceKind: system, source: 训练时运营口径中的接入门槛}
+    - {apiName: notes, displayName: 说明, type: string, sourceKind: system, source: 启用了哪些输出，或为什么都未启用}
+

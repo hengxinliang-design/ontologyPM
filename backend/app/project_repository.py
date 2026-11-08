@@ -1426,6 +1426,12 @@ POLICY_RANGES: dict[str, tuple[Decimal, Decimal, str, bool]] = {
     "backlog_coverage_percent": (Decimal("0.01"), Decimal("500"), "在手合同覆盖线", False),
     "plan_lag_tolerance_points": (Decimal("0"), Decimal("100"), "年度计划落后容差", False),
     "control_cost_exceeded_projects": (Decimal("1"), Decimal("100"), "控制成本的超标项目数", True),
+    # Load forecast gates (D47): data volume, then error, discrimination and calibration of each output.
+    "forecast_min_history_months": (Decimal("3"), Decimal("120"), "负荷预测最少历史月数", True),
+    "forecast_min_person_months": (Decimal("30"), Decimal("100000"), "负荷预测最少「人 × 月」", True),
+    "forecast_mae_improvement_percent": (Decimal("0"), Decimal("90"), "负荷预测误差改进门槛", False),
+    "forecast_min_auc": (Decimal("0.5"), Decimal("1"), "负荷预测最低 AUC", False),
+    "forecast_max_calibration_error": (Decimal("0.01"), Decimal("0.5"), "负荷预测最大校准误差", False),
 }
 
 

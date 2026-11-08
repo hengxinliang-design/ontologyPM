@@ -32,8 +32,25 @@ NOT_A_PERMISSION_ERROR = "参数或数据错误，不是权限问题：修正参
 TOO_MANY_STEPS = "（查询步骤较多，以上是已取得资料的结论；请缩小问题范围后再问。）"
 FINAL_ANSWER_NOTE = "现在不能再调用工具：只根据上面已经取得的工具结果作答，资料不足的部分说明不知道。"
 MAX_OUTPUT_TOKENS = 1200
+REWRITE_NOTE = ("上一次回答格式异常（中英文混杂、重复字或夹带推理过程）。请只根据上面已经取得的工具结果，用规范的简体中文重新作答，"
+                "保留「结论 / 数据 / 依据」结构，字段名可以放在反引号中，不要输出推理过程。")
+GARBLED_ANSWER = "模型这次的回答格式异常（中英文混杂或重复字），已自动重写一次仍未恢复。请重新提问，或换一种问法。"
+# Garbled answers (checked on 42 gpt-oss answers, 2026-11-08): normal answers have at most 0.044 plain English words
+# per Chinese character (enum values such as behind, critical); garbled or leaked ones have 1.0 or more, or one
+# character three times in a row (「结结结」). Code spans are not counted: field names belong there.
+REPEATED_HAN = re.compile(r"([\u4e00-\u9fff])\1\1")
+CODE_SPAN = re.compile(r"```.*?```|`[^`\n]*`", re.S)
+PLAIN_WORD = re.compile(r"(?<![A-Za-z0-9_])[a-z]{3,}(?![A-Za-z0-9_])")
+HAN = re.compile(r"[\u4e00-\u9fff]")
+GARBLED_WORD_RATIO = 0.3
 RETRY_BACKOFF_SECONDS = 0.5
 TEXT_TOOL_CALL = re.compile(r"<tool_call>(.*?)(?:</tool_call>|$)", re.S)
+# gpt-oss speaks the "harmony" format. Through Cloudflare's chat completions it sometimes returns that format as plain
+# text instead of structured tool calls: reasoning ("analysis…<|end|>"), then "<|start|>assistant to=functions.NAME
+# <|channel|>commentary json<|message|>{…}<|call|>", with some control tokens already removed (seen live 2026-11-08).
+HARMONY_TOKEN = re.compile(r"<\|[a-z_]+\|>")
+HARMONY_CALL = re.compile(r"to=functions\.([A-Za-z_]\w*)")
+HARMONY_FINAL = re.compile(r"^\s*(?:analysis.*?)?assistant\s*final", re.S)
 
 logger = logging.getLogger(__name__)
 
@@ -379,7 +396,9 @@ class CloudflareChatProvider(ModelProvider):
                           "arguments": _chat_arguments(function.get("arguments"))})
         if offer_tools and not calls:
             calls = _text_tool_calls(content)
-        text = TEXT_TOOL_CALL.sub("", content).strip()
+        if offer_tools and not calls:
+            calls = _harmony_tool_calls(content, [tool["name"] for tool in tools])
+        text = _visible_text(TEXT_TOOL_CALL.sub("", content), bool(calls))
         native = {"role": "assistant", "content": text, "tool_calls": [
             {"id": call["id"], "type": "function", "function": {"name": call["name"], "arguments": call["arguments"]}}
             for call in calls]}
@@ -418,7 +437,7 @@ class PmAssistantService:
         try:
             provider = self._configured_provider()
             transcript = provider.start(self._conversation_input(message, history))
-            answer = ""
+            answer, note = "", None
             for _ in range(MAX_TOOL_ROUNDS):
                 turn = await provider.ask(session.instructions(), transcript, session.tools(), "auto")
                 if not turn.calls:
@@ -428,7 +447,16 @@ class PmAssistantService:
             else:
                 # R6: no more tools; answer from what was gathered.
                 final = await provider.ask(session.instructions(), transcript, session.tools(), "none")
-                answer = "\n\n".join(part for part in (final.text, TOO_MANY_STEPS) if part)
+                answer, note = final.text, TOO_MANY_STEPS
+            if answer and _looks_garbled(answer):
+                # One rewrite from the tool results already gathered, without tools; a second garbled answer is not
+                # shown (it can carry wrong figures, e.g. 2025-03 for 2026-03), the user is asked to ask again.
+                logger.warning("PM Assistant answer looked garbled; asking %s to rewrite it once", self.settings.pm_assistant_model)
+                rewrite = await provider.ask(f"{session.instructions()}\n{REWRITE_NOTE}", transcript, session.tools(), "none")
+                if not rewrite.text or _looks_garbled(rewrite.text):
+                    raise PmAssistantError(GARBLED_ANSWER)
+                answer = rewrite.text
+            answer = "\n\n".join(part for part in (answer, note) if part)
             if not answer:
                 raise PmAssistantError("模型服务未返回有效回答，请换一种问法重试。")
         except PmAssistantError as exc:
@@ -581,6 +609,51 @@ def _text_tool_calls(content: str) -> list[dict[str, str]]:
     return calls
 
 
+def _looks_garbled(text: str) -> bool:
+    """A reply that mixes in English prose or repeats a character three times (see GARBLED_WORD_RATIO)."""
+    if REPEATED_HAN.search(text):
+        return True
+    prose = CODE_SPAN.sub(" ", text)
+    words = len(PLAIN_WORD.findall(prose))
+    return words >= 10 and words > GARBLED_WORD_RATIO * len(HAN.findall(prose))
+
+
+def _harmony_tool_calls(content: str, tool_names: list[str]) -> list[dict[str, str]]:
+    """Tool calls gpt-oss wrote as harmony text. The tool name can run into the next word ("projectListcommentary")
+    because the channel token was removed, so it is matched against the offered tools, longest name first. Arguments
+    that do not parse are passed on as written: the tool then reports 「参数无法解析」 and the model can retry."""
+    calls = []
+    names = sorted(tool_names, key=len, reverse=True)
+    for index, match in enumerate(HARMONY_CALL.finditer(content or "")):
+        name = next((n for n in names if match.group(1).startswith(n)), None)
+        if name is None:
+            continue
+        rest = content[match.end():].split("<|call|>", 1)[0]
+        start = rest.find("{")
+        raw = HARMONY_TOKEN.sub("", rest[start:]).strip() if start >= 0 else "{}"
+        parsed = _lenient_json(raw)
+        if isinstance(parsed, dict):
+            raw = json.dumps({str(key).strip(): value for key, value in parsed.items()}, ensure_ascii=False)
+        calls.append({"id": f"harmony_call_{index}", "name": name, "arguments": raw})
+    return calls
+
+
+def _visible_text(content: str, has_calls: bool) -> str:
+    """The part of a reply meant for the user. Harmony reasoning and control tokens are never shown: with a tool call
+    the text is dropped; otherwise only what follows the last message token (the final channel) is kept."""
+    content = content or ""
+    if "<|" not in content:
+        # With every token removed the role and channel names run together: "analysis…assistantfinal <answer>".
+        return HARMONY_FINAL.split(content, 1)[-1].strip()
+    if has_calls:
+        return ""
+    if "<|message|>" in content:
+        content = content.rsplit("<|message|>", 1)[1]
+    elif "<|end|>" in content:
+        content = content.rsplit("<|end|>", 1)[1]
+    return HARMONY_TOKEN.sub("", content).strip()
+
+
 def _chat_arguments(arguments: Any) -> str:
     """Tool arguments as a JSON object string. Granite sometimes encodes them twice (a JSON string holding the JSON
     object), seen against the live service on 2026-10-31; one extra level is unwrapped, anything else is passed on
@@ -602,16 +675,20 @@ def _lenient_json(text: str) -> Any:
 
 
 def _provider_error(response: httpx.Response, provider: str = "openai") -> str:
-    if response.status_code in {401, 403}:
-        return "PM Assistant 的模型服务授权不可用，请联系管理员检查服务端配置。"
     try:
         body = response.json()
     except ValueError:
         body = {}
     body = body if isinstance(body, dict) else {}
+    errors = [e for e in body.get("errors") or [] if isinstance(e, dict)] if provider == "cloudflare" else []
+    text = " ".join(str(e.get("message") or "") for e in errors).lower()
+    # A 403 for a model the account's plan does not include is not an authorization fault (seen live 2026-11-08 with
+    # @cf/deepseek-ai/deepseek-v4.1-flash-1017 on the Workers Free plan, code 5035).
+    if provider == "cloudflare" and (any(e.get("code") == 5035 for e in errors) or "not available on the workers free plan" in text):
+        return "PM Assistant 所选的模型需要 Cloudflare Workers 付费计划，当前账号是免费计划。请升级计划，或由管理员改用免费计划可用的模型。"
+    if response.status_code in {401, 403}:
+        return "PM Assistant 的模型服务授权不可用，请联系管理员检查服务端配置。"
     if provider == "cloudflare":
-        errors = [e for e in body.get("errors") or [] if isinstance(e, dict)]
-        text = " ".join(str(e.get("message") or "") for e in errors).lower()
         if response.status_code == 429:
             if any(e.get("code") == 3036 for e in errors) or "neuron" in text or "allocation" in text:
                 return "PM Assistant 的模型服务额度不足，请联系管理员检查 Cloudflare Workers AI 的用量额度。"

@@ -210,7 +210,7 @@ POST /api/v1/pm-assistant/chat
 Content-Type: application/json
 ```
 
-服务端以提问用户的身份运行（本体 7.8.0 起，需求基线 G5）：模型通过工具调用本体函数和对象集查询（`query_objects`、`aggregate_objects`、`get_object`、`get_linked_objects`、`describe_type`），菜单权限、安全标记和项目经理的数据范围都按该用户生效；项目经理可以使用。最多 6 轮工具调用。函数工具的参数带上本体声明的约束（8.4.0 起）：整数给 `minimum` / `maximum`，文本给 `maxLength`，月份 / 年度、金额范围与「最多两位小数」写在参数说明中，模型不必猜测后被 422 拒绝。写操作只能通过 `suggest_action` 提出，服务端做预检、不执行。模型服务的密钥只保存在服务端，不会发送到浏览器，配置见下方「模型服务」。
+服务端以提问用户的身份运行（本体 7.8.0 起，需求基线 G5）：模型通过工具调用本体函数和对象集查询（`query_objects`、`aggregate_objects`、`get_object`、`get_linked_objects`、`describe_type`），菜单权限、安全标记和项目经理的数据范围都按该用户生效；项目经理可以使用。最多 6 轮工具调用。函数工具的参数带上本体声明的约束（8.4.0 起）：整数给 `minimum` / `maximum`，文本给 `maxLength`，月份 / 年度、金额范围与「最多两位小数」写在参数说明中，模型不必猜测后被 422 拒绝。写操作只能通过 `suggest_action` 提出，服务端做预检、不执行。回答在返回前做两项检查（2026-11-08 起）：gpt-oss 经 Cloudflare 对话接口偶尔把内部格式（推理过程、写成文字的工具调用）当正文返回，服务端把其中的工具调用照常执行、推理与控制符不显示；回答中英文混杂或出现连续三个相同汉字时，服务端用已取得的工具结果、不带工具让模型重写一次，重写仍异常时返回 503「模型这次的回答格式异常」，不显示可能带错数字的回答。模型服务的密钥只保存在服务端，不会发送到浏览器，配置见下方「模型服务」。
 
 请求：
 
@@ -1140,6 +1140,26 @@ Content-Type: application/json
 ### 9.5 查询员工工时数据
 
 本体 7.8.0 起，本接口是本体函数 `employeeWorktimeAssessment` 的包装，资源运营监控（`/api/v1/resource-operations`）是函数 `resourceOperations` 的包装，返回结构不变。调剂状态「负荷过高」改名为「本月负荷过高」；内部非项目代码读取投入设置中的「内部代码」列表，`meta.internal_nonproject_project_code` 为该列表（顿号分隔）。
+
+**员工负荷预测（本体 8.5.0，需求基线 D46–D49）**：没有单独的业务接口，经本体函数调用：
+
+```http
+POST /api/v1/ontology/functions/employeeLoadForecast/execute
+Content-Type: application/json
+
+{"parameters": {"month": "2026-10", "employeeName": "刘"}}
+```
+
+权限同资源运营监控（`resource` 菜单）。`month` 缺省为最新模型版本的数据截止月，预测其下一个月；晚于数据截止月返回 422。返回：
+
+| 字段 | 说明 |
+| --- | --- |
+| `status` | `active` 有输出启用；`not_enabled` 回测未达门槛；`insufficient_data` 历史数据不足；`not_trained` 尚未训练 |
+| `model` | 最新模型版本：`version`、`trained_at`、`data_cutoff_month`、`target_month`、`history_months`、`person_months`、`enabled_outputs`、`backtest`、`thresholds`、`notes` |
+| `outputs` | `utilization` / `overload` / `idle` 各自的 `enabled`、`candidate`、`reason`（达标或差多少） |
+| `data[]` | 每位员工：`current_utilization_percent`、`reasons`（影响最大的三个因素）；只有已启用的输出才有 `predicted_utilization_percent` 与 `interval_low_percent` / `interval_high_percent`、`overload_probability_percent`、`idle_probability_percent` |
+
+模型版本也是本体对象 `LoadForecastModel`（`GET /api/v1/ontology/objects/LoadForecastModel`）。训练由服务自己完成：启动时与此后每小时检查，进入新截止月、门槛或截止月及以前的工时变化时训练；环境变量 `TSG_PM_LOAD_FORECAST_AUTO_TRAIN=false` 可关闭。门槛是运营口径参数 `forecastMinHistoryMonths`（12）、`forecastMinPersonMonths`（600）、`forecastMaeImprovementPercent`（20）、`forecastMinAuc`（0.75）、`forecastMaxCalibrationError`（0.05），用动作 `updateOperatingPolicy` 修改。后端依赖新增 scikit-learn（`backend/requirements.txt`）。
 
 ```http
 GET /api/v1/employee-worktime

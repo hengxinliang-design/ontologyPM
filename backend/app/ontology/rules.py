@@ -15,6 +15,7 @@ from typing import Any, Callable
 
 from .derivations.economics import DepartmentAnalysis, plan_targets
 from .derivations.resources import ResourceMetrics
+from .derivations.load_forecast import LoadForecastService
 from .derivations.project import (
     _budget_thresholds,
     derive_project,
@@ -665,12 +666,18 @@ OPERATING_POLICY_FIELDS = {
     "maxConcurrentProjects": "max_concurrent_projects",
     "planLagTolerancePoints": "plan_lag_tolerance_points",
     "defaultTaxRatePercent": "default_tax_rate_percent",
+    "forecastMinHistoryMonths": "forecast_min_history_months",
+    "forecastMinPersonMonths": "forecast_min_person_months",
+    "forecastMaeImprovementPercent": "forecast_mae_improvement_percent",
+    "forecastMinAuc": "forecast_min_auc",
+    "forecastMaxCalibrationError": "forecast_max_calibration_error",
     "notes": "notes",
 }
 
 
 # Stored as text like every other parameter; the ontology declares them as integers.
-INTEGER_POLICY_FIELDS = frozenset({"overloadConsecutiveMonths", "maxConcurrentProjects"})
+INTEGER_POLICY_FIELDS = frozenset({"overloadConsecutiveMonths", "maxConcurrentProjects",
+                                   "forecastMinHistoryMonths", "forecastMinPersonMonths"})
 
 
 @RULES.datasource("operatingPolicy")
@@ -1497,6 +1504,38 @@ def fn_resource_operations(ctx: OntologyContext, params: dict[str, Any]) -> dict
         employee_name=params.get("employeeName"), cursor=params.get("cursor"), page_size=_page_size(params),
         project_names={p["project_number"]: p["subject"] for p in ctx.project_facts()},
     )
+
+
+def _load_forecast(ctx: OntologyContext) -> LoadForecastService:
+    return ctx.dataset("load_forecast", lambda: LoadForecastService(ctx.database, ctx.projects))
+
+
+@RULES.datasource("loadForecastModels")
+def load_forecast_models(ctx: OntologyContext) -> list[dict[str, Any]]:
+    """D46: every monthly training, newest first: what it was judged on and which outputs passed."""
+    rows = []
+    for model in _load_forecast(ctx).versions():
+        outputs = model["outputs"]
+        rows.append({
+            "version": str(model["version"]), "trainedAt": model["trained_at"], "status": model["status"],
+            "dataCutoffMonth": model["data_cutoff_month"], "targetMonth": model["target_month"],
+            "historyMonths": model["history_months"], "personMonths": model["person_months"], "sampleCount": model["sample_count"],
+            "utilizationEnabled": bool(outputs.get("utilization", {}).get("enabled")),
+            "overloadEnabled": bool(outputs.get("overload", {}).get("enabled")),
+            "idleEnabled": bool(outputs.get("idle", {}).get("enabled")),
+            "outputs": outputs, "backtest": model["backtest"], "thresholds": model["thresholds"], "notes": model["notes"],
+        })
+    return rows
+
+
+@RULES.function("employeeLoadForecast")
+def fn_employee_load_forecast(ctx: OntologyContext, params: dict[str, Any]) -> dict[str, Any]:
+    """D35/D48: next month's estimate per person, only for the outputs whose backtest passed its gate."""
+    result = _load_forecast(ctx).forecast(params.get("month"))
+    name = (params.get("employeeName") or "").strip()
+    if name:
+        result["data"] = [row for row in result["data"] if name in (row["employee_name"] or "")]
+    return result
 
 
 @RULES.function("departmentOperatingReview")

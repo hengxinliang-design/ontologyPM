@@ -27,6 +27,7 @@ def test_every_object_type_opens_with_links_and_actions(tmp_path):
         apply(client, "openIntervention", {"project": "WDR101", "title": "补充资源", "dueDate": "2026-12-31"})
         apply(client, "createPaymentTerm", {"project": "WDR101", "name": "首付款", "plannedAmount": "1000"})
         import_entries(client, [entry("S1", "WDR101", "2026-10-12")])
+        client.app.state.load_forecast.train("2026-10")  # one model version (D46): too little history, still listed
 
         opened = set()
         for definition in ontology.object_types:

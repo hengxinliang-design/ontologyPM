@@ -71,7 +71,7 @@ version: v1
 definition:
   apiName: updateOperatingPolicy
   displayName: 调整运营口径
-  description: 修改标准工时、年度参考工作日、利用率阈值、预算关注线与高风险线、商机停滞天数、丢单状态、内部代码，以及资源健康与年度计划的阈值（加班占比关注线、连续过载月数、同期项目数上限、年度计划落后容差）。修改即时作用于风险、健康度、资源与投入分析。
+  description: 修改标准工时、年度参考工作日、利用率阈值、预算关注线与高风险线、商机停滞天数、丢单状态、内部代码，以及资源健康与年度计划的阈值（加班占比关注线、连续过载月数、同期项目数上限、年度计划落后容差）和负荷预测的接入门槛（D47）。修改即时作用于风险、健康度、资源与投入分析。
   objectType: OperatingPolicy
   targetParameter: policy
   tone: danger
@@ -93,9 +93,14 @@ definition:
     - {apiName: maxConcurrentProjects, displayName: 同期项目数上限, type: integer}
     - {apiName: planLagTolerancePoints, displayName: 年度计划落后容差, type: decimal}
     - {apiName: defaultTaxRatePercent, displayName: 增值税率, type: decimal, description: 经营收入税后换算用，默认 6}
+    - {apiName: forecastMinHistoryMonths, displayName: 负荷预测最少历史月数, type: integer, minimum: 3, maximum: 120}
+    - {apiName: forecastMinPersonMonths, displayName: 负荷预测最少「人 × 月」, type: integer, minimum: 30, maximum: 100000}
+    - {apiName: forecastMaeImprovementPercent, displayName: 负荷预测误差改进门槛（%）, type: decimal, minimum: 0, maximum: 90}
+    - {apiName: forecastMinAuc, displayName: 负荷预测最低 AUC, type: decimal, minimum: 0.5, maximum: 1}
+    - {apiName: forecastMaxCalibrationError, displayName: 负荷预测最大校准误差, type: decimal, minimum: 0.01, maximum: 0.5}
     - {apiName: notes, displayName: 备注, type: string, maxLength: 2000}
   permissions: [settings, employeeWorktime]
-  edits: [OperatingPolicy.standardHoursPerDay, OperatingPolicy.standardWorkDaysPerYear, OperatingPolicy.lostStatuses, OperatingPolicy.internalCodes, OperatingPolicy.attentionUtilizationPercent, OperatingPolicy.minimumUtilizationPercent, OperatingPolicy.excellentUtilizationPercent, OperatingPolicy.overloadUtilizationPercent, OperatingPolicy.budgetAttentionPercent, OperatingPolicy.budgetHighRiskPercent, OperatingPolicy.stallDays, OperatingPolicy.overtimeShareAttentionPercent, OperatingPolicy.overloadConsecutiveMonths, OperatingPolicy.maxConcurrentProjects, OperatingPolicy.planLagTolerancePoints, OperatingPolicy.defaultTaxRatePercent, OperatingPolicy.notes]
+  edits: [OperatingPolicy.standardHoursPerDay, OperatingPolicy.standardWorkDaysPerYear, OperatingPolicy.lostStatuses, OperatingPolicy.internalCodes, OperatingPolicy.attentionUtilizationPercent, OperatingPolicy.minimumUtilizationPercent, OperatingPolicy.excellentUtilizationPercent, OperatingPolicy.overloadUtilizationPercent, OperatingPolicy.budgetAttentionPercent, OperatingPolicy.budgetHighRiskPercent, OperatingPolicy.stallDays, OperatingPolicy.overtimeShareAttentionPercent, OperatingPolicy.overloadConsecutiveMonths, OperatingPolicy.maxConcurrentProjects, OperatingPolicy.planLagTolerancePoints, OperatingPolicy.defaultTaxRatePercent, OperatingPolicy.forecastMinHistoryMonths, OperatingPolicy.forecastMinPersonMonths, OperatingPolicy.forecastMaeImprovementPercent, OperatingPolicy.forecastMinAuc, OperatingPolicy.forecastMaxCalibrationError, OperatingPolicy.notes]
   writeback: [worktime_baseline_config, investment_settings]
   handler: updateOperatingPolicy
   submissionCriteria:

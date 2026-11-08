@@ -4,6 +4,7 @@
 
 | 产品版本 | 本体版本 | 日期 | 构建包 |
 | --- | --- | --- | --- |
+| v1.37.0 | 8.5.0 | 2026-11-08 | [2026-11-08-load-forecast](docs/ontology-builds/2026-11-08-load-forecast.yaml) |
 | v1.36.0 | 8.4.0 | 2026-11-08 | [2026-11-06-ontology-audit](docs/ontology-builds/2026-11-06-ontology-audit.yaml) |
 | v1.35.2 | 8.3.0 | 2026-11-06 | —（本体元数据不变） |
 | v1.35.1 | 8.3.0 | 2026-11-06 | [2026-11-06-resource-range](docs/ontology-builds/2026-11-06-resource-range.yaml) |
@@ -29,6 +30,25 @@
 | v1.22.0 | 7.6.0 | 2026-10-30 | [2026-10-29-logical-delete](docs/ontology-builds/2026-10-29-logical-delete.yaml) |
 | v1.21.0 | 7.5.0 | 2026-10-29 | [2026-10-29-rule-homes-and-linkages](docs/ontology-builds/2026-10-29-rule-homes-and-linkages.yaml) |
 | v1.20.0 | 7.4.0 | 2026-10-29 | [2026-10-29-milestone-span-period](docs/ontology-builds/2026-10-29-milestone-span-period.yaml) |
+
+## v1.37.0 — 员工负荷预测由系统自己把关；PM Assistant 改用 gpt-oss-120b（本体 8.5.0）
+
+### 员工负荷预测
+
+- 负荷预测试点的数据核对与滚动回测做进系统（需求基线 D46–D49，构建包 [2026-11-08-load-forecast](docs/ontology-builds/2026-11-08-load-forecast.yaml)）：每月初用真实工时自动训练，与运营口径中的门槛比较后登记模型版本；利用率估计、过载概率、闲置概率按各自的门槛分别启用，没达标的不对外提供并说明差距。
+- 新增本体函数「员工负荷预测」`employeeLoadForecast`、对象类型「负荷预测模型版本」`LoadForecastModel`、运营口径 5 个门槛参数。
+- 资源运营监控页一行显示模型状态，有输出启用时增加「预计 YYYY-MM」列。演示数据上三项都未达标（例如利用率误差 12.84 vs 照抄上月 13.96，需 ≤ 11.17），所以演示环境不显示预测列。
+- scikit-learn 改为必需依赖。
+- 本体浏览器边界测试脚本的对象类型数改为读取元数据（365 个用例全部通过）。
+
+### PM Assistant
+
+- 本地配置的 PM Assistant 模型改为 `@cf/openai/gpt-oss-120b`（21 题评测 17/21；granite-4.0-h-micro 为 7/21），AI 项目研判仍为 llama-3.3-70b。模型在 `backend/.env.local` 中配置，不进仓库。
+- gpt-oss 经 Cloudflare 对话接口有时把内部格式当正文返回：写成文字的工具调用现在照常执行，推理过程、控制符与 `assistantfinal` 前缀不再显示给用户。
+- 回答中英文混杂或出现连续三个相同汉字时，自动用已取得的数据重写一次；仍异常时提示重新提问，不显示可能带错数字的回答。
+- 所选模型需要 Cloudflare Workers 付费计划时（如 DeepSeek V4.1 Flash，错误码 5035），提示「所选的模型需要 Cloudflare Workers 付费计划」，不再误报为授权不可用。
+- 评测脚本在全部请求失败（如当日额度用完）时也会写出报告并说明原因。
+- 已知：自动重写已由测试覆盖，尚未在真实模型上复测（2026-11-08 当日 Cloudflare 免费额度已用完）。
 
 ## v1.36.0 — 本体检查修正（本体 8.4.0）
 
