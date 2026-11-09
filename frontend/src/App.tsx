@@ -1547,7 +1547,7 @@ function ProjectDrawer({ project, close, refresh }: { project: ProjectDetail; cl
         return <>{open.length > 0 && <ul className="panel-rows">{open.map(row)}</ul>}<DoneFold title={`已到账 ${done.length} 个`} note={`合计 ${money(String(done.reduce((sum, item) => sum + Number(item.planned_amount || 0), 0)))}`}>{done.map(row)}</DoneFold></>;
       })()}
       {project.payment_terms.length === 0 && !paymentTermFormOpen && <p className="detail-empty">暂无合同回款约定。可先录入比例、节点内容和金额，再在里程碑中关联。</p>}
-      {paymentTermFormOpen && <form className="milestone-form" onSubmit={savePaymentTerm}><label>回款节点内容<input required value={paymentTerm.name} placeholder="如：合同生效首期款、蓝图确认款" onChange={e => setPaymentTerm({ ...paymentTerm, name: e.target.value })} /></label><label>回款比例（%）<input type="number" min="0" max="100" step="0.01" value={paymentTerm.payment_ratio} placeholder="如：30" onChange={e => setPaymentTerm({ ...paymentTerm, payment_ratio: e.target.value })} /></label><label>约定金额（元）<input type="number" required min="0" step="0.01" value={paymentTerm.planned_amount} placeholder="如：206700" onChange={e => setPaymentTerm({ ...paymentTerm, planned_amount: e.target.value })} /></label><label>付款条件 / 备注<input value={paymentTerm.notes} placeholder="如：收到等额发票后 30 日内支付" onChange={e => setPaymentTerm({ ...paymentTerm, notes: e.target.value })} /></label><div className="form-actions span-2"><button className="button primary" disabled={saving}>{editingPaymentTermId ? "保存约定" : "添加回款约定"}</button><button type="button" className="button secondary" disabled={saving} onClick={resetPaymentTermForm}>取消</button></div></form>}
+      {paymentTermFormOpen && <form className={`milestone-form inline-form three ${editingPaymentTermId ? "editing" : ""}`} onSubmit={savePaymentTerm}><div className="inline-form-head"><strong>{editingPaymentTermId ? "编辑回款约定" : "添加回款约定"}</strong><span>金额必填；回款跟踪日期取关联里程碑的结束日期</span></div><label>回款节点内容<input required value={paymentTerm.name} placeholder="如：合同生效首期款、蓝图确认款" onChange={e => setPaymentTerm({ ...paymentTerm, name: e.target.value })} /></label><label>回款比例（%）<input type="number" min="0" max="100" step="0.01" value={paymentTerm.payment_ratio} placeholder="如：30" onChange={e => setPaymentTerm({ ...paymentTerm, payment_ratio: e.target.value })} /></label><label>约定金额（元）<input type="number" required min="0" step="0.01" value={paymentTerm.planned_amount} placeholder="如：206700" onChange={e => setPaymentTerm({ ...paymentTerm, planned_amount: e.target.value })} /></label><label className="span-2">付款条件 / 备注<input value={paymentTerm.notes} placeholder="如：收到等额发票后 30 日内支付" onChange={e => setPaymentTerm({ ...paymentTerm, notes: e.target.value })} /></label><div className="form-actions span-2"><button type="button" className="button secondary" disabled={saving} onClick={resetPaymentTermForm}>取消</button><button className="button primary" disabled={saving}>{editingPaymentTermId ? "保存约定" : "添加回款约定"}</button></div></form>}
     </section>
 
     <section className="detail-section"><div className="section-title"><div><h3>里程碑计划 <span className="manual-tag">人工维护</span></h3><small>关联回款约定后，系统将使用里程碑结束日期生成并跟踪回款事件。</small></div>{!milestoneFormOpen && <button type="button" className="button secondary add-action" disabled={saving} onClick={openNewMilestoneForm}>＋ 添加</button>}</div>
@@ -1566,8 +1566,8 @@ function ProjectDrawer({ project, close, refresh }: { project: ProjectDetail; cl
         return <>{open.length > 0 && <ul className="panel-rows">{open.map(row)}</ul>}<DoneFold title={`已完成 ${done.length} 个`} note={(() => { const late = done.filter(item => item.completed_date && item.completed_date > item.planned_end).length; return late ? `其中延期完成 ${late} 个` : "均按期完成"; })()}>{done.map(row)}</DoneFold></>;
       })()}
       {project.milestones.length === 0 && !milestoneFormOpen && <p className="detail-empty">暂无里程碑。</p>}
-      {milestoneFormOpen && <>{editingMilestoneId ? <div className="editing-banner"><strong>编辑待确认里程碑</strong><span>保存后将重新计算待办日期和关联回款提醒</span></div> : <div className="editing-banner"><strong>添加里程碑</strong><span>选择回款约定后，会按该里程碑结束日期生成回款跟踪事件</span></div>}
-      <form className="milestone-form" onSubmit={addMilestone}>
+      {milestoneFormOpen && <form className={`milestone-form inline-form ${editingMilestoneId ? "editing" : ""}`} onSubmit={addMilestone}>
+        <div className="inline-form-head">{editingMilestoneId ? <><strong>编辑待确认里程碑</strong><span>保存后将重新计算待办日期和关联回款提醒</span></> : <><strong>添加里程碑</strong><span>选择回款约定后，会按该里程碑结束日期生成回款跟踪事件</span></>}</div>
         <label>里程碑名称<input required value={milestone.name} onChange={e => setMilestone({ ...milestone, name: e.target.value })} /></label>
         <label>负责人<input value={milestone.owner} onChange={e => setMilestone({ ...milestone, owner: e.target.value })} /></label>
         <label>开始日期<CalendarDatePicker value={milestone.planned_start} onChange={planned_start => setMilestone({ ...milestone, planned_start })} label="选择里程碑开始日期" /></label>
@@ -1575,8 +1575,8 @@ function ProjectDrawer({ project, close, refresh }: { project: ProjectDetail; cl
         <label className="span-2">输出物<input value={milestone.deliverable} onChange={e => setMilestone({ ...milestone, deliverable: e.target.value })} placeholder="如：需求说明书、软件设计方案" /></label>
         <label className="span-2">关联合同回款约定<select value={milestone.payment_term_id} onChange={e => setMilestone({ ...milestone, payment_term_id: e.target.value })}><option value="">不关联回款约定</option>{project.payment_terms.filter(term => !term.linked_milestone_id || term.linked_milestone_id === editingMilestoneId).map(term => <option key={term.payment_term_id} value={term.payment_term_id}>{term.name} · {term.payment_ratio ? `${term.payment_ratio}% · ` : ""}{money(term.planned_amount)}</option>)}</select><small>关联后以本里程碑结束日期作为回款跟踪日期。</small></label>
         {showsLegacyPaymentNote(milestone, editingTermId) && <p className="legacy-payment-note span-2">这是历史回款事件，仍按原有回款日期和金额维护；新建回款请先添加合同回款约定。</p>}
-        <div className="form-actions span-2"><button className="button primary" disabled={saving}>{editingMilestoneId ? "保存修改" : "添加里程碑"}</button><button type="button" className="button secondary" disabled={saving} onClick={resetMilestoneForm}>取消</button></div>
-      </form></>}
+        <div className="form-actions span-2"><button type="button" className="button secondary" disabled={saving} onClick={resetMilestoneForm}>取消</button><button className="button primary" disabled={saving}>{editingMilestoneId ? "保存修改" : "添加里程碑"}</button></div>
+      </form>}
     </section>
 
     <section className="detail-section"><div className="section-title"><div><h3>管理干预 <span className="manual-tag">人工维护</span></h3><small>针对项目风险需要跟踪到关闭的事项；过了截止日期仍未关闭会进入待处理事项提醒，不影响风险等级。</small></div>{!interventionFormOpen && <button type="button" className="button secondary add-action" disabled={saving} onClick={() => { setIntervention({ ...emptyIntervention, owner: settings.project_manager }); setInterventionFormOpen(true); }}>＋ 发起干预</button>}</div>
@@ -1595,13 +1595,14 @@ function ProjectDrawer({ project, close, refresh }: { project: ProjectDetail; cl
         return <>{open.length > 0 && <ul className="panel-rows">{open.map(row)}</ul>}<DoneFold title={`已关闭 ${done.length} 项`} note="关闭后锁定，可展开查看处理结论">{done.map(row)}</DoneFold></>;
       })()}
       {project.interventions.length === 0 && !interventionFormOpen && <p className="detail-empty">暂无管理干预。项目出现需要管理者介入的风险时，在这里发起并跟踪到关闭。</p>}
-      {interventionFormOpen && <form className="milestone-form" onSubmit={saveIntervention}>
+      {interventionFormOpen && <form className="milestone-form inline-form" onSubmit={saveIntervention}>
+        <div className="inline-form-head"><strong>发起管理干预</strong><span>负责人不填则为项目经理</span></div>
         <label className="span-2">事项<input required value={intervention.title} placeholder="如：协调测试资源、与客户确认验收范围" onChange={e => setIntervention({ ...intervention, title: e.target.value })} /></label>
         <label>类型<select value={intervention.intervention_type} onChange={e => setIntervention({ ...intervention, intervention_type: e.target.value })}>{Object.entries(INTERVENTION_TYPE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
         <label>负责人<input value={intervention.owner} placeholder="不填则为项目经理" list="project-manager-names" onChange={e => setIntervention({ ...intervention, owner: e.target.value })} /></label>
         <label>截止日期<CalendarDatePicker value={intervention.due_date} onChange={due_date => setIntervention({ ...intervention, due_date })} label="选择干预截止日期" /></label>
         <label>备注<input value={intervention.notes} placeholder="背景、期望结果" onChange={e => setIntervention({ ...intervention, notes: e.target.value })} /></label>
-        <div className="form-actions span-2"><button className="button primary" disabled={saving}>发起干预</button><button type="button" className="button secondary" disabled={saving} onClick={() => { setIntervention(emptyIntervention); setInterventionFormOpen(false); }}>取消</button></div>
+        <div className="form-actions span-2"><button type="button" className="button secondary" disabled={saving} onClick={() => { setIntervention(emptyIntervention); setInterventionFormOpen(false); }}>取消</button><button className="button primary" disabled={saving}>发起干预</button></div>
       </form>}
     </section>
   </aside></div>;
