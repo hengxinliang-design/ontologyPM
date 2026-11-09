@@ -202,7 +202,8 @@ def test_retries_are_bounded(tmp_path, monkeypatch):
         assert client.post("/api/v1/pm-assistant/chat", json={"message": "风险"}).status_code == 503
     assert len(sent) == 3, "one try plus two retries"
 
-    sent = scripted(monkeypatch, [httpx.Response(502, json={}), "恢复后的回答。"])
+    # The answer uses no tool, so it is asked once more with the reminder (NO_TOOL_NOTE): two answers scripted.
+    sent = scripted(monkeypatch, [httpx.Response(502, json={}), "恢复后的回答。", "恢复后的回答。"])
     with TestClient(cloudflare(tmp_path)) as client:
         assert client.post("/api/v1/pm-assistant/chat", json={"message": "风险"}).json()["data"]["answer"] == "恢复后的回答。"
 
@@ -223,7 +224,7 @@ def test_timeout_comes_from_settings(tmp_path, monkeypatch):
     monkeypatch.setattr(pm_assistant_module.httpx, "AsyncClient", client_factory)
     with TestClient(cloudflare(tmp_path, pm_assistant_timeout_seconds=12.5)) as client:
         assert client.post("/api/v1/pm-assistant/chat", json={"message": "你好"}).status_code == 200
-    assert seen == [12.5]
+    assert seen == [12.5, 12.5], "the answer and the one reminder for an answer without lookups"
 
 
 def test_openai_mode_is_unchanged_when_cloudflare_is_also_configured(tmp_path, monkeypatch):
@@ -237,7 +238,8 @@ def test_openai_mode_is_unchanged_when_cloudflare_is_also_configured(tmp_path, m
                         lambda **kwargs: REAL_ASYNC_CLIENT(transport=httpx.MockTransport(handler), **kwargs))
     with TestClient(cloudflare(tmp_path, pm_assistant_provider="openai", openai_api_key="sk-test", pm_assistant_model="gpt-5.2")) as client:
         data = client.post("/api/v1/pm-assistant/chat", json={"message": "你好"}).json()["data"]
-    [(url, body)] = sent
+    (url, body), (_, reminder) = sent
+    assert "还没有调用任何工具" in reminder["instructions"], "the reminder works the same way on OpenAI"
     assert url == "https://api.openai.com/v1/responses" and data["provider"] == "openai" and data["answer"] == "OpenAI 回答。"
     assert body["text"] == {"verbosity": "low"} and body["reasoning"] == {"effort": "none"} and body["max_output_tokens"] == 1200
     assert body["tools"][0]["type"] == "function" and "name" in body["tools"][0] and "function" not in body["tools"][0]
@@ -309,7 +311,7 @@ def test_garbled_answer_is_rewritten_once_from_the_gathered_results(tmp_path, mo
 
 
 def test_a_second_garbled_answer_is_not_shown(tmp_path, monkeypatch):
-    scripted(monkeypatch, [GARBLED, "assistantfinal【结结结】 still missing cost records for July"])
+    scripted(monkeypatch, [GARBLED, GARBLED, "assistantfinal【结结结】 still missing cost records for July"])
     with TestClient(cloudflare(tmp_path, pm_assistant_model="@cf/openai/gpt-oss-120b")) as client:
         response = client.post("/api/v1/pm-assistant/chat", json={"message": "今年哪些月份没录成本？"})
     assert response.status_code == 503 and "格式异常" in response.json()["detail"]
@@ -320,3 +322,24 @@ def test_normal_answers_with_field_names_and_enum_values_are_not_garbled():
               "**依据**\n调用 `projectRiskAssessment`，返回字段 `riskLevel`、`riskReasons`、`anomalyAlerts`、`overdueMilestones`。")
     assert not pm_assistant_module._looks_garbled(normal)
     assert pm_assistant_module._looks_garbled("需要优先关注：结结结")
+
+
+
+def test_an_answer_without_any_lookup_is_asked_once_more(tmp_path, monkeypatch):
+    """R3 on 2026-11-09: 「已查询……只能得到人数」 with no tool called at all."""
+    unchecked = "**结论**\n系统只返回人数，没有员工名单（已查询资源健康）。"
+    sent = scripted(monkeypatch, [unchecked, [tool_call("projectBudgetStatus", {"project": "WDR101"}, "c1")], "**结论**\nWDR101 预算正常。"])
+    with TestClient(cloudflare(tmp_path, pm_assistant_model="@cf/openai/gpt-oss-120b")) as client:
+        data = client.post("/api/v1/pm-assistant/chat", json={"message": "WDR101 预算怎么样？"}).json()["data"]
+    assert data["answer"] == "**结论**\nWDR101 预算正常。"
+    reminder = sent[1]["body"]
+    assert "还没有调用任何工具" in reminder["messages"][0]["content"] and "tools" in reminder, "asked again, tools still offered"
+    assert all(unchecked not in (m.get("content") or "") for body in (sent[1]["body"], sent[2]["body"]) for m in body["messages"])
+    assert len(sent) == 3
+
+
+def test_a_second_answer_without_lookups_is_kept(tmp_path, monkeypatch):
+    sent = scripted(monkeypatch, ["你好，我可以回答项目运营问题。", "你好，我可以回答项目运营问题。"])
+    with TestClient(cloudflare(tmp_path)) as client:
+        data = client.post("/api/v1/pm-assistant/chat", json={"message": "你好"}).json()["data"]
+    assert data["answer"] == "你好，我可以回答项目运营问题。" and len(sent) == 2, "reminded once only"

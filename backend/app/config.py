@@ -6,7 +6,8 @@ from pathlib import Path
 
 
 # Default model per PM Assistant provider when TSG_PM_ASSISTANT_MODEL is not set.
-DEFAULT_ASSISTANT_MODELS = {"openai": "gpt-5.2", "cloudflare": "@cf/ibm-granite/granite-4.0-h-micro"}
+DEFAULT_ASSISTANT_MODELS = {"openai": "gpt-5.2", "cloudflare": "@cf/ibm-granite/granite-4.0-h-micro", "ark": "doubao-seed-evolving"}
+DEFAULT_ARK_BASE_URL = "https://ark.cn-beijing.volces.com/api/v3"
 # The project review (项目详情「AI 分析」) links several facts into findings; the small Cloudflare chat model could not
 # (2026-11-06 probe), so on Cloudflare it uses a larger model by default. Other providers use the assistant model.
 DEFAULT_ANALYSIS_MODELS = {"cloudflare": "@cf/meta/llama-3.3-70b-instruct-fp8-fast"}
@@ -43,6 +44,9 @@ class Settings:
     pm_assistant_provider: str = "openai"
     cloudflare_account_id: str | None = None
     cloudflare_api_token: str | None = None
+    # Volcengine Ark (豆包): the OpenAI Responses API at another address, with its own key (checked live 2026-11-09).
+    ark_api_key: str | None = None
+    ark_base_url: str = DEFAULT_ARK_BASE_URL
     pm_assistant_timeout_seconds: float = 35.0
     pm_assistant_max_retries: int = 1
     pm_analysis_model: str | None = None  # None: same as pm_assistant_model
@@ -87,6 +91,8 @@ class Settings:
             load_forecast_auto_train=os.getenv("TSG_PM_LOAD_FORECAST_AUTO_TRAIN", "true").lower() in {"1", "true", "yes"},
             cloudflare_account_id=os.getenv("CLOUDFLARE_ACCOUNT_ID") or None,
             cloudflare_api_token=os.getenv("CLOUDFLARE_API_TOKEN") or None,
+            ark_api_key=os.getenv("ARK_API_KEY") or None,
+            ark_base_url=(os.getenv("ARK_BASE_URL") or DEFAULT_ARK_BASE_URL).rstrip("/"),
             pm_assistant_timeout_seconds=float(os.getenv("TSG_PM_ASSISTANT_TIMEOUT_SECONDS", "35")),
             pm_assistant_max_retries=max(0, min(int(os.getenv("TSG_PM_ASSISTANT_MAX_RETRIES", "1")), 3)),
             auth_enabled=os.getenv("TSG_PM_AUTH_ENABLED", "true").lower()

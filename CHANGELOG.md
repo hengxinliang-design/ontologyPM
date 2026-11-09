@@ -4,6 +4,7 @@
 
 | 产品版本 | 本体版本 | 日期 | 构建包 |
 | --- | --- | --- | --- |
+| v1.38.0 | 8.5.0 | 2026-11-09 | —（本体元数据不变） |
 | v1.37.0 | 8.5.0 | 2026-11-08 | [2026-11-08-load-forecast](docs/ontology-builds/2026-11-08-load-forecast.yaml) |
 | v1.36.0 | 8.4.0 | 2026-11-08 | [2026-11-06-ontology-audit](docs/ontology-builds/2026-11-06-ontology-audit.yaml) |
 | v1.35.2 | 8.3.0 | 2026-11-06 | —（本体元数据不变） |
@@ -30,6 +31,16 @@
 | v1.22.0 | 7.6.0 | 2026-10-30 | [2026-10-29-logical-delete](docs/ontology-builds/2026-10-29-logical-delete.yaml) |
 | v1.21.0 | 7.5.0 | 2026-10-29 | [2026-10-29-rule-homes-and-linkages](docs/ontology-builds/2026-10-29-rule-homes-and-linkages.yaml) |
 | v1.20.0 | 7.4.0 | 2026-10-29 | [2026-10-29-milestone-span-period](docs/ontology-builds/2026-10-29-milestone-span-period.yaml) |
+
+## v1.38.0 — PM Assistant 先查后答；接入豆包（火山方舟）（本体 8.5.0 不变）
+
+- 新增模型服务 `ark`（火山方舟 / 豆包）：`TSG_PM_ASSISTANT_PROVIDER=ark`、`ARK_API_KEY`，可选 `ARK_BASE_URL`（默认 `https://ark.cn-beijing.volces.com/api/v3`），模型默认 `doubao-seed-evolving`。方舟的 Responses API 与 OpenAI 相同（2026-11-09 实测：同一请求格式、函数调用与结果回传均可用，`reasoning.effort: none` 时不产生推理 token），所以复用 OpenAI Responses 的实现，只换地址与密钥；不会回退到其他服务。密钥无效、模型未开通、欠费、限流分别给出提示。
+
+- 模型一个工具都没调用就作答时，自动提醒它先查询、再回答一次（2026-11-09 评测中有 2 题未查数据就声称「已查询」「系统没有」）。
+- 提示词列出当前账号无权使用的函数：问题要用到它们时回答「当前账号无权查看」，不再说系统没有这类数据。
+- 列出「哪些人 / 哪些项目」前先读完全部分页（`meta.next_cursor`），没读完不下「没有」的结论。
+- 提示词写明今天的日期与「今年 / 本月 / 上个月」所指的年月：此前模型自己猜年份，豆包把「今年」当成 2025 年（2026-11-09 评测 B1、B4）。
+- 21 题评测（2026-11-09）：豆包 doubao-seed-evolving 13/21、平均得分 0.88、中位耗时 16.4 秒；gpt-oss-120b 12/21、0.79。R3、R4 的回答提到「不计入」的人，评分器把它们算成多报，实际表现略好于分数。
 
 ## v1.37.0 — 员工负荷预测由系统自己把关；PM Assistant 改用 gpt-oss-120b（本体 8.5.0）
 

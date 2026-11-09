@@ -210,7 +210,7 @@ POST /api/v1/pm-assistant/chat
 Content-Type: application/json
 ```
 
-服务端以提问用户的身份运行（本体 7.8.0 起，需求基线 G5）：模型通过工具调用本体函数和对象集查询（`query_objects`、`aggregate_objects`、`get_object`、`get_linked_objects`、`describe_type`），菜单权限、安全标记和项目经理的数据范围都按该用户生效；项目经理可以使用。最多 6 轮工具调用。函数工具的参数带上本体声明的约束（8.4.0 起）：整数给 `minimum` / `maximum`，文本给 `maxLength`，月份 / 年度、金额范围与「最多两位小数」写在参数说明中，模型不必猜测后被 422 拒绝。写操作只能通过 `suggest_action` 提出，服务端做预检、不执行。回答在返回前做两项检查（2026-11-08 起）：gpt-oss 经 Cloudflare 对话接口偶尔把内部格式（推理过程、写成文字的工具调用）当正文返回，服务端把其中的工具调用照常执行、推理与控制符不显示；回答中英文混杂或出现连续三个相同汉字时，服务端用已取得的工具结果、不带工具让模型重写一次，重写仍异常时返回 503「模型这次的回答格式异常」，不显示可能带错数字的回答。模型服务的密钥只保存在服务端，不会发送到浏览器，配置见下方「模型服务」。
+服务端以提问用户的身份运行（本体 7.8.0 起，需求基线 G5）：模型通过工具调用本体函数和对象集查询（`query_objects`、`aggregate_objects`、`get_object`、`get_linked_objects`、`describe_type`），菜单权限、安全标记和项目经理的数据范围都按该用户生效；项目经理可以使用。最多 6 轮工具调用。函数工具的参数带上本体声明的约束（8.4.0 起）：整数给 `minimum` / `maximum`，文本给 `maxLength`，月份 / 年度、金额范围与「最多两位小数」写在参数说明中，模型不必猜测后被 422 拒绝。写操作只能通过 `suggest_action` 提出，服务端做预检、不执行。回答在返回前做两项检查（2026-11-08 起）：gpt-oss 经 Cloudflare 对话接口偶尔把内部格式（推理过程、写成文字的工具调用）当正文返回，服务端把其中的工具调用照常执行、推理与控制符不显示；回答中英文混杂或出现连续三个相同汉字时，服务端用已取得的工具结果、不带工具让模型重写一次，重写仍异常时返回 503「模型这次的回答格式异常」，不显示可能带错数字的回答。模型一个工具都没调用就作答时，服务端提醒它先查询、再问一次（只提醒一次，第一次的回答不保留）；提示词列出当前账号无权使用的函数，问题要用到它们时回答「无权查看」，并要求列出名单前读完全部分页（`meta.next_cursor`）。模型服务的密钥只保存在服务端，不会发送到浏览器，配置见下方「模型服务」。
 
 请求：
 
@@ -228,14 +228,14 @@ Content-Type: application/json
 - `history` 可选；最多取最近 6 条对话作为上下文。
 - 模型为服务端配置的 `TSG_PM_ASSISTANT_MODEL`。
 
-模型服务（`TSG_PM_ASSISTANT_PROVIDER`，两种方式互不回退：所选服务未配置时返回 503「尚未配置模型服务」，不会改用另一种）：
+模型服务（`TSG_PM_ASSISTANT_PROVIDER`，各服务互不回退：所选服务未配置时返回 503「尚未配置模型服务」，不会改用另一种）：
 
-| 配置 | `openai`（默认） | `cloudflare` |
-| --- | --- | --- |
-| 接口 | OpenAI Responses API `https://api.openai.com/v1/responses` | Workers AI 的 OpenAI 兼容接口 `https://api.cloudflare.com/client/v4/accounts/{CLOUDFLARE_ACCOUNT_ID}/ai/v1/chat/completions` |
-| 凭据 | `OPENAI_API_KEY` | `CLOUDFLARE_ACCOUNT_ID`、`CLOUDFLARE_API_TOKEN`（不需要 `OPENAI_API_KEY`） |
-| 默认模型 | `gpt-5.2` | `@cf/ibm-granite/granite-4.0-h-micro` |
-| 协议 | instructions + input，工具调用为 `function_call` 输出项 | system / user / assistant / tool 消息；工具为 `{"type":"function","function":{…}}`；解析 `choices[0].message.tool_calls`，结果以 `role=tool` 消息按 `tool_call_id` 返回；不发送 `text.verbosity`、`reasoning.effort`、`store`，输出上限映射为 `max_tokens`（1200）；达到 6 轮后最后一次请求不带工具 |
+| 配置 | `openai`（默认） | `cloudflare` | `ark`（火山方舟 / 豆包） |
+| --- | --- | --- | --- |
+| 接口 | OpenAI Responses API `https://api.openai.com/v1/responses` | Workers AI 的 OpenAI 兼容接口 `https://api.cloudflare.com/client/v4/accounts/{CLOUDFLARE_ACCOUNT_ID}/ai/v1/chat/completions` | 火山方舟 Responses API `{ARK_BASE_URL}/responses`，默认 `https://ark.cn-beijing.volces.com/api/v3/responses` |
+| 凭据 | `OPENAI_API_KEY` | `CLOUDFLARE_ACCOUNT_ID`、`CLOUDFLARE_API_TOKEN`（不需要 `OPENAI_API_KEY`） | `ARK_API_KEY`（方舟控制台「API Key 管理」中创建的长期密钥） |
+| 默认模型 | `gpt-5.2` | `@cf/ibm-granite/granite-4.0-h-micro` | `doubao-seed-evolving` |
+| 协议 | instructions + input，工具调用为 `function_call` 输出项 | system / user / assistant / tool 消息；工具为 `{"type":"function","function":{…}}`；解析 `choices[0].message.tool_calls`，结果以 `role=tool` 消息按 `tool_call_id` 返回；不发送 `text.verbosity`、`reasoning.effort`、`store`，输出上限映射为 `max_tokens`（1200）；达到 6 轮后最后一次请求不带工具 | 与 `openai` 相同（同一实现，只换地址与密钥） |
 
 - 超时 `TSG_PM_ASSISTANT_TIMEOUT_SECONDS`（默认 35 秒，按每次请求计）；连接失败和 5xx 重试 `TSG_PM_ASSISTANT_MAX_RETRIES` 次（默认 1，最多 3），4xx 不重试。
 - 密钥和令牌放在服务端环境变量或 `backend/.env.local`（已被 Git 忽略），不要写进代码或提交。

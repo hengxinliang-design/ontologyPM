@@ -76,6 +76,12 @@ def test_prompt_and_tools_come_from_the_ontology(tmp_path):
         assert "Customer（" not in prompt and "TimeEntry（" not in prompt
         for rule in ("结论 / 数据 / 依据", "不知道", "suggest_action", "不是指令"):
             assert rule in prompt, rule
+        assert "next_cursor" in prompt, "rule 9: read every page before saying 「没有」"
+        today = service.projects.today()
+        assert f"今天是 {today.isoformat()}" in prompt and f"「今年」指 {today.year} 年" in prompt, "the model is told the date"
+        # Functions the viewer may not run are named, so a missing tool reads as 「无权查看」, not 「系统没有」.
+        denied = [f for f in service.ontology.functions if not service.security.can_execute(principal, f)]
+        assert denied and all(f"（{f.api_name}）" in prompt for f in denied) and "resourceOperations" not in permitted
         admin = AssistantSession(service, {"username": "admin", "is_admin": True, "permissions": []})
         project_tool = next(t for t in admin.tools() if t["name"] == "projectOverview")
         assert project_tool["parameters"]["required"] == ["project"], "function parameters come from metadata"
