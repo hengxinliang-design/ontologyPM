@@ -468,7 +468,7 @@ async def run_llm(app, facts: Facts, specs: list[str], concurrency: int, timeout
                     except ValueError:
                         tool_errors += output.startswith("{\"error\"")
                 score = score_answer(answer, truths[case.case_id], case.question, facts.employee_names) if not error else \
-                    {"score": 0.0, "passed": False, "recall": 0.0, "missing": [], "extra": [], "keywords_missing": [], "forbidden": []}
+                    {"score": 0.0, "passed": False, "recall": 0.0, "missing": [], "extra": [], "set_apart": [], "keywords_missing": [], "forbidden": []}
                 return {"case": case.case_id, "group": case.group, "attempt": attempt, "seconds": round(seconds, 2),
                         "error": error, "answer": answer, "tools": [c["tool"] for c in (session.calls if session else [])],
                         "tool_calls": [c for c in (session.calls if session else [])], "tool_errors": tool_errors,
@@ -596,6 +596,8 @@ def _why(result: dict[str, Any]) -> str:
         parts.append("漏 " + "、".join(result["missing"]))
     if result["extra"]:
         parts.append("多 " + "、".join(result["extra"]))
+    if result.get("set_apart"):
+        parts.append("另提到不计入的 " + "、".join(result["set_apart"]) + "（不扣分）")
     if result["keywords_missing"]:
         parts.append("缺 " + "；".join("/".join(g) for g in result["keywords_missing"]))
     if result["forbidden"]:

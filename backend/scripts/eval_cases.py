@@ -244,8 +244,60 @@ LLM_CASES: list[LlmCase] = [
 ]
 
 
+# Wording that sets a name apart from the answer: 「冯雪是首月，不评价闲置」, 「以下人员未判定为持续过载：」,
+# 「SEY103 尚未超支」. Kept to phrases that do not occur in a positive finding (no bare 未 / 不 / 无).
+EXCLUSION_WORDS = re.compile(
+    "不计入|未计入|不算|不属于|不在此列|不在名单|不在范围|未判定|未被判定|不判定|未达|不评价|未纳入|不纳入|"
+    "尚未超|没有超|未超过|未超出|不满足|不符合|排除|除外|暂不|不能释放|无法判断|无法判定|并非|不是")
+LIST_ITEM = re.compile(r"^(\s*)(?:[-*+]\s|\d+[.、)]\s?|\|)")
+LEAD_END = re.compile(r"[：:]\s*$")
+
+
+def excluded_lines(answer: str) -> list[tuple[str, bool]]:
+    """Each non-empty line and whether it sets its names apart (see EXCLUSION_WORDS).
+
+    A line is set apart when it carries such wording itself, or when it is a list item or table row under a heading
+    with it (「### 暂不能释放的项目」) or under a lead line ending in a colon with it (「以下人员未判定为持续过载：」).
+    A lead list item covers only the items indented below it.
+    """
+    lines: list[tuple[str, bool]] = []
+    heading = False
+    lead: tuple[int, bool] | None = None  # indent of the lead line (-1 for a paragraph) and whether it sets apart
+    for raw in answer.splitlines():
+        line = raw.replace("**", "").rstrip()
+        if not line.strip():
+            continue
+        own = bool(EXCLUSION_WORDS.search(line))
+        item = LIST_ITEM.match(line)
+        if line.lstrip().startswith("#"):
+            heading, lead = own, None
+            lines.append((line, own))
+            continue
+        if item is None:
+            lead = (-1, own) if LEAD_END.search(line) else None
+            lines.append((line, own))
+            continue
+        indent = len(item.group(1))
+        if lead is not None and lead[0] >= 0 and indent <= lead[0]:
+            lead = None
+        lines.append((line, own or heading or bool(lead and lead[1])))
+        if LEAD_END.search(line):
+            lead = (indent, own or bool(lead and lead[1]))
+    return lines
+
+
+def set_apart(names: set[str], answer: str) -> set[str]:
+    """The names whose every mention is in a line that sets them apart."""
+    lines = excluded_lines(answer)
+    return {n for n in names if all(apart for line, apart in lines if n in line) and any(n in line for line, _ in lines)}
+
+
 def score_answer(answer: str, expect: Expect, question: str, employee_names: set[str]) -> dict[str, Any]:
-    """Recall of the expected entities, wrong extra mentions, keyword groups hit and forbidden content."""
+    """Recall of the expected entities, wrong extra mentions, keyword groups hit and forbidden content.
+
+    A name the answer only mentions to set it apart (「冯雪是首月，不评价闲置」) is not a wrong extra mention; it
+    still counts towards recall when it is expected, so the exclusion wording can only forgive, never take away.
+    """
     answer = HYPHENS.sub("-", answer)  # models write 2026‑11 with a non-breaking hyphen
     text = re.sub(r"[,，\s¥￥]", "", answer).replace("％", "%")
     asked = set(PROJECT_CODE.findall(question)) | {n for n in employee_names if n in question}
@@ -257,6 +309,8 @@ def score_answer(answer: str, expect: Expect, question: str, employee_names: set
         mentioned = set()
     hit = mentioned & expect.entities
     extra = (mentioned - expect.entities - asked) if expect.exclusive else set()
+    apart = set_apart(extra, answer)
+    extra -= apart
     keyword_hits = [any(alt.search(text) if isinstance(alt, re.Pattern) else alt.replace(",", "") in text for alt in group)
                     for group in expect.keywords]
     forbidden = [p.pattern for p in expect.forbid if p.search(answer)]
@@ -269,6 +323,6 @@ def score_answer(answer: str, expect: Expect, question: str, employee_names: set
     score = sum(parts) / len(parts)
     passed = recall == 1.0 and not extra and all(keyword_hits) and not forbidden
     return {"score": round(score, 3), "passed": passed, "recall": round(recall, 3), "missing": sorted(expect.entities - hit),
-            "extra": sorted(extra),
+            "extra": sorted(extra), "set_apart": sorted(apart),
             "keywords_missing": [[a for a in g if isinstance(a, str)][:3] for g, ok in zip(expect.keywords, keyword_hits) if not ok],
             "forbidden": forbidden}

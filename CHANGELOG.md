@@ -4,6 +4,7 @@
 
 | 产品版本 | 本体版本 | 日期 | 构建包 |
 | --- | --- | --- | --- |
+| v1.38.1 | 8.5.0 | 2026-11-09 | —（只改评测脚本） |
 | v1.38.0 | 8.5.0 | 2026-11-09 | —（本体元数据不变） |
 | v1.37.0 | 8.5.0 | 2026-11-08 | [2026-11-08-load-forecast](docs/ontology-builds/2026-11-08-load-forecast.yaml) |
 | v1.36.0 | 8.4.0 | 2026-11-08 | [2026-11-06-ontology-audit](docs/ontology-builds/2026-11-06-ontology-audit.yaml) |
@@ -31,6 +32,10 @@
 | v1.22.0 | 7.6.0 | 2026-10-30 | [2026-10-29-logical-delete](docs/ontology-builds/2026-10-29-logical-delete.yaml) |
 | v1.21.0 | 7.5.0 | 2026-10-29 | [2026-10-29-rule-homes-and-linkages](docs/ontology-builds/2026-10-29-rule-homes-and-linkages.yaml) |
 | v1.20.0 | 7.4.0 | 2026-10-29 | [2026-10-29-milestone-span-period](docs/ontology-builds/2026-10-29-milestone-span-period.yaml) |
+
+## v1.38.1 — 评测评分器不再把「不计入」的名字算作多报（本体 8.5.0 不变）
+
+- PM Assistant 评测（scripts/eval_cases.py）：回答里只为说明「不计入 / 未判定 / 尚未超支 / 暂不能释放」而提到的人名或项目，不再算作多报；判断看所在行、上方标题和以冒号结尾的引导行，同一名字只要在别处被正面列出仍算多报，召回率不受影响。报告中另列为「另提到不计入的…（不扣分）」。用 2026-11-09 已保存的豆包回答离线重评（未调用模型）：Q1、R3、R4 由不通过变为通过，13/21 → 16/21。测试 tests/test_eval_scoring.py。
 
 ## v1.38.0 — PM Assistant 先查后答；接入豆包（火山方舟）（本体 8.5.0 不变）
 
