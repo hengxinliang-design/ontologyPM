@@ -1782,7 +1782,8 @@ def _add_ai_alerts(p: dict[str, Any], items: dict[str, list[dict[str, Any]]]) ->
 def load_ai_proposals(ctx: OntologyContext) -> list[dict[str, Any]]:
     return [{
         "proposalId": row["proposal_id"], "kind": row["kind"], "projectNumber": row.get("project_number"),
-        "category": row.get("category"), "title": row["title"], "detail": row.get("detail"),
+        "category": row.get("category"), "proposedCategory": row.get("proposed_category"),
+        "title": row["title"], "detail": row.get("detail"),
         "basis": _loads(row["basis_json"], []), "parameters": _loads(row["parameters_json"], {}),
         "source": row["source"], "sourceRef": row.get("source_ref"), "status": row["status"],
         "submittedBy": row["submitted_by"], "submittedAt": row["submitted_at"], "expiresOn": row["expires_on"],
@@ -1810,7 +1811,8 @@ def load_ai_risk_flags(ctx: OntologyContext) -> list[dict[str, Any]]:
 
 @RULES.datasource("aiStrategyNotes")
 def load_ai_strategy_notes(ctx: OntologyContext) -> list[dict[str, Any]]:
-    return [{"noteId": row["note_id"], "category": row["category"], **_finding_object(row)}
+    return [{"noteId": row["note_id"], "category": row["category"], "proposedCategory": row.get("proposed_category"),
+             **_finding_object(row)}
             for row in ctx.table("ai_strategy_notes", "approved_at DESC, note_id")]
 
 
@@ -1831,6 +1833,8 @@ def ai_proposal_fields(ctx, values, target) -> str | None:
             return "截止日期不能早于今天"
     if kind == "strategyNote" and not values.get("category"):
         return "AI 策略建议必须选择类别"
+    if values.get("proposedCategory") and (kind != "strategyNote" or values.get("category") != "other"):
+        return "只有类别为「其他」的 AI 策略建议可以写 AI 提出的类别"
     return None
 
 
@@ -1847,6 +1851,49 @@ def ai_basis_holds(ctx, values, target) -> str | None:
     if kind in ("intervention", "riskFlag") and project and project not in ai_basis.projects_cited(ctx, facts):
         return f"依据中至少要有一条关于项目 {project} 的事实"
     return None if holds else note
+
+
+# D58: the intervention type a strategy's follow-ups get, by its category (InterventionType values).
+STRATEGY_INTERVENTION_TYPES = {"push_acceptance": "payment", "release_resources": "resource", "staffing_support": "resource",
+                               "win_contracts": "customer"}
+INTERVENTION_ORDER = "project_number, updated_at DESC"  # the interventions datasource's order (ctx.table caches by table, L50)
+
+
+def _cited_projects(ctx: OntologyContext, raw: Any) -> list[str]:
+    """D58: the projects a strategy concerns are the ones its facts are about, not names found in its text."""
+    try:
+        return sorted(ai_basis.projects_cited(ctx, ai_basis.normalize(raw)))
+    except ai_basis.BasisError:
+        return []
+
+
+@RULES.criterion("aiStrategyBreakdown")
+def ai_strategy_breakdown(ctx, values, target) -> str | None:
+    """D58: projects to break a strategy into must come from its facts, with a due date not before today."""
+    projects = values.get("projects")
+    if not projects:
+        return "至少选择一个项目" if (target or {}).get("noteId") else None
+    if not isinstance(projects, list) or not all(isinstance(p, str) for p in projects):
+        return "分解到的项目必须是项目编号列表"
+    if (target or {}).get("kind") != "strategyNote" and not (target or {}).get("noteId"):
+        return "只有 AI 策略建议可以分解到项目"
+    if (target or {}).get("noteId"):
+        if target["status"] != "active":
+            return "只有有效的策略可以分解到项目"
+        open_ones = {row["project_number"] for row in ctx.table("interventions", INTERVENTION_ORDER)
+                     if row.get("source_proposal_id") == target["proposalId"] and row["status"] != "closed"}
+        repeated = [p for p in projects if p in open_ones]
+        if repeated:
+            return f"{'、'.join(repeated)} 已有这条策略未关闭的落实干预"
+    cited = _cited_projects(ctx, target.get("basis"))
+    extra = [p for p in projects if p not in cited]
+    if extra:
+        return f"{'、'.join(extra)} 不在这条策略的依据涉及的项目中（可选：{'、'.join(cited) or '无'}）"
+    if not values.get("dueDate"):
+        return "分解到项目时要填干预截止日期"
+    if values["dueDate"] < ctx.projects.today().isoformat():
+        return "截止日期不能早于今天"
+    return None
 
 
 @RULES.criterion("aiProposalPending")
@@ -1888,11 +1935,14 @@ def submit_ai_proposal(ctx, values, target, actor):
     kind = values["kind"]
     project = values.get("project") or None
     category = values.get("category") or None
-    subject = category if kind == "strategyNote" else project
+    proposed = (str(values.get("proposedCategory") or "").strip() or None) if kind == "strategyNote" and category == "other" else None
+    # D56: each uncovered category is its own subject, so two different gaps never replace each other.
+    subject = (f"other:{proposed}" if proposed else category) if kind == "strategyNote" else project
     pending_days, _ = ai_policy_days(ctx)
     parameters = {key: values[key] for key in ("interventionType", "owner", "dueDate") if values.get(key)}
     row, superseded = _ai_repo(ctx).submit({
-        "kind": kind, "project_number": project, "category": category, "title": str(values["title"]).strip(),
+        "kind": kind, "project_number": project, "category": category, "proposed_category": proposed,
+        "title": str(values["title"]).strip(),
         "detail": (str(values.get("detail") or "").strip() or None), "basis": facts, "parameters": parameters,
         "dedupe_key": ai_basis.dedupe_key(kind, subject, facts), "source": values.get("source") or "assistant",
         "source_ref": values.get("sourceRef"), "basis_note": note,
@@ -1924,8 +1974,37 @@ def approve_ai_proposal(ctx, values, target, actor):
         result_id, superseded = repo.create_finding(kind, proposal, actor, ctx.projects.today() + timedelta(days=valid_days), basis_note)
         object_type = "AiRiskFlag" if kind == "riskFlag" else "AiStrategyNote"
         edits += [_edit(object_type, result_id, "create")] + [_edit(object_type, old, "update") for old in superseded]
+    follow_ups = []
+    if kind == "strategyNote":
+        # D58, D60: approving a strategy is the management decision; each chosen project gets an intervention its PM owns.
+        follow_ups = _break_down(ctx, proposal, values.get("projects") or [], values.get("dueDate"))
+        edits += [_edit("Intervention", item, "create") for item in follow_ups]
     repo.decide(proposal["proposal_id"], "approved", actor, (values.get("note") or None), result_id)
-    return {"edits": edits, "message": f"已批准，生成{AI_KIND_LABELS[kind]} {result_id}"}
+    message = f"已批准，生成 {AI_KIND_LABELS[kind]} {result_id}" + (f"，并分解为 {len(follow_ups)} 项管理干预" if follow_ups else "")
+    return {"edits": edits, "message": message}
+
+
+def _break_down(ctx: OntologyContext, proposal: dict[str, Any], projects: list[str], due_date: str | None) -> list[str]:
+    created = []
+    for project in projects:
+        row = ctx.projects.create_intervention(project, {
+            "title": f"落实部门策略：{proposal['title']}"[:120],
+            "intervention_type": STRATEGY_INTERVENTION_TYPES.get(proposal.get("category") or "", "management"),
+            "owner": None, "due_date": due_date, "notes": (proposal.get("detail") or "")[:500] or None,
+            "source_proposal_id": proposal["proposal_id"],
+        })
+        created.append(row["intervention_id"])
+    return created
+
+
+@RULES.handler("breakDownAiStrategyNote")
+def break_down_ai_strategy_note(ctx, values, target, actor):
+    """D58: an adopted strategy broken into project interventions later (approved without, or more projects since)."""
+    proposal = _ai_repo(ctx).proposal(target["proposalId"])
+    if proposal is None:
+        raise ValueError("未找到这条策略的来源建议")
+    created = _break_down(ctx, proposal, values["projects"], values["dueDate"])
+    return {"edits": [_edit("Intervention", item, "create") for item in created], "message": f"已分解为 {len(created)} 项管理干预"}
 
 
 @RULES.handler("rejectAiProposal")
@@ -1972,20 +2051,78 @@ def fn_ai_suggestion_overview(ctx: OntologyContext, params: dict[str, Any]) -> d
               for p in proposals if p["status"] != "pending" and (p.get("decidedAt") or "")[:10] >= cutoff][:20]
     interventions = {p["resultId"]: {"proposalId": p["proposalId"], "basisHolds": p["basisHolds"], "basisNote": p.get("basisNote")}
                      for p in proposals if p["kind"] == "intervention" and p["status"] == "approved" and p.get("resultId")}
+    # D59: interventions a strategy was broken into say which strategy, and whether it is still in force.
+    notes = {row["proposal_id"]: row for row in ctx.table("ai_strategy_notes", "approved_at DESC, note_id")}
+    for item in ctx.objects("Intervention"):
+        note = notes.get(item.get("sourceProposalId") or "")
+        if note is None or not mine(item):
+            continue
+        active = note["status"] == "active"
+        interventions[item["interventionId"]] = {
+            "proposalId": note["proposal_id"], "strategyTitle": note["title"], "strategyStatus": note["status"],
+            "basisHolds": active and bool(note["basis_holds"]),
+            "basisNote": note.get("basis_note") if active else f"所属策略已{ {'closed': '关闭', 'expired': '过期', 'superseded': '被取代'}.get(note['status'], note['status']) }"
+                         + (f"（{note['closed_reason']}）" if note.get("closed_reason") else ""),
+        }
     flags = [f for f in ctx.objects("AiRiskFlag") if mine(f) and f["status"] == "active"]
     return {"pending": pending, "riskFlags": flags, "interventionBasis": interventions, "recent": recent,
             "canApproveProjectItems": _can_approve(ctx, "riskFlag")}
 
 
+def _category_label(category: str | None, proposed: str | None) -> str:
+    return f"其他 · {proposed}" if proposed else SIGNAL_LABELS.get(category or "", "其他")
+
+
+GAP_WINDOW_DAYS = 90
+
+
+def _strategy_gaps(ctx: OntologyContext) -> list[dict[str, Any]]:
+    """D56: strategies the existing categories do not cover, grouped by the category the model proposed, over the last
+    90 days, for decision makers to judge whether a rule signal or a category is missing (D57)."""
+    since = (ctx.projects.today() - timedelta(days=GAP_WINDOW_DAYS)).isoformat()
+    groups: dict[str, dict[str, Any]] = {}
+    for row in ctx.table("ai_proposals", "submitted_at DESC, proposal_id"):
+        name = (row.get("proposed_category") or "").strip()
+        if row["kind"] != "strategyNote" or not name or row["status"] == "superseded" or row["submitted_at"][:10] < since:
+            continue
+        group = groups.setdefault(name, {"proposedCategory": name, "count": 0, "pending": 0, "approved": 0, "rejected": 0,
+                                         "expired": 0, "latestAt": row["submitted_at"], "examples": []})
+        group["count"] += 1
+        group[row["status"]] = group.get(row["status"], 0) + 1
+        if len(group["examples"]) < 3:
+            group["examples"].append({"proposalId": row["proposal_id"], "title": row["title"], "status": row["status"],
+                                      "statusLabel": AI_PROPOSAL_STATUS_LABELS.get(row["status"], row["status"]),
+                                      "basis": _loads(row["basis_json"], [])})
+    newest_first = sorted(groups.values(), key=lambda g: g["latestAt"], reverse=True)
+    return sorted(newest_first, key=lambda g: -g["count"])
+
+
 def _ai_strategy_view(ctx: OntologyContext) -> dict[str, Any]:
     """Beside the rule signals on 部门经营 (D51, D53): active AI strategy notes and strategy suggestions to approve."""
+    follow_ups: dict[str, list[dict[str, Any]]] = {}
+    today = ctx.projects.today().isoformat()
+    for row in ctx.table("interventions", INTERVENTION_ORDER):
+        if row.get("source_proposal_id"):
+            follow_ups.setdefault(row["source_proposal_id"], []).append({
+                "interventionId": row["intervention_id"], "projectNumber": row["project_number"], "status": row["status"],
+                "dueDate": row.get("due_date"), "overdue": row["status"] != "closed" and bool(row.get("due_date")) and row["due_date"] < today,
+            })
     notes = [_finding_object(row) | {"noteId": row["note_id"], "category": row["category"],
-                                     "categoryLabel": SIGNAL_LABELS.get(row["category"], "其他")}
+                                     "proposedCategory": row.get("proposed_category"),
+                                     "categoryLabel": _category_label(row["category"], row.get("proposed_category")),
+                                     # D59: how far the strategy has been carried out on its projects.
+                                     "followUps": follow_ups.get(row["proposal_id"], []),
+                                     "citedProjects": _cited_projects(ctx, _loads(row["basis_json"], [])),
+                                     "readyToClose": bool(follow_ups.get(row["proposal_id"]))
+                                     and all(f["status"] == "closed" for f in follow_ups[row["proposal_id"]])}
              for row in ctx.table("ai_strategy_notes", "approved_at DESC, note_id") if row["status"] == "active"]
     pending = [{"proposalId": row["proposal_id"], "title": row["title"], "detail": row.get("detail"),
-                "category": row.get("category"), "categoryLabel": SIGNAL_LABELS.get(row.get("category") or "", "其他"),
-                "basis": _loads(row["basis_json"], []), "submittedBy": row["submitted_by"], "submittedAt": row["submitted_at"],
+                "category": row.get("category"), "proposedCategory": row.get("proposed_category"),
+                "categoryLabel": _category_label(row.get("category"), row.get("proposed_category")),
+                "basis": _loads(row["basis_json"], []), "citedProjects": _cited_projects(ctx, _loads(row["basis_json"], [])),
+                "submittedBy": row["submitted_by"], "submittedAt": row["submitted_at"],
                 "expiresOn": row["expires_on"], "basisHolds": bool(row["basis_holds"]), "basisNote": row.get("basis_note")}
                for row in ctx.table("ai_proposals", "submitted_at DESC, proposal_id")
                if row["status"] == "pending" and row["kind"] == "strategyNote"]
-    return {"aiStrategyNotes": notes, "aiStrategyProposals": pending, "canApproveStrategy": _can_approve(ctx, "strategyNote")}
+    return {"aiStrategyNotes": notes, "aiStrategyProposals": pending, "canApproveStrategy": _can_approve(ctx, "strategyNote"),
+            "aiStrategyGaps": _strategy_gaps(ctx)}

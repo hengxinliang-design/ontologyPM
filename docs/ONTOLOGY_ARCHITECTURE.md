@@ -601,6 +601,18 @@ when: [{property: contractType, notIn: [sales]}, {property: lifecycleStatus, not
 
 规模：18 个对象类型、26 种关系、25 个动作、21 个函数、20 个值类型、2 个安全标记。构建包见 [2026-11-09-ai-writeback.yaml](./ontology-builds/2026-11-09-ai-writeback.yaml)。
 
+### 11.39 AI 策略落到项目与缺口清单（v8.7.0）
+
+需求基线 D56–D60。策略只停在部门经营页，就没有人在项目上跟进；8.7.0 把采纳的策略按依据分解为项目上的管理干预，让「决策 → 行动 → 跟踪 → 关闭」在本体里闭合。
+
+- **分解** `approveAiProposal` 的 projects、dueDate，或之后用 `breakDownAiStrategyNote`：可选项目由 `ai_basis.projects_cited` 从依据推出（校验 `aiStrategyBreakdown`），每个项目经 `ProjectRepository.create_intervention` 新建一条干预并记下 `source_proposal_id`；类型映射 `STRATEGY_INTERVENTION_TYPES`。
+- **关系** `AiStrategyNote.followUpInterventions`（按 proposalId ↔ sourceProposalId 连接，非主键，按 L42 为多对多）。
+- **进度与提示** 部门复盘的 aiStrategyNotes 带 followUps、readyToClose、citedProjects；`aiSuggestionOverview.interventionBasis` 对策略分解的干预给出 strategyTitle、strategyStatus 与「所属策略已关闭」。都不自动关闭（D59）。
+- **缺口清单** AI 提出的类别不在 StrategyCategory 中时，助手预检把它换成 other 并记为 proposedCategory（`_strategy_category`），去重主体为 `other:<类别名>`；部门复盘的 aiStrategyGaps 汇总近 90 天。
+- **卡片** 比较符别名 `OPERATOR_ALIASES`；参数错误时另行核对依据（`_basis_problem`），一次列出全部问题。
+
+规模：18 个对象类型、27 种关系、26 个动作、21 个函数、20 个值类型、2 个安全标记。构建包见 [2026-11-10-strategy-follow-through.yaml](./ontology-builds/2026-11-10-strategy-follow-through.yaml)。
+
 ## 12. 代码结构
 
 ```text

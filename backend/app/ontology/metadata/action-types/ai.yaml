@@ -18,6 +18,7 @@ definition:
     - {apiName: owner, displayName: 负责人, type: string, description: 仅管理干预，不填时取项目经理}
     - {apiName: dueDate, displayName: 截止日期, type: date, description: 管理干预必填，不能早于今天}
     - {apiName: category, displayName: 策略类别, type: enum, valueType: StrategyCategory, description: AI 策略建议必填}
+    - {apiName: proposedCategory, displayName: AI 提出的类别, type: string, maxLength: 40, description: 仅类别为「其他」的 AI 策略建议：现有类别都不适用时 AI 给的类别名（D56）}
     - {apiName: source, displayName: 来源, type: string, maxLength: 20, description: assistant（PM Assistant，缺省）或 projectAnalysis（项目 AI 分析）}
     - {apiName: sourceRef, displayName: 来源记录, type: string, maxLength: 80}
   permissions: [projects]
@@ -39,6 +40,8 @@ definition:
   parameters:
     - {apiName: proposal, displayName: AI 建议, type: object_ref, objectType: AiProposal, required: true}
     - {apiName: note, displayName: 批准说明, type: string, maxLength: 500}
+    - {apiName: projects, displayName: 分解到的项目, type: json, description: 仅 AI 策略建议：从依据涉及的项目中选，每个项目新建一条管理干预（D58）}
+    - {apiName: dueDate, displayName: 干预截止日期, type: date, description: 分解到项目时必填，不能早于今天}
   permissions: [projects, department]
   edits: [AiProposal.status, AiProposal.decidedBy, AiProposal.decidedAt, AiProposal.decisionNote, AiProposal.resultId, Intervention.*, AiRiskFlag.*, AiStrategyNote.*]
   writeback: [ai_proposals, interventions, ai_risk_flags, ai_strategy_notes]
@@ -47,6 +50,7 @@ definition:
     - {description: 建议仍待批准且未超过待批天数, rule: aiProposalPending}
     - {description: 批准人的角色允许：项目类由能维护该项目的人，策略建议由管理员或部门负责人, rule: aiApproverRole}
     - {description: 依据现在仍成立, rule: aiBasisHolds}
+    - {description: 分解到的项目出自策略依据，并有不早于今天的截止日期, rule: aiStrategyBreakdown}
 ---
 kind: ActionType
 version: v1
@@ -125,6 +129,27 @@ definition:
     - {description: 策略建议有效, rule: aiFindingActive}
     - {description: 处理人是管理员或部门负责人, rule: aiApproverRole}
     - {description: 依据现在仍成立, rule: aiBasisHolds}
+---
+kind: ActionType
+version: v1
+definition:
+  apiName: breakDownAiStrategyNote
+  displayName: 策略分解到项目
+  description: 把已采纳的 AI 策略建议分解到项目（D58）：采纳时没有分解，或之后要补上项目时使用。项目只能从策略依据涉及的项目中选，已有这条策略未关闭落实干预的项目不能重复；每个项目新建一条管理干预，负责人为项目经理。
+  objectType: AiStrategyNote
+  targetParameter: note
+  parameters:
+    - {apiName: note, displayName: AI 策略建议, type: object_ref, objectType: AiStrategyNote, required: true}
+    - {apiName: projects, displayName: 分解到的项目, type: json, required: true, description: 从策略依据涉及的项目中选}
+    - {apiName: dueDate, displayName: 干预截止日期, type: date, required: true}
+  permissions: [department, projects]
+  edits: [Intervention.*]
+  writeback: [interventions]
+  handler: breakDownAiStrategyNote
+  submissionCriteria:
+    - {description: 策略有效, rule: aiFindingActive}
+    - {description: 处理人是管理员或部门负责人, rule: aiApproverRole}
+    - {description: 项目出自策略依据、没有重复的未关闭落实干预，并有不早于今天的截止日期, rule: aiStrategyBreakdown}
 ---
 kind: ActionType
 version: v1

@@ -179,4 +179,11 @@ definition:
   {apiName: proposal, reverseApiName: strategyNotes, displayName: 来源 AI 建议, reverseDisplayName: 生成的 AI 策略建议,
    source: AiStrategyNote, target: AiProposal, cardinality: many_to_one, description: AI 策略建议由批准的建议生成（D51）,
    join: {sourceKey: proposalId, targetKey: proposalId}}
+---
+kind: LinkType
+version: v1
+definition:
+  {apiName: followUpInterventions, reverseApiName: sourceStrategy, displayName: 落实干预, reverseDisplayName: 来源部门策略,
+   source: AiStrategyNote, target: Intervention, cardinality: many_to_many, description: 批准 AI 策略建议时分解到项目的管理干预（D58）；按来源建议编号连接（不是主键，按 L42 声明为多对多）。允许悬空：没有分解到项目的策略没有干预,
+   join: {sourceKey: proposalId, targetKey: sourceProposalId}}
 

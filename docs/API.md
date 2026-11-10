@@ -269,7 +269,9 @@ Content-Type: application/json
 ]
 ```
 
-项目的待批建议、有效风险标记和由建议生成的干预的依据状态由本体函数 `aiSuggestionOverview` 返回；部门复盘 `departmentOperatingReview` 另返回 `aiStrategyNotes`、`aiStrategyProposals`、`canApproveStrategy`。
+项目的待批建议、有效风险标记和由建议生成的干预的依据状态由本体函数 `aiSuggestionOverview` 返回（8.7.0 起，由部门策略分解的干预另带 `strategyTitle`、`strategyStatus`）；部门复盘 `departmentOperatingReview` 另返回 `aiStrategyNotes`（含 `followUps`、`readyToClose`、`citedProjects`）、`aiStrategyProposals`（含 `citedProjects`）、`canApproveStrategy` 与 `aiStrategyGaps`。
+
+8.7.0：`approveAiProposal` 对 AI 策略建议可带 `projects`（依据涉及的项目编号列表）与 `dueDate`，每个项目新建一条管理干预；已采纳的策略用 `breakDownAiStrategyNote`（`note`、`projects`、`dueDate`）补分解。`submitAiProposal` 的策略建议可带 `proposedCategory`（仅类别为 other）。依据的 `op` 也接受 eq、ne、gt、gte、lt、lte。
 
 #### 历史对话（D50）
 

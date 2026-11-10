@@ -3,11 +3,12 @@ import type { FormEvent } from "react";
 import { CalendarDatePicker } from "../components/CalendarDatePicker";
 import type { PmAssistantSuggestion } from "../types";
 import {
-  approveAiProposal, closeAiRiskFlag, closeAiStrategyNote, rejectAiProposal, renewAiRiskFlag, renewAiStrategyNote, submitAiProposal
+  approveAiProposal, breakDownAiStrategyNote, closeAiRiskFlag, closeAiStrategyNote, rejectAiProposal, renewAiRiskFlag, renewAiStrategyNote,
+  submitAiProposal
 } from "./api";
 import "./ai.css";
 import { INTERVENTION_TYPE_LABELS, KIND_LABELS, STRATEGY_CATEGORY_LABELS } from "./types";
-import type { AiKind, AiOverview, AiProposal, AiStrategyNote, AiStrategyProposal, BasisFact } from "./types";
+import type { AiKind, AiOverview, AiProposal, AiStrategyGap, AiStrategyNote, AiStrategyProposal, BasisFact } from "./types";
 
 type Act = (run: () => Promise<void>, done: string) => Promise<boolean>;
 
@@ -116,12 +117,13 @@ export function InterventionDraft({ project, code, alertTitle, action, owner, ac
 }
 
 /** 部门经营 → 策略信号: AI strategy notes in force and strategy suggestions to approve (D51, D53). */
-export function StrategyAiPanel({ notes, proposals, canApprove, onChanged }: {
-  notes: AiStrategyNote[]; proposals: AiStrategyProposal[]; canApprove: boolean; onChanged: () => void;
+export function StrategyAiPanel({ notes, proposals, canApprove, onChanged, gaps = [] }: {
+  notes: AiStrategyNote[]; proposals: AiStrategyProposal[]; canApprove: boolean; onChanged: () => void; gaps?: AiStrategyGap[];
 }) {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ text: string; tone: "ok" | "error" } | null>(null);
-  if (!notes.length && !proposals.length) return null;
+  const [adopting, setAdopting] = useState<string | null>(null);
+  if (!notes.length && !proposals.length && !gaps.length) return null;
   async function act(run: () => Promise<void>, done: string) {
     setSaving(true);
     try {
@@ -144,10 +146,13 @@ export function StrategyAiPanel({ notes, proposals, canApprove, onChanged }: {
         <div className="panel-row-main"><strong>{item.title}</strong>
           <small>{item.categoryLabel} · {item.submittedBy} 提交 · {item.expiresOn} 前处理</small>
           {item.detail && <p className="ai-detail">{item.detail}</p>}
-          <BasisList basis={item.basis} holds={item.basisHolds} note={item.basisNote} /></div>
+          <BasisList basis={item.basis} holds={item.basisHolds} note={item.basisNote} />
+          {adopting === item.proposalId && <AdoptForm projects={item.citedProjects ?? []} saving={saving}
+            onCancel={() => setAdopting(null)} onAdopt={breakdown => void act(() => approveAiProposal(item.proposalId, undefined, breakdown),
+              breakdown.projects.length ? `已采纳，并为 ${breakdown.projects.join("、")} 各建一项管理干预` : "已采纳").then(() => setAdopting(null))} />}</div>
         <b className="panel-row-status">{item.basisHolds ? "依据成立" : "依据已不成立"}</b>
         <div className="panel-row-actions">{canApprove ? <>
-          <button type="button" className="row-action" disabled={saving || !item.basisHolds} onClick={() => void act(() => approveAiProposal(item.proposalId), "已采纳")}>采纳</button>
+          <button type="button" className="row-action" disabled={saving || !item.basisHolds} onClick={() => setAdopting(adopting === item.proposalId ? null : item.proposalId)}>采纳</button>
           <button type="button" className="row-action danger-action" disabled={saving} onClick={() => void act(() => rejectAiProposal(item.proposalId), "已驳回")}>驳回</button>
         </> : <small className="ai-muted">等待管理员或部门负责人</small>}</div>
       </li>)}
@@ -156,15 +161,83 @@ export function StrategyAiPanel({ notes, proposals, canApprove, onChanged }: {
         <div className="panel-row-main"><strong>{note.title}</strong>
           <small>有效至 {note.validUntil} · {note.approvedBy} {note.approvedAt.slice(0, 10)} 批准</small>
           {note.detail && <p className="ai-detail">{note.detail}</p>}
-          <BasisList basis={note.basis} holds={note.basisHolds} note={note.basisNote} /></div>
+          <FollowUps note={note} />
+          <BasisList basis={note.basis} holds={note.basisHolds} note={note.basisNote} />
+          {adopting === note.noteId && <AdoptForm projects={uncovered(note)} saving={saving} mode="later" onCancel={() => setAdopting(null)}
+            onAdopt={breakdown => void act(() => breakDownAiStrategyNote(note.noteId, breakdown), `已为 ${breakdown.projects.join("、")} 各建一项管理干预`)
+              .then(() => setAdopting(null))} />}</div>
         <b className="panel-row-status">{note.basisHolds ? "有效" : "依据已不成立"}</b>
         <div className="panel-row-actions">{canApprove && <>
+          {uncovered(note).length > 0 && <button type="button" className="row-action" disabled={saving} onClick={() => setAdopting(adopting === note.noteId ? null : note.noteId)}>分解到项目</button>}
           <button type="button" className="row-action" disabled={saving || !note.basisHolds} onClick={() => void act(() => renewAiStrategyNote(note.noteId), "已续期")}>续期</button>
           <button type="button" className="row-action danger-action" disabled={saving} onClick={() => void act(() => closeAiStrategyNote(note.noteId, "已执行或不再适用"), "已关闭")}>关闭</button>
         </>}</div>
       </li>)}
     </ul>
+    <StrategyGaps gaps={gaps} />
   </div>;
+}
+
+const FOLLOW_UP_STATUS: Record<string, string> = { open: "待处理", in_progress: "处理中", closed: "已关闭" };
+
+/** D58: adopting a strategy breaks it into one management intervention per chosen project (the projects its facts cite). */
+/** The cited projects without an open intervention from this strategy: what can still be broken down. */
+function uncovered(note: AiStrategyNote): string[] {
+  const open = new Set((note.followUps ?? []).filter(item => item.status !== "closed").map(item => item.projectNumber));
+  return (note.citedProjects ?? []).filter(project => !open.has(project));
+}
+
+export function AdoptForm({ projects, saving, onAdopt, onCancel, mode = "adopt" }: {
+  projects: string[]; saving: boolean; onAdopt: (breakdown: { projects: string[]; dueDate: string }) => void; onCancel: () => void;
+  mode?: "adopt" | "later";
+}) {
+  const [chosen, setChosen] = useState<string[]>(projects);
+  const [dueDate, setDueDate] = useState(addDays(14));
+  return <div className="ai-adopt">
+    {projects.length > 0 ? <>
+      <p>分解到项目：每个选中的项目新建一项管理干预，负责人为该项目的项目经理，落实进度显示在这条策略下。</p>
+      <div className="ai-adopt-projects">{projects.map(project => <label key={project} className="check-label">
+        <input type="checkbox" checked={chosen.includes(project)} onChange={event => setChosen(event.target.checked ? [...chosen, project] : chosen.filter(p => p !== project))} />{project}
+      </label>)}</div>
+      <label className="ai-adopt-date">干预截止日期<CalendarDatePicker value={dueDate} onChange={setDueDate} label="选择干预截止日期" minDate={addDays(0)} /></label>
+    </> : <p>这条策略的依据不涉及具体项目，采纳后只记在部门经营中。</p>}
+    <div className="ai-adopt-actions">
+      <button type="button" className="row-action" disabled={saving} onClick={onCancel}>取消</button>
+      <button type="button" className="row-action" disabled={saving || (chosen.length > 0 && !dueDate) || (mode === "later" && !chosen.length)} onClick={() => onAdopt({ projects: chosen, dueDate })}>
+        {mode === "later" ? `建 ${chosen.length} 项干预` : chosen.length ? `采纳并建 ${chosen.length} 项干预` : "只采纳，不建干预"}</button>
+    </div>
+  </div>;
+}
+
+/** D59: the strategy's interventions and whether all are closed. */
+export function FollowUps({ note }: { note: AiStrategyNote }) {
+  const items = note.followUps ?? [];
+  if (!items.length) return <p className="ai-follow ai-muted">未分解到项目</p>;
+  const closed = items.filter(item => item.status === "closed").length;
+  return <div className={`ai-follow ${note.readyToClose ? "ready" : ""}`}>
+    <strong>落实进度 {closed}/{items.length}</strong>
+    <span>{items.map(item => `${item.projectNumber} ${FOLLOW_UP_STATUS[item.status] ?? item.status}${item.overdue ? "（已逾期）" : ""}`).join(" · ")}</span>
+    {note.readyToClose && <em>干预已全部关闭，可以关闭这条策略</em>}
+  </div>;
+}
+
+/** D56/D57: what the existing strategy categories do not cover, for decision makers to add a rule signal or a category. */
+export function StrategyGaps({ gaps }: { gaps: AiStrategyGap[] }) {
+  if (!gaps.length) return null;
+  return <details className="ai-gaps" open>
+    <summary><strong>规则未覆盖的策略</strong><span>近 90 天 AI 提出、现有策略类别都不适用的 {gaps.length} 类，按「其他」提交；用于判断是否新增规则信号或策略类别</span></summary>
+    <table className="ai-gaps-table">
+      <thead><tr><th>AI 提出的类别</th><th>条数</th><th>处理情况</th><th>示例</th></tr></thead>
+      <tbody>{gaps.map(gap => <tr key={gap.proposedCategory}>
+        <td><strong>{gap.proposedCategory}</strong></td>
+        <td>{gap.count}</td>
+        <td>{[gap.approved ? `已采纳 ${gap.approved}` : "", gap.pending ? `待批 ${gap.pending}` : "", gap.rejected ? `驳回 ${gap.rejected}` : "",
+          gap.expired ? `过期 ${gap.expired}` : ""].filter(Boolean).join(" · ")}</td>
+        <td><ul>{gap.examples.map(example => <li key={example.proposalId}>{example.title}<small>（{example.statusLabel}）</small>
+          {example.basis.length > 0 && <small className="ai-gap-basis">依据：{example.basis.map(fact => fact.text ?? "").filter(Boolean).join("；")}</small>}</li>)}</ul></td>
+      </tr>)}</tbody>
+    </table>
+  </details>;
 }
 
 function readable(fact: Record<string, unknown>): string {
@@ -190,7 +263,8 @@ export function ProposalDraftCard({ item }: { item: PmAssistantSuggestion }) {
   }
   return <article className={`ai-draft-card ${item.valid ? "valid" : "invalid"}`}>
     <header><strong>{KIND_LABELS[kind]}候选</strong><i>{item.valid ? "预检通过" : "预检未通过"}</i></header>
-    <p className="ai-draft-title">{String(p.title ?? "")}{p.project ? ` · ${p.project}` : ""}{p.category ? ` · ${STRATEGY_CATEGORY_LABELS[String(p.category)] ?? p.category}` : ""}{p.dueDate ? ` · 截止 ${p.dueDate}` : ""}</p>
+    <p className="ai-draft-title">{String(p.title ?? "")}{p.project ? ` · ${p.project}` : ""}{p.category ? ` · ${STRATEGY_CATEGORY_LABELS[String(p.category)] ?? p.category}${p.proposedCategory ? `（AI：${p.proposedCategory}）` : ""}` : ""}{p.dueDate ? ` · 截止 ${p.dueDate}` : ""}</p>
+    {item.notes && item.notes.length > 0 && <ul className="ai-draft-notes">{item.notes.map(note => <li key={note}>{note}</li>)}</ul>}
     {p.detail ? <p>{String(p.detail)}</p> : null}
     {basis.length > 0 && <ul>{basis.map((fact, index) => <li key={index}>依据：{item.basisTexts?.[index] ?? readable(fact)}</li>)}</ul>}
     {item.reasons.length > 0 && <ul className="ai-draft-reasons">{item.reasons.map(reason => <li key={reason}>{reason}</li>)}</ul>}

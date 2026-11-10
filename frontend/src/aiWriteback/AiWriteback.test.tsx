@@ -104,3 +104,57 @@ describe("PM Assistant: drafted AI suggestion card", () => {
     expect(text(html)).toContain("依据不再成立：当前 80.00");
   });
 });
+
+describe("8.7.0: strategies the categories do not cover (D56)", () => {
+  it("says on the card that the category is not covered and will go in as 其他", () => {
+    const html = renderToStaticMarkup(<ui.ProposalDraftCard item={{
+      actionType: "submitAiProposal", displayName: "提交 AI 建议", valid: true, reasons: [],
+      notes: ["AI 提出的类别「售前与商机管理」不在现有策略类别中，将按「其他」提交"],
+      parameters: { kind: "strategyNote", category: "other", proposedCategory: "售前与商机管理", title: "清理停滞商机", basis: [] }
+    }} />);
+    expect(text(html)).toContain("其他（AI：售前与商机管理）");
+    expect(text(html)).toContain("不在现有策略类别中");
+  });
+
+  it("lists the gaps with counts, decisions and examples, and shows nothing without gaps", () => {
+    expect(renderToStaticMarkup(<ui.StrategyGaps gaps={[]} />)).toBe("");
+    const html = renderToStaticMarkup(<ui.StrategyGaps gaps={[{
+      proposedCategory: "售前与商机管理", count: 2, pending: 1, approved: 1, rejected: 0, expired: 0, latestAt: "2026-11-10T00:00:00Z",
+      examples: [{ proposalId: "aip_1", title: "清理停滞商机", status: "approved", statusLabel: "已批准", basis: [{ type: "fact", text: "成本对象 STL302 的疑似停滞 等于 是（当前 是）" }] }]
+    }]} />);
+    expect(text(html)).toContain("规则未覆盖的策略");
+    expect(text(html)).toContain("售前与商机管理 2 已采纳 1 · 待批 1");
+    expect(text(html)).toContain("清理停滞商机 （已批准）");
+    expect(text(html)).toContain("STL302 的疑似停滞");
+  });
+});
+
+describe("8.7.0: strategies carried out on projects (D58, D59)", () => {
+  const base: AiStrategyNote = {
+    noteId: "asn_2", category: "push_acceptance", categoryLabel: "推动验收回款", title: "集中推动验收回款", detail: null, basis: [],
+    proposalId: "aip_3", status: "active", approvedBy: "head.a", approvedAt: "2026-11-10T00:00:00Z", validUntil: "2026-12-10",
+    closedReason: null, basisHolds: true, basisNote: null
+  };
+
+  it("shows how far a strategy has been carried out, and says when it may be closed", () => {
+    const partial = renderToStaticMarkup(<ui.FollowUps note={{ ...base, readyToClose: false, followUps: [
+      { interventionId: "a", projectNumber: "SEY101", status: "in_progress", dueDate: "2026-11-20", overdue: false },
+      { interventionId: "b", projectNumber: "SEY103", status: "closed", dueDate: "2026-11-20", overdue: false }] }} />);
+    expect(text(partial)).toContain("落实进度 1/2");
+    expect(text(partial)).toContain("SEY101 处理中 · SEY103 已关闭");
+    expect(text(partial)).not.toContain("可以关闭这条策略");
+    const done = renderToStaticMarkup(<ui.FollowUps note={{ ...base, readyToClose: true, followUps: [
+      { interventionId: "b", projectNumber: "SEY103", status: "closed", dueDate: "2026-11-20", overdue: false }] }} />);
+    expect(text(done)).toContain("干预已全部关闭，可以关闭这条策略");
+    expect(text(renderToStaticMarkup(<ui.FollowUps note={base} />))).toContain("未分解到项目");
+  });
+
+  it("offers the cited projects, all ticked, when adopting", () => {
+    const html = renderToStaticMarkup(<ui.AdoptForm projects={["SEY101", "SEY103"]} saving={false} onAdopt={() => undefined} onCancel={() => undefined} />);
+    expect((html.match(/type="checkbox" checked=""/g) ?? []).length).toBe(2);
+    expect(text(html)).toContain("采纳并建 2 项干预");
+    expect(text(renderToStaticMarkup(<ui.AdoptForm projects={[]} saving={false} onAdopt={() => undefined} onCancel={() => undefined} />)))
+      .toContain("只采纳，不建干预");
+  });
+});
+

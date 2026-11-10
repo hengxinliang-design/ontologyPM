@@ -1555,7 +1555,9 @@ function ProjectDrawer({ project, close, refresh }: { project: ProjectDetail; cl
           <span className="panel-row-lead">{INTERVENTION_TYPE_LABELS[item.intervention_type] ?? item.intervention_type}</span>
           <div className="panel-row-main"><strong>{item.title}</strong><small>负责人 {item.owner || "未指定"} · {item.due_date ? `截止 ${item.due_date}` : "未设截止日期"}{item.notes ? ` · ${item.notes}` : ""}</small>
             {(() => { const source = aiOverview?.interventionBasis[item.intervention_id]; return source ? <small className={source.basisHolds ? "ai-muted" : "ai-basis-stale"}>
-              {source.basisHolds ? "来自 AI 建议，依据仍成立" : `来自 AI 建议；${source.basisNote ?? "依据已不成立"}，可考虑关闭`}</small> : null; })()}</div>
+              {source.strategyTitle
+                ? `来自部门策略「${source.strategyTitle}」${source.basisHolds ? "" : `；${source.basisNote ?? "所属策略已不成立"}，可考虑关闭`}`
+                : source.basisHolds ? "来自 AI 建议，依据仍成立" : `来自 AI 建议；${source.basisNote ?? "依据已不成立"}，可考虑关闭`}</small> : null; })()}</div>
           <b className="panel-row-status">{INTERVENTION_STATUS_LABELS[item.status] ?? item.status}{item.overdue ? " · 已逾期" : ""}</b>
           <div className="panel-row-actions">{item.status !== "closed" && <>
             {item.status === "open" && <button type="button" className="row-action" disabled={saving} onClick={() => moveIntervention(item, "in_progress")}>开始处理</button>}

@@ -242,3 +242,154 @@ def test_alert_and_signal_facts_are_checked_against_the_rules_outputs(app):
     assert app.state.ai_findings.refresh()["closed"] == 1
     closed = objects(app, "AiRiskFlag")[flag["flagId"]]
     assert closed["status"] == "closed" and "已没有预警 MILESTONE_DUE" in closed["closedReason"]
+
+
+# ------------------------------------------------------------------ 8.7.0 (D56, D57), build package 2026-11-10-strategy-gaps
+def stalled(code):
+    return {"type": "fact", "objectType": "Project", "primaryKey": code, "property": "projectNumber", "op": "eq", "value": code}
+
+
+def test_query_style_comparisons_are_read_as_the_same_comparison(app):
+    for op, value in (("eq", 120), ("GTE", 100), ("ne", 1), ("lt", 500)):  # WDR101's budget is 120 person-days
+        result = check(app, PMO, "submitAiProposal", kind="riskFlag", project="WDR101", title="t", basis=[budget_fact(op=op, value=value)])
+        assert result["valid"], (op, result)
+    proposal_id = submit(app, basis=[budget_fact(op="gte", value=100)])
+    proposal = objects(app, "AiProposal")[proposal_id]
+    assert proposal["basis"][0]["op"] == ">=" and "≥ 100" in proposal["basis"][0]["text"]
+    assert not check(app, PMO, "submitAiProposal", kind="riskFlag", project="WDR101", title="t", basis=[budget_fact(op="~")])["valid"]
+
+
+def test_an_uncovered_strategy_is_submitted_as_other_and_listed_as_a_gap(app):
+    import json
+    from app.pm_assistant import AssistantSession
+
+    session = AssistantSession(app.state.ontology_service, PMO)
+    session.run("suggest_action", json.dumps({"actionType": "submitAiProposal", "parameters": {
+        "kind": "strategyNote", "category": "售前与商机管理", "title": "清理停滞商机", "basis": [stalled("WDR101")]}}, ensure_ascii=False))
+    card = session.suggestions[-1]
+    assert card["valid"], card
+    assert (card["parameters"]["category"], card["parameters"]["proposedCategory"]) == ("other", "售前与商机管理")
+    assert "不在现有策略类别中" in card["notes"][0]
+    session.run("suggest_action", json.dumps({"actionType": "submitAiProposal", "parameters": {
+        "kind": "strategyNote", "category": "争取新合同", "title": "争取二期", "basis": [stalled("WDR101")]}}, ensure_ascii=False))
+    assert session.suggestions[-1]["parameters"]["category"] == "win_contracts" and session.suggestions[-1]["notes"] == [], \
+        "a category written as its label is the category"
+
+    first = submit(app, **{**card["parameters"]})
+    second = submit(app, kind="strategyNote", project=None, category="other", proposedCategory="售前与商机管理", title="控制售前沉没投入",
+                    basis=[stalled("TPL149")])
+    other_gap = submit(app, kind="strategyNote", project=None, category="other", proposedCategory="人员培养", title="安排新人带教",
+                       basis=[stalled("WDR101")])
+    proposals = objects(app, "AiProposal")
+    assert all(proposals[p]["status"] == "pending" for p in (first, second, other_gap)), "different gaps do not replace each other"
+    act(app, HEAD, "approveAiProposal", proposal=first)
+    act(app, HEAD, "rejectAiProposal", proposal=other_gap, note="不需要")
+    review = app.state.ontology_service.execute_function(HEAD, "departmentOperatingReview", {})["result"]
+    gaps = {g["proposedCategory"]: g for g in review["aiStrategyGaps"]}
+    assert [g["proposedCategory"] for g in review["aiStrategyGaps"]] == ["售前与商机管理", "人员培养"]
+    assert (gaps["售前与商机管理"]["count"], gaps["售前与商机管理"]["approved"], gaps["售前与商机管理"]["pending"]) == (2, 1, 1)
+    assert (gaps["人员培养"]["count"], gaps["人员培养"]["rejected"]) == (1, 1)
+    [note] = review["aiStrategyNotes"]
+    assert (note["categoryLabel"], note["proposedCategory"]) == ("其他 · 售前与商机管理", "售前与商机管理")
+    assert [p["categoryLabel"] for p in review["aiStrategyProposals"]] == ["其他 · 售前与商机管理"]
+
+
+def test_a_proposed_category_needs_the_other_category(app):
+    result = check(app, PMO, "submitAiProposal", kind="strategyNote", category="win_contracts", proposedCategory="售前",
+                   title="t", basis=[stalled("WDR101")])
+    assert not result["valid"] and any("只有类别为「其他」" in (c["reason"] or "") for c in result["criteria"])
+
+
+def test_the_card_lists_every_problem_at_once(app):
+    import json
+    from app.pm_assistant import AssistantSession
+
+    session = AssistantSession(app.state.ontology_service, PMO)
+    session.run("suggest_action", json.dumps({"actionType": "submitAiProposal", "parameters": {
+        "kind": "strategyNote", "category": "other", "title": "长" * 121, "basis": [budget_fact(op="~")]}}, ensure_ascii=False))
+    reasons = session.suggestions[-1]["reasons"]
+    assert any("标题" in r or "120" in r for r in reasons) and any("比较符" in r for r in reasons), reasons
+
+
+def strategy_with_two_projects(app):
+    """A 推动验收回款 strategy whose facts are about WDR101 (PM 刘浪) and TPL149."""
+    return submit(app, kind="strategyNote", project=None, category="push_acceptance", title="集中推动验收回款",
+                  detail="逐项目锁定验收与开票时间表", basis=[budget_fact(), budget_fact(op=">=", value=0, project="TPL149")])
+
+
+def test_an_approved_strategy_is_broken_into_project_interventions(app):
+    due = (today(app) + timedelta(days=14)).isoformat()
+    proposal = strategy_with_two_projects(app)
+    review = app.state.ontology_service.execute_function(HEAD, "departmentOperatingReview", {})["result"]
+    assert review["aiStrategyProposals"][0]["citedProjects"] == ["TPL149", "WDR101"], "the projects come from the facts"
+    result = act(app, HEAD, "approveAiProposal", proposal=proposal, projects=["WDR101", "TPL149"], dueDate=due)
+    created = {e["primaryKey"] for e in result["edits"] if e["objectType"] == "Intervention" and e["operation"] == "create"}
+    assert len(created) == 2, "the department head's approval creates them (D60)"
+    interventions = {k: v for k, v in objects(app, "Intervention").items() if k in created}
+    assert {(i["projectNumber"], i["interventionType"], i["dueDate"], i["sourceProposalId"]) for i in interventions.values()} == {
+        ("WDR101", "payment", due, proposal), ("TPL149", "payment", due, proposal)}
+    assert {i["projectNumber"]: i["owner"] for i in interventions.values()}["WDR101"] == "刘浪", "each project's PM owns it"
+    assert all(i["title"] == "落实部门策略：集中推动验收回款" for i in interventions.values())
+
+    def progress():
+        [note] = app.state.ontology_service.execute_function(HEAD, "departmentOperatingReview", {})["result"]["aiStrategyNotes"]
+        return note, sorted((f["projectNumber"], f["status"]) for f in note["followUps"])
+
+    note, steps = progress()
+    assert steps == [("TPL149", "open"), ("WDR101", "open")] and note["readyToClose"] is False
+    wdr = next(k for k, v in interventions.items() if v["projectNumber"] == "WDR101")
+    tpl = next(k for k, v in interventions.items() if v["projectNumber"] == "TPL149")
+    overview = app.state.ontology_service.execute_function(ADMIN, "aiSuggestionOverview", {"project": "WDR101"})["result"]
+    assert overview["interventionBasis"][wdr]["strategyTitle"] == "集中推动验收回款" and overview["interventionBasis"][wdr]["basisHolds"]
+
+    act(app, PMO, "updateInterventionStatus", intervention=tpl, status="closed")
+    note, steps = progress()
+    assert steps == [("TPL149", "closed"), ("WDR101", "open")] and note["readyToClose"] is False
+    act(app, HEAD, "closeAiStrategyNote", note=note["noteId"], reason="本月已安排")
+    hint = app.state.ontology_service.execute_function(ADMIN, "aiSuggestionOverview", {"project": "WDR101"})["result"]["interventionBasis"][wdr]
+    assert hint["basisHolds"] is False and hint["basisNote"].startswith("所属策略已关闭") and "本月已安排" in hint["basisNote"]
+    assert objects(app, "Intervention")[wdr]["status"] == "open", "a person closes it (D59)"
+
+
+def test_all_follow_ups_closed_means_the_strategy_may_be_closed(app):
+    proposal = strategy_with_two_projects(app)
+    result = act(app, HEAD, "approveAiProposal", proposal=proposal, projects=["WDR101"], dueDate=(today(app) + timedelta(days=3)).isoformat())
+    [intervention] = [e["primaryKey"] for e in result["edits"] if e["objectType"] == "Intervention"]
+    act(app, PMO, "updateInterventionStatus", intervention=intervention, status="closed")
+    [note] = app.state.ontology_service.execute_function(HEAD, "departmentOperatingReview", {})["result"]["aiStrategyNotes"]
+    assert note["readyToClose"] is True and note["status"] == "active", "it only says it may be closed"
+
+
+def test_breaking_down_needs_projects_from_the_facts_and_a_due_date(app):
+    proposal = strategy_with_two_projects(app)
+    due = (today(app) + timedelta(days=5)).isoformat()
+
+    def reason(**values):
+        result = check(app, HEAD, "approveAiProposal", proposal=proposal, **values)
+        return " ".join(c["reason"] or "" for c in result["criteria"] if not c["passed"])
+
+    assert "ZMJ113 不在这条策略的依据" in reason(projects=["ZMJ113"], dueDate=due) and "可选：TPL149、WDR101" in reason(projects=["ZMJ113"], dueDate=due)
+    assert "要填干预截止日期" in reason(projects=["WDR101"])
+    assert "不能早于今天" in reason(projects=["WDR101"], dueDate=(today(app) - timedelta(days=1)).isoformat())
+    assert "项目编号列表" in reason(projects="WDR101", dueDate=due)
+    assert reason(projects=[], dueDate=due) == "", "approving without breaking down is allowed"
+    flag = submit(app)
+    flag_check = check(app, PMO, "approveAiProposal", proposal=flag, projects=["WDR101"], dueDate=due)
+    assert any("只有 AI 策略建议可以分解" in (c["reason"] or "") for c in flag_check["criteria"])
+
+
+def test_an_adopted_strategy_can_be_broken_down_later_without_repeats(app):
+    proposal = strategy_with_two_projects(app)
+    act(app, HEAD, "approveAiProposal", proposal=proposal)
+    [note] = app.state.ontology_service.execute_function(HEAD, "departmentOperatingReview", {})["result"]["aiStrategyNotes"]
+    assert note["followUps"] == [] and note["citedProjects"] == ["TPL149", "WDR101"]
+    due = (today(app) + timedelta(days=7)).isoformat()
+    first = act(app, HEAD, "breakDownAiStrategyNote", note=note["noteId"], projects=["WDR101"], dueDate=due)
+    assert [e["objectType"] for e in first["edits"]] == ["Intervention"]
+    again = check(app, HEAD, "breakDownAiStrategyNote", note=note["noteId"], projects=["WDR101", "TPL149"], dueDate=due)
+    assert any("WDR101 已有这条策略未关闭的落实干预" in (c["reason"] or "") for c in again["criteria"])
+    assert not check(app, PMO, "breakDownAiStrategyNote", note=note["noteId"], projects=["TPL149"], dueDate=due)["valid"], "admin or department head"
+    act(app, HEAD, "breakDownAiStrategyNote", note=note["noteId"], projects=["TPL149"], dueDate=due)
+    [note] = app.state.ontology_service.execute_function(HEAD, "departmentOperatingReview", {})["result"]["aiStrategyNotes"]
+    assert sorted(f["projectNumber"] for f in note["followUps"]) == ["TPL149", "WDR101"]
+

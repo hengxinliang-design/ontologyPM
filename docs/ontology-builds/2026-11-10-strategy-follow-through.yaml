@@ -1,0 +1,100 @@
+# 本体构建包（发布稿）：AI 策略的缺口清单与分解到项目。本体 8.7.0（AiProposal、AiStrategyNote 新增「AI 提出的类别」，
+# 批准动作新增分解参数，新动作 breakDownAiStrategyNote，新关系 AiStrategyNote.followUpInterventions；非破坏性）。
+# 依据：用户 2026-11-10 两次反馈——①「AI 策略建议候选预检未通过……有必要列出来被限制的策略是什么，让决策者分析是否有必要优化策略或者规则」；
+# ②「批准后的 AI 策略建议，好像没有回写到相关项目的详情信息的管理者干预中……可能达不到 Ontology 的初衷」。
+# 用户选择全部推荐项，记为需求基线 D56–D60。
+kind: OntologyBuild
+stage: release
+topic: 现有类别覆盖不了的 AI 策略按「其他」提交并汇总为缺口清单；采纳的策略按依据涉及的项目分解为管理干预，策略显示落实进度
+ontologyVersion: 8.7.0
+date: 2026-11-10
+scope:
+  - CQ-S1 AI 提出过哪些现有策略类别覆盖不了的策略？各有几条、处理得怎样、依据是什么？
+  - CQ-S2 这条已采纳的策略落到了哪些项目上？每个项目的干预处理到哪一步？
+  - CQ-S3 某个项目的这项干预来自哪条部门策略？那条策略还有效吗？
+  - CQ-S4 哪些策略的干预都已关闭、可以关闭策略了？
+  - CQ-S5 AI 写错了比较符或类别时，卡片能不能一次说清所有问题？
+
+rules:
+  - id: R1
+    statement: 依据的比较符接受对象集条件的写法：eq、ne、neq、gt、gte、ge、lt、lte、le、==、<> 分别读作 =、!=、>、>=、<、<=（不区分大小写），保存为标准写法。
+    basis: 2026-11-10 功能测试中的策略卡片写成「stalled eq true」：同一提示词里对象集条件用 eq / gte，事实用 = / >=，模型混用。D55 的依据是事实，写法不同不应否定事实。
+    acceptance: WDR101 预算人天 120 时，eq 120、GTE 100、ne 1、lt 500 都通过预检；以 gte 提交后保存为 >=，读法为「≥ 100」；「~」仍被拒。
+    verifiedBy: [test_query_style_comparisons_are_read_as_the_same_comparison]
+    ontology: [submitAiProposal, AiProposal.basis, aiBasisHolds]
+  - id: R2
+    statement: 助手预检 submitAiProposal 时一次列出全部问题：参数错误会让动作跳过依据核对，此时另行核对依据并把不成立或格式错误的原因补进卡片。
+    basis: 同一张卡片只显示了类别错误，隐藏了比较符错误（2026-11-10）。
+    acceptance: 标题 121 字且比较符为「~」的候选，卡片原因同时含标题与比较符两条。
+    verifiedBy: [test_the_card_lists_every_problem_at_once]
+    ontology: [submitAiProposal]
+  - id: R3
+    statement: AI 策略建议的类别不在 StrategyCategory 中时：写成中文标签的按标签换成代码；仍不在的按「其他」提交，原类别名记为「AI 提出的类别」（proposedCategory，最多 40 字），卡片说明这一调整。只有类别为「其他」的策略建议可以写 AI 提出的类别。去重时每个 AI 提出的类别各算一个主体。
+    basis: D56（用户选择「Submit as 其他, list the gaps」）。
+    acceptance: 类别「售前与商机管理」的候选预检通过，参数变为 other + 售前与商机管理，卡片含「不在现有策略类别中」；类别「争取新合同」换成 win_contracts；类别 win_contracts 却写了 AI 提出的类别被拒；「售前与商机管理」与「人员培养」两条待批建议互不取代。
+    verifiedBy: [test_an_uncovered_strategy_is_submitted_as_other_and_listed_as_a_gap, test_a_proposed_category_needs_the_other_category]
+    ontology: [AiProposal.proposedCategory, AiStrategyNote.proposedCategory, submitAiProposal, aiProposalFields]
+  - id: R4
+    statement: 部门经营复盘返回 aiStrategyGaps：近 90 天提交的、带 AI 提出类别的策略建议（不含被取代的），按该类别汇总条数、待批 / 已采纳 / 驳回 / 过期数、最近提交时间和最多 3 条示例（标题、状态、依据读法），条数多的在前；采纳后的策略显示为「其他 · AI 提出的类别」。页面在 AI 策略建议下列出「规则未覆盖的策略」，供决策者判断是否新增规则信号或类别（D57：暂不新增售前信号，约一个月后据此复看）。
+    basis: D56、D57。
+    acceptance: 「售前与商机管理」两条（采纳 1、待批 1）、「人员培养」一条（驳回 1），清单按条数排为售前在前；采纳的策略类别显示「其他 · 售前与商机管理」。
+    verifiedBy: [test_an_uncovered_strategy_is_submitted_as_other_and_listed_as_a_gap]
+    ontology: [departmentOperatingReview, AiProposal.proposedCategory]
+  - id: R5
+    statement: 采纳 AI 策略建议时可分解到项目：可选项目是策略依据涉及的项目（由依据推出，不从文字里找），批准人选中的每个项目新建一条管理干预——标题「落实部门策略：…」、负责人为项目经理、类型按类别（推动验收回款 → 回款；释放资源、招聘或外部支援 → 资源；争取新合同 → 客户；其他 → 其他）、截止日期由批准人定且不早于今天，干预记下来源建议。已采纳但未分解（或要补项目）的策略可用「策略分解到项目」补做，已有该策略未关闭落实干预的项目不能重复。部门负责人的批准即可新建这些干预。
+    basis: D58（用户选择「Break into interventions at approval」）、D60（「Yes, the approval creates them」）；原则 16（批准与分解动作的 edits 声明 Intervention.*）。
+    acceptance: 依据涉及 WDR101、TPL149 的推动验收回款策略，部门负责人采纳并选两个项目，生成两条回款类干预，WDR101 负责人为刘浪；选 ZMJ113 被拒并列出可选项目；分解缺截止日期、截止日期早于今天、项目不是列表、对风险标记分解均被拒；先补 WDR101 后再选 WDR101 被拒（「已有这条策略未关闭的落实干预」），PMO 补分解被拒。
+    verifiedBy: [test_an_approved_strategy_is_broken_into_project_interventions, test_breaking_down_needs_projects_from_the_facts_and_a_due_date, test_an_adopted_strategy_can_be_broken_down_later_without_repeats, test_fb17_a_department_head_breaks_a_strategy_into_project_interventions, test_actions_write_only_declared_datasets]
+    ontology: [approveAiProposal, breakDownAiStrategyNote, aiStrategyBreakdown, AiStrategyNote.followUpInterventions, Intervention.sourceProposalId]
+  - id: R6
+    statement: 策略显示落实进度（每项干预的项目、状态、是否逾期）；全部干预关闭时提示「可以关闭这条策略」，不自动关闭。项目详情中由策略分解的干预注明「来自部门策略「…」」；策略关闭、过期或被取代后，未关闭的干预提示「所属策略已关闭（原因）」，不自动关闭。
+    basis: D59（用户选择「Progress + hints, people close」），与 D54 对管理干预的处理一致。
+    acceptance: 两项干预时进度为 TPL149 待处理、WDR101 待处理；关闭 TPL149 后为 1/2；关闭策略后 WDR101 的干预提示以「所属策略已关闭」开头并含关闭原因，干预仍为待处理；只有一项且已关闭时 readyToClose 为是、策略仍有效。
+    verifiedBy: [test_an_approved_strategy_is_broken_into_project_interventions, test_all_follow_ups_closed_means_the_strategy_may_be_closed]
+    ontology: [AiStrategyNote.followUpInterventions, aiSuggestionOverview, departmentOperatingReview]
+
+exceptions:
+  - rule: R1
+    case: 模型写了其他不认识的比较符（例如「~」「like」「in」）。
+    handling: 仍按 R1 之前的规则拒绝，卡片列出允许的比较符；不猜测含义。
+    basis: 别名只收含义唯一的写法；in、like 的含义与单值比较不同。
+  - rule: R2
+    case: 参数错误本身就是依据格式错误（例如依据不是列表）。
+    handling: 只列一次，不重复补充（原因里已有「依据」二字时不再补）。
+    basis: 避免同一问题出现两遍。
+  - rule: R3
+    case: AI 提出的类别与现有类别同义但写法不同（例如「回款催收」之于「推动验收回款」）。
+    handling: 不做同义判断，按「其他」提交并进入缺口清单；决策者在清单中看到后可决定合并为现有类别（改提示词或规则），不在代码里猜同义词。
+    basis: 原则 5（一个概念一个名字）由人裁决；自动合并会掩盖真实的缺口。
+  - rule: R3
+    case: 候选本身是风险标记或管理干预，却带了类别。
+    handling: 不调整；类别只对策略建议有意义，其他类型带了 AI 提出的类别会被拒。
+    basis: aiProposalFields 只允许「其他」类的策略建议写 AI 提出的类别。
+  - rule: R4
+    case: 预检未通过、用户没有提交的候选。
+    handling: 不进入缺口清单；清单只统计提交过的（D52：只有用户选中的才进入系统）。
+    basis: D52；避免把模型的每次尝试都当成需求。
+  - rule: R4
+    case: 超过 90 天的缺口。
+    handling: 不再列出（记录仍在，可在本体浏览器按「AI 提出的类别」搜索）；清单反映近期的需求。
+    basis: D54 的时效要求：内容不能越积越多。
+  - rule: R5
+    case: 依据只引用策略信号且信号没有带项目（例如「推动验收回款」整体），或只引用了与项目无关的事实。
+    handling: 可选项目为空，采纳后只记在部门经营，表单说明「依据不涉及具体项目」；需要落到项目时，应让 AI 引用带项目的事实后重新提交。
+    basis: D58：项目由依据推出，不从文字里找，避免把文字中顺带提到的项目也建上干预。
+  - rule: R5
+    case: 策略说明文字里点名了项目（截图中的「优先 SEY101/SEY103」），但依据只涉及其中一部分。
+    handling: 只提供依据涉及的项目；没有被依据支撑的项目不能分解。
+    basis: 同上；干预要有可复核的依据。
+  - rule: R5
+    case: 批准人没有项目管理菜单（部门负责人），或项目经理已离开、项目未设项目经理。
+    handling: 部门负责人的批准照常新建干预（D60），审计记在批准人名下；没有项目经理时负责人为空，由 PMO 在项目详情中指定。
+    basis: D60；create_intervention 在未指定负责人时取项目经理，取不到即为空（D34）。
+  - rule: R6
+    case: 策略到期续期后，原来分解的干预已经全部关闭。
+    handling: 进度仍显示已关闭的干预，并提示可以关闭策略；需要继续落实时用「策略分解到项目」再建新的干预。
+    basis: D59：人决定关闭；补分解不受已关闭干预的限制。
+  - rule: R6
+    case: 项目经理只能看本人项目的干预。
+    handling: 项目经理在项目详情看到「来自部门策略「…」」与策略是否有效，但看不到部门经营页和其他项目的落实进度。
+    basis: D2 数据范围；AiStrategyNote 没有项目范围，项目经理不能读取（8.6.0）。

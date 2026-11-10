@@ -352,3 +352,23 @@ def test_fb16_the_recheck_closes_only_what_no_longer_holds(world):
     assert world.client.app.state.ai_findings.refresh()["closed"] == 1
     _, flags = world.objects(world.admin, "AiRiskFlag")
     assert {f["projectNumber"]: f["status"] for f in flags.values()} == {"WDR101": "active", "TPL149": "closed"}
+
+
+def test_fb17_a_department_head_breaks_a_strategy_into_project_interventions(world):
+    """8.7.0 (D58-D60): the head adopts a strategy into interventions on the cited projects; the PM sees and closes them."""
+    c = world.client
+    proposal = world.submit(world.pmo, kind="strategyNote", project=None, category="push_acceptance", title="集中推动验收回款",
+                            basis=[budget(">=", 100), budget(">=", 0, "TPL149")])
+    due = (world.today() + timedelta(days=10)).isoformat()
+    assert world.act(world.head, "approveAiProposal", proposal=proposal, projects=["WDR101", "ZMJ113"], dueDate=due).status_code == 422
+    assert world.act(world.head, "approveAiProposal", proposal=proposal, projects=["WDR101", "TPL149"], dueDate=due).status_code == 200
+    basis = world.overview(world.pm).json()["data"]["result"]["interventionBasis"]
+    [(intervention, link)] = [(k, v) for k, v in basis.items() if v.get("strategyTitle")][:1]
+    assert link["strategyTitle"] == "集中推动验收回款" and link["basisHolds"]
+    overview = execute(c, world.pm, "projectOverview", {"project": "WDR101"}).json()["data"]["result"]
+    mine = next(i for i in overview["interventions"] if i["intervention_id"] == intervention)
+    assert (mine["owner"], mine["intervention_type"]) == ("刘浪", "payment")
+    closed = c.post(f"/api/v1/projects/WDR101/interventions/{intervention}/status", headers=world.pm, json={"status": "closed"})
+    assert closed.status_code == 200, "the PM carries it out and closes it"
+    [note] = execute(c, world.head, "departmentOperatingReview", {}).json()["data"]["result"]["aiStrategyNotes"]
+    assert sorted((f["projectNumber"], f["status"]) for f in note["followUps"]) == [("TPL149", "open"), ("WDR101", "closed")]

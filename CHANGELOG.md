@@ -4,6 +4,7 @@
 
 | 产品版本 | 本体版本 | 日期 | 构建包 |
 | --- | --- | --- | --- |
+| v1.40.0 | 8.7.0 | 2026-11-10 | [2026-11-10-strategy-follow-through](docs/ontology-builds/2026-11-10-strategy-follow-through.yaml) |
 | v1.39.0 | 8.6.0 | 2026-11-10 | [2026-11-09-ai-writeback](docs/ontology-builds/2026-11-09-ai-writeback.yaml) |
 | v1.38.2 | 8.5.0 | 2026-11-09 | —（只改界面） |
 | v1.38.1 | 8.5.0 | 2026-11-09 | —（只改评测脚本） |
@@ -34,6 +35,14 @@
 | v1.22.0 | 7.6.0 | 2026-10-30 | [2026-10-29-logical-delete](docs/ontology-builds/2026-10-29-logical-delete.yaml) |
 | v1.21.0 | 7.5.0 | 2026-10-29 | [2026-10-29-rule-homes-and-linkages](docs/ontology-builds/2026-10-29-rule-homes-and-linkages.yaml) |
 | v1.20.0 | 7.4.0 | 2026-10-29 | [2026-10-29-milestone-span-period](docs/ontology-builds/2026-10-29-milestone-span-period.yaml) |
+
+## v1.40.0 — AI 策略的缺口清单与分解到项目（需求基线 D56–D60，本体 8.7.0）
+
+- 策略落到项目（D58–D60）：部门经营「采纳」AI 策略建议时，列出策略依据涉及的项目（默认全选），批准人选中的每个项目新建一条管理干预（负责人为项目经理，类型按策略类别，如推动验收回款 → 回款），干预注明「来自部门策略「…」」。已采纳但未分解的策略可点「分解到项目」补做，已有未关闭落实干预的项目不重复。部门负责人的采纳即可新建这些干预。
+- 落实进度（D59）：策略下显示「落实进度 1/2」与各项目状态，全部关闭时提示「可以关闭这条策略」；策略关闭或过期后，未关闭的干预提示「所属策略已关闭」。都不自动关闭。
+- 规则未覆盖的策略（D56、D57）：AI 提出的类别不在现有策略类别中时，按「其他」提交并记下 AI 提出的类别；部门经营列出近 90 天的「规则未覆盖的策略」（条数、处理情况、示例与依据），供决策者判断是否新增规则信号或类别。售前与商机管理暂不新增规则信号，约一个月后据清单再定。
+- 候选卡片更好用：依据的比较符接受 eq / gte 等写法；预检一次列出全部问题（此前参数错了就不再核对依据）；类别写成中文标签时自动换成代码。
+- 本体 8.7.0：AiProposal、AiStrategyNote 新增 proposedCategory；approveAiProposal 新增 projects、dueDate；新动作 breakDownAiStrategyNote；新关系 AiStrategyNote.followUpInterventions。构建包 2026-11-10-strategy-follow-through。
 
 ## v1.39.0 — PM Assistant 独立页面与历史对话；AI 建议经人工批准写回（本体 8.6.0）
 

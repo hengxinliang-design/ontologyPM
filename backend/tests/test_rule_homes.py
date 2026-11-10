@@ -136,7 +136,10 @@ def test_actions_write_only_declared_datasets(tmp_path):
         proposal = run("submitAiProposal", {"kind": "intervention", "project": "WDR101", "title": "干预", "dueDate": "2999-12-31", "basis": fact}, "AiProposal")
         run("approveAiProposal", {"proposal": proposal}, "Intervention")
         proposal = run("submitAiProposal", {"kind": "strategyNote", "category": "other", "title": "策略", "basis": fact}, "AiProposal")
-        note = run("approveAiProposal", {"proposal": proposal}, "AiStrategyNote")
+        note = run("approveAiProposal", {"proposal": proposal, "projects": ["WDR101"], "dueDate": "2999-12-31"}, "AiStrategyNote")
+        proposal = run("submitAiProposal", {"kind": "strategyNote", "category": "win_contracts", "title": "策略二", "basis": fact}, "AiProposal")
+        later = run("approveAiProposal", {"proposal": proposal}, "AiStrategyNote")
+        run("breakDownAiStrategyNote", {"note": later, "projects": ["WDR101"], "dueDate": "2999-12-31"})
         run("renewAiStrategyNote", {"note": note})
         run("closeAiStrategyNote", {"note": note})
 

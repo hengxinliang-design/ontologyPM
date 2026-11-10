@@ -3,6 +3,7 @@
 # 用户选择：一人按角色批准；用户点「提交审批」才进入审批；AI 风险标记单独显示、不改风险等级；依据复核 + 有效期 + 去重。记为需求基线 D51–D55。
 kind: OntologyBuild
 stage: release
+supersededBy: 2026-11-10-strategy-follow-through.yaml
 topic: AI 只出候选，人提交、人批准后才写进管理干预、AI 风险标记与 AI 策略建议；每条都引用可核对的系统事实，每小时复核，过时的自动关闭或过期，同类只留一条
 ontologyVersion: 8.6.0
 date: 2026-11-09

@@ -23,6 +23,10 @@ from ..security import Principal, SecurityPolicy
 MAX_FACTS = 5
 OPERATORS = ("=", "!=", ">", ">=", "<", "<=")
 OPERATOR_TEXT = {"=": "等于", "!=": "不等于", ">": ">", ">=": "≥", "<": "<", "<=": "≤"}
+# The object-set conditions in the same prompt are written eq / gt / gte …; models carry them over (2026-11-10, a strategy
+# card cited 「stalled eq true」). Read them as the same comparison instead of rejecting a sound fact over its notation.
+OPERATOR_ALIASES = {"eq": "=", "==": "=", "ne": "!=", "neq": "!=", "<>": "!=", "gt": ">", "gte": ">=", "ge": ">=",
+                    "lt": "<", "lte": "<=", "le": "<="}
 
 
 class BasisError(ValueError):
@@ -60,7 +64,8 @@ def normalize(raw: Any) -> list[dict[str, Any]]:
             raise BasisError(f"第 {index} 条依据格式不对")
         kind = item.get("type")
         if kind == "fact":
-            op = _text(item.get("op"), 2)
+            op = _text(item.get("op"), 4)
+            op = OPERATOR_ALIASES.get(op.lower(), op)
             if op not in OPERATORS:
                 raise BasisError(f"第 {index} 条依据的比较符只能是 {' '.join(OPERATORS)}")
             value = item.get("value")

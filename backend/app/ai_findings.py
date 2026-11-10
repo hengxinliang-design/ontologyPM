@@ -51,11 +51,12 @@ class AiFindingRepository:
                 "decision_note = ? WHERE status = 'pending' AND dedupe_key = ?",
                 (actor, now, f"被新提交的建议 {proposal_id} 取代", fields["dedupe_key"]))
             connection.execute(
-                """INSERT INTO ai_proposals(proposal_id, kind, project_number, category, title, detail, basis_json,
-                       parameters_json, dedupe_key, source, source_ref, status, submitted_by, submitted_at, expires_on,
-                       basis_holds, basis_note, checked_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, 1, ?, ?)""",
-                (proposal_id, fields["kind"], fields.get("project_number"), fields.get("category"), fields["title"],
+                """INSERT INTO ai_proposals(proposal_id, kind, project_number, category, proposed_category, title, detail,
+                       basis_json, parameters_json, dedupe_key, source, source_ref, status, submitted_by, submitted_at,
+                       expires_on, basis_holds, basis_note, checked_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, 1, ?, ?)""",
+                (proposal_id, fields["kind"], fields.get("project_number"), fields.get("category"),
+                 fields.get("proposed_category"), fields["title"],
                  fields.get("detail"), json.dumps(fields["basis"], ensure_ascii=False),
                  json.dumps(fields.get("parameters") or {}, ensure_ascii=False), fields["dedupe_key"],
                  fields.get("source") or "assistant", fields.get("source_ref"), actor, now, expires_on.isoformat(),
@@ -92,10 +93,12 @@ class AiFindingRepository:
                      proposal["dedupe_key"], proposal["proposal_id"], actor, now, valid_until.isoformat(), basis_note, now))
             else:
                 connection.execute(
-                    """INSERT INTO ai_strategy_notes(note_id, category, title, detail, basis_json, dedupe_key, proposal_id,
-                           status, approved_by, approved_at, valid_until, basis_holds, basis_note, checked_at)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, 1, ?, ?)""",
-                    (finding_id, proposal.get("category") or "other", proposal["title"], proposal.get("detail"),
+                    """INSERT INTO ai_strategy_notes(note_id, category, proposed_category, title, detail, basis_json,
+                           dedupe_key, proposal_id, status, approved_by, approved_at, valid_until, basis_holds, basis_note,
+                           checked_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, 1, ?, ?)""",
+                    (finding_id, proposal.get("category") or "other", proposal.get("proposed_category"), proposal["title"],
+                     proposal.get("detail"),
                      proposal["basis_json"], proposal["dedupe_key"], proposal["proposal_id"], actor, now,
                      valid_until.isoformat(), basis_note, now))
             connection.commit()

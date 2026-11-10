@@ -24,6 +24,7 @@ definition:
     - {apiName: kind, displayName: 类型, type: enum, valueType: AiProposalKind, sourceKind: manual, source: 提交时选择：管理干预、AI 风险标记或 AI 策略建议}
     - {apiName: projectNumber, displayName: 项目编号, type: string, sourceKind: manual, source: ai_proposals.project_number（AI 策略建议可以为空）, searchable: true}
     - {apiName: category, displayName: 策略类别, type: enum, valueType: StrategyCategory, sourceKind: manual, source: ai_proposals.category（仅 AI 策略建议）}
+    - {apiName: proposedCategory, displayName: AI 提出的类别, type: string, sourceKind: manual, source: ai_proposals.proposed_category：现有类别都不适用时 AI 自己给的类别名，此时类别为「其他」；汇总为部门经营的「规则未覆盖的策略」（D56）, searchable: true}
     - {apiName: title, displayName: 标题, type: string, sourceKind: manual, source: ai_proposals.title（候选卡片的标题，用户可在提交前修改）, searchable: true}
     - {apiName: detail, displayName: 说明, type: string, sourceKind: manual, source: ai_proposals.detail}
     - {apiName: basis, displayName: 依据, type: json, sourceKind: manual, source: 引用的系统事实（D55）：对象属性比较、项目预警或策略信号，附提交时的读法}
@@ -96,6 +97,7 @@ definition:
   properties:
     - {apiName: noteId, displayName: 建议 ID, type: string, sourceKind: system, source: ai_strategy_notes.note_id}
     - {apiName: category, displayName: 策略类别, type: enum, valueType: StrategyCategory, sourceKind: system, source: 来自所批准的 AI 建议}
+    - {apiName: proposedCategory, displayName: AI 提出的类别, type: string, sourceKind: system, source: 来自所批准的 AI 建议；类别为「其他」时 AI 给的类别名（D56）}
     - {apiName: title, displayName: 策略, type: string, sourceKind: system, source: 来自所批准的 AI 建议, searchable: true}
     - {apiName: detail, displayName: 说明, type: string, sourceKind: system, source: 来自所批准的 AI 建议}
     - {apiName: basis, displayName: 依据, type: json, sourceKind: system, source: 来自所批准的 AI 建议（D55）}

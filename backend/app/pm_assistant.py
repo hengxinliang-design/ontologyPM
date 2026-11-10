@@ -253,8 +253,11 @@ class AssistantSession:
         """D16: pre-check the action as a business-page request; nothing is written."""
         action_type, parameters = str(args.get("actionType") or ""), args.get("parameters") or {}
         action = next((a for a in self.schema["actionTypes"] if a["apiName"] == action_type and action_type not in AI_DECISION_ACTIONS), None)
+        notes: list[str] = []
+        if action_type == "submitAiProposal" and isinstance(parameters, dict):
+            parameters, notes = self._strategy_category(parameters)
         suggestion = {"actionType": action_type, "displayName": action["displayName"] if action else action_type,
-                      "parameters": parameters, "reason": args.get("reason"), "valid": False, "reasons": []}
+                      "parameters": parameters, "reason": args.get("reason"), "valid": False, "reasons": [], "notes": notes}
         try:
             if action is None:
                 raise ValueError("没有这个动作，或这是只能由人处理的审批动作（批准、驳回、续期、关闭 AI 建议与标记）")
@@ -264,8 +267,14 @@ class AssistantSession:
                 c["reason"] for c in check["criteria"] if not c["passed"]]
         except (OntologyNotFoundError, OntologyPermissionError, ActionValidationError, ValueError) as exc:
             suggestion["reasons"] = [str(exc)]
-        if action_type == "submitAiProposal":
+        if action_type == "submitAiProposal" and isinstance(parameters, dict):
             suggestion["basisTexts"] = self._basis_texts(parameters.get("basis"))
+            # A wrong parameter stops the action's checks before the facts are read: check the facts anyway so the
+            # card lists every problem at once (2026-11-10: a card showed the category error and hid 「eq」).
+            if not suggestion["valid"] and not any("依据" in r for r in suggestion["reasons"]):
+                basis_problem = self._basis_problem(parameters)
+                if basis_problem:
+                    suggestion["reasons"].append(basis_problem)
         self.suggestions.append(suggestion)
         result = {"precheck": "通过" if suggestion["valid"] else "未通过", "reasons": suggestion["reasons"],
                   "note": "建议已展示给用户，由用户在业务页面执行；你不能执行它。"}
@@ -274,6 +283,33 @@ class AssistantSession:
             result["availableActions"] = [f"{a['apiName']}（{a['displayName']}）" for a in self.schema["actionTypes"]
                                           if a["apiName"] not in AI_DECISION_ACTIONS]
         return result
+
+    def _strategy_category(self, parameters: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
+        """D56: a strategy the existing categories do not cover is submitted as 其他, keeping the model's own name."""
+        if parameters.get("kind") != "strategyNote":
+            return parameters, []
+        values = next((v["values"] for v in self.schema["valueTypes"] if v["apiName"] == "StrategyCategory"), [])
+        codes = {v["value"] for v in values}
+        by_label = {v["label"]: v["value"] for v in values}
+        given = str(parameters.get("category") or "").strip()
+        if given in codes:
+            return parameters, []
+        if given in by_label:
+            return {**parameters, "category": by_label[given]}, []
+        if not given:
+            return parameters, []
+        adjusted = {**parameters, "category": "other", "proposedCategory": given[:40]}
+        return adjusted, [f"AI 提出的类别「{given}」不在现有策略类别中，将按「其他」提交，并列入部门经营的「规则未覆盖的策略」，"
+                          "供决策者判断是否新增规则或类别"]
+
+    def _basis_problem(self, parameters: dict[str, Any]) -> str | None:
+        from .ontology.derivations import ai_basis
+        from .ontology.rules import _ai_check
+        try:
+            _facts, holds, note = _ai_check(self.ontology.context(self.user), parameters.get("basis"))
+        except ai_basis.BasisError as exc:
+            return str(exc)
+        return None if holds else note
 
     def _basis_texts(self, raw: Any) -> list[str]:
         """8.6.0 (D55): how each cited fact reads now, in the user's words and scope, for the candidate card."""

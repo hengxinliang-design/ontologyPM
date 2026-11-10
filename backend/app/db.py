@@ -223,6 +223,7 @@ CREATE TABLE IF NOT EXISTS ai_proposals (
     kind TEXT NOT NULL CHECK (kind IN ('intervention', 'riskFlag', 'strategyNote')),
     project_number TEXT,
     category TEXT,
+    proposed_category TEXT,
     title TEXT NOT NULL,
     detail TEXT,
     basis_json TEXT NOT NULL,
@@ -269,6 +270,7 @@ CREATE INDEX IF NOT EXISTS idx_ai_risk_flags_project ON ai_risk_flags(project_nu
 CREATE TABLE IF NOT EXISTS ai_strategy_notes (
     note_id TEXT PRIMARY KEY,
     category TEXT NOT NULL,
+    proposed_category TEXT,
     title TEXT NOT NULL,
     detail TEXT,
     basis_json TEXT NOT NULL,
@@ -710,6 +712,10 @@ class Database:
         intervention_columns = {
             row["name"] for row in connection.execute("PRAGMA table_info(interventions)").fetchall()
         }
+        for table in ("ai_proposals", "ai_strategy_notes"):
+            # 8.7.0 (D56): the category the model proposed when no existing one fits (submitted as 其他).
+            if "proposed_category" not in {row["name"] for row in connection.execute(f"PRAGMA table_info({table})").fetchall()}:
+                connection.execute(f"ALTER TABLE {table} ADD COLUMN proposed_category TEXT")
         if "source_proposal_id" not in intervention_columns:
             # 8.6.0 (D51): an intervention opened by approving an AI suggestion remembers the suggestion.
             connection.execute("ALTER TABLE interventions ADD COLUMN source_proposal_id TEXT")

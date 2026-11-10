@@ -92,6 +92,8 @@ export interface PmAssistantSuggestion {
   reasons: string[];
   /** submitAiProposal only (8.6.0): how each cited fact reads now, e.g. 「项目 SEY103 的预算使用率 ≥ 80（当前 85.0）」. */
   basisTexts?: string[];
+  /** submitAiProposal only (8.7.0, D56): what the pre-check changed, e.g. an uncovered category submitted as 其他. */
+  notes?: string[];
 }
 
 export interface PmAssistantResponse {

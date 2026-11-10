@@ -46,12 +46,18 @@ export interface AiFinding {
 }
 
 export interface AiRiskFlag extends AiFinding { flagId: string; projectNumber: string }
-export interface AiStrategyNote extends AiFinding { noteId: string; category: string; categoryLabel: string }
+/** D58/D59: an intervention a strategy was broken into, on one of its projects. */
+export interface StrategyFollowUp { interventionId: string; projectNumber: string; status: "open" | "in_progress" | "closed"; dueDate: string | null; overdue: boolean }
+
+export interface AiStrategyNote extends AiFinding {
+  noteId: string; category: string; categoryLabel: string; proposedCategory?: string | null;
+  followUps?: StrategyFollowUp[]; readyToClose?: boolean; citedProjects?: string[];
+}
 
 export interface AiOverview {
   pending: AiProposal[];
   riskFlags: AiRiskFlag[];
-  interventionBasis: Record<string, { proposalId: string; basisHolds: boolean; basisNote: string | null }>;
+  interventionBasis: Record<string, { proposalId: string; basisHolds: boolean; basisNote: string | null; strategyTitle?: string; strategyStatus?: string }>;
   recent: AiProposal[];
   canApproveProjectItems: boolean;
 }
@@ -62,8 +68,11 @@ export interface AiStrategyProposal {
   title: string;
   detail: string | null;
   category: string | null;
+  proposedCategory?: string | null;
   categoryLabel: string;
   basis: BasisFact[];
+  /** D58: the projects its facts are about, the choices for breaking it into interventions. */
+  citedProjects?: string[];
   submittedBy: string;
   submittedAt: string;
   expiresOn: string;
@@ -95,3 +104,15 @@ export const STRATEGY_CATEGORY_LABELS: Record<string, string> = {
   push_acceptance: "推动验收回款", control_cost: "控制成本", staffing_support: "招聘或外部支援", win_contracts: "争取新合同",
   release_resources: "释放资源", other: "其他"
 };
+
+/** D56: strategies no existing category covers, grouped by the category the model proposed (last 90 days). */
+export interface AiStrategyGap {
+  proposedCategory: string;
+  count: number;
+  pending: number;
+  approved: number;
+  rejected: number;
+  expired: number;
+  latestAt: string;
+  examples: Array<{ proposalId: string; title: string; status: string; statusLabel: string; basis: BasisFact[] }>;
+}

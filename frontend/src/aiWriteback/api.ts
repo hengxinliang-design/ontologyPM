@@ -11,9 +11,12 @@ export function submitAiProposal(draft: ProposalDraft): Promise<void> {
   return ontologyAction("submitAiProposal", { ...draft });
 }
 
-export const approveAiProposal = (proposal: string, note?: string) => ontologyAction("approveAiProposal", { proposal, note: note || undefined });
+export const approveAiProposal = (proposal: string, note?: string, breakdown?: { projects: string[]; dueDate: string }) =>
+  ontologyAction("approveAiProposal", { proposal, note: note || undefined, ...(breakdown && breakdown.projects.length ? breakdown : {}) });
 export const rejectAiProposal = (proposal: string, note?: string) => ontologyAction("rejectAiProposal", { proposal, note: note || undefined });
 export const renewAiRiskFlag = (flag: string) => ontologyAction("renewAiRiskFlag", { flag });
 export const closeAiRiskFlag = (flag: string, reason?: string) => ontologyAction("closeAiRiskFlag", { flag, reason: reason || undefined });
 export const renewAiStrategyNote = (note: string) => ontologyAction("renewAiStrategyNote", { note });
+export const breakDownAiStrategyNote = (note: string, breakdown: { projects: string[]; dueDate: string }) =>
+  ontologyAction("breakDownAiStrategyNote", { note, ...breakdown });
 export const closeAiStrategyNote = (note: string, reason?: string) => ontologyAction("closeAiStrategyNote", { note, reason: reason || undefined });
