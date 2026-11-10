@@ -125,6 +125,20 @@ def test_actions_write_only_declared_datasets(tmp_path):
         run("updateOperatingPolicy", {"policy": "default", "budgetAttentionPercent": "80"})
         run("setAnnualOperatingPlan", {"policy": "default", "year": 2026})
         run("recordOperatingCost", {"policy": "default", "month": "2026-01", "laborCost": "1000"})
+        # 8.6.0 (D51-D54): AI suggestions, approved into a flag, a note or an intervention.
+        fact = [{"type": "fact", "objectType": "Project", "primaryKey": "WDR101", "property": "projectManager", "op": "=", "value": "王经理"}]
+        proposal = run("submitAiProposal", {"kind": "riskFlag", "project": "WDR101", "title": "风险", "basis": fact}, "AiProposal")
+        flag = run("approveAiProposal", {"proposal": proposal}, "AiRiskFlag")
+        run("renewAiRiskFlag", {"flag": flag})
+        run("closeAiRiskFlag", {"flag": flag})
+        rejected = run("submitAiProposal", {"kind": "intervention", "project": "WDR101", "title": "干预", "dueDate": "2999-12-31", "basis": fact}, "AiProposal")
+        run("rejectAiProposal", {"proposal": rejected})
+        proposal = run("submitAiProposal", {"kind": "intervention", "project": "WDR101", "title": "干预", "dueDate": "2999-12-31", "basis": fact}, "AiProposal")
+        run("approveAiProposal", {"proposal": proposal}, "Intervention")
+        proposal = run("submitAiProposal", {"kind": "strategyNote", "category": "other", "title": "策略", "basis": fact}, "AiProposal")
+        note = run("approveAiProposal", {"proposal": proposal}, "AiStrategyNote")
+        run("renewAiStrategyNote", {"note": note})
+        run("closeAiStrategyNote", {"note": note})
 
     assert set(exercised) == {a.api_name for a in ontology.action_types}, "every action is exercised"
     for action in ontology.action_types:

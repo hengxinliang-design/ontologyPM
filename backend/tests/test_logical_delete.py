@@ -122,7 +122,8 @@ def test_a_term_can_be_relinked_after_its_milestone_is_deleted(tmp_path):
 
 def test_interventions_cannot_be_deleted():
     ontology = load_ontology()
-    # Actions that change interventions: open one (on a project) and update its status (closing locks it).
+    # Actions that change interventions: open one (on a project, or by approving an AI suggestion, 8.6.0) and update
+    # its status (closing locks it).
     on_interventions = {a.api_name for a in ontology.action_types if any(e.split(".")[0] == "Intervention" for e in a.edits)}
-    assert on_interventions == {"openIntervention", "updateInterventionStatus"}
+    assert on_interventions == {"openIntervention", "updateInterventionStatus", "approveAiProposal"}
     assert not any(a.api_name.lower().startswith("delete") and "intervention" in a.api_name.lower() for a in ontology.action_types)

@@ -42,6 +42,8 @@ from .ontology import (
 )
 from .repository import SnapshotRepository
 from .project_repository import ProjectRepository
+from .ai_findings import AiFindingRepository, AiFindingsService
+from .assistant_history import AssistantHistory, ConversationNotFound
 from .pm_assistant import PmAssistantError, PmAssistantService
 from .pagination import CursorError
 from .source import build_source
@@ -92,8 +94,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 logging.getLogger(__name__).exception("load forecast training failed")
             await asyncio.sleep(3600)
 
+    # D54: the facts behind AI suggestions, flags and notes are rechecked every hour by the system.
+    ai_findings = AiFindingsService(AiFindingRepository(database), ontology_service)
+
+    async def ai_findings_loop() -> None:
+        while True:
+            try:
+                await asyncio.to_thread(ai_findings.refresh)
+            except Exception:  # noqa: BLE001 - a failed recheck must not stop the service; it retries next hour
+                logging.getLogger(__name__).exception("AI findings recheck failed")
+            await asyncio.sleep(3600)
+
     # G5: the assistant answers from the ontology, as the asking user.
     pm_assistant = PmAssistantService(settings, ontology_service, database)
+    assistant_history = AssistantHistory(database)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -113,9 +127,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             project_repository.ensure_demo_data()
         ontology_service.warm_index()
         forecast_task = asyncio.create_task(load_forecast_loop()) if settings.load_forecast_auto_train else None
+        ai_task = asyncio.create_task(ai_findings_loop()) if settings.ai_findings_auto_refresh else None
         yield
-        if forecast_task:
-            forecast_task.cancel()
+        for task in (forecast_task, ai_task):
+            if task:
+                task.cancel()
 
     app = FastAPI(
         title="TSG PM Data API",
@@ -132,6 +148,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.project_repository = project_repository
     app.state.sync_service = sync_service
     app.state.pm_assistant = pm_assistant
+    app.state.assistant_history = assistant_history
+    app.state.ai_findings = ai_findings
     app.state.auth_service = auth_service
     app.state.ontology_service = ontology_service
     app.state.load_forecast = load_forecast
@@ -377,14 +395,56 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=422, detail="message is required")
         if len(message) > 2000:
             raise HTTPException(status_code=422, detail="message is too long")
-        history = payload.get("history", [])
-        if not isinstance(history, list):
-            raise HTTPException(status_code=422, detail="history must be a list")
+        conversation_id = payload.get("conversation_id")
+        if conversation_id is not None and (not isinstance(conversation_id, str) or not conversation_id):
+            raise HTTPException(status_code=422, detail="conversation_id must be a string")
+        if conversation_id:
+            # A follow-up in a saved conversation: its context comes from the server (D50), not from the browser.
+            try:
+                history = assistant_history.context(user, conversation_id)
+            except ConversationNotFound as exc:
+                raise HTTPException(status_code=404, detail="conversation not found") from exc
+        else:
+            history = payload.get("history", [])
+            if not isinstance(history, list):
+                raise HTTPException(status_code=422, detail="history must be a list")
         try:
             answer = await pm_assistant.answer(user, message.strip(), history)
         except PmAssistantError as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
-        return {"data": answer}
+        try:
+            saved = assistant_history.record(user, conversation_id or None, message.strip(), answer)
+        except ConversationNotFound as exc:  # deleted in another tab while the model was answering
+            saved = assistant_history.record(user, None, message.strip(), answer)
+            logging.getLogger(__name__).info("conversation %s vanished while answering; started %s", exc, saved["conversation_id"])
+        return {"data": {**answer, "conversation_id": saved["conversation_id"]}}
+
+    @app.get("/api/v1/pm-assistant/conversations", dependencies=[auth], tags=["PM Assistant"])
+    def list_assistant_conversations(
+        q: str = Query("", max_length=200), limit: int = Query(100, ge=1, le=500),
+        user: dict[str, Any] = Depends(require_auth),
+    ) -> dict[str, Any]:
+        """The asking user's own conversations (D50), most recently used first; q searches titles and messages."""
+        return {"data": assistant_history.list(user, q, limit)}
+
+    @app.get("/api/v1/pm-assistant/conversations/{conversation_id}", dependencies=[auth], tags=["PM Assistant"])
+    def get_assistant_conversation(conversation_id: str, user: dict[str, Any] = Depends(require_auth)) -> dict[str, Any]:
+        try:
+            return {"data": assistant_history.get(user, conversation_id)}
+        except ConversationNotFound as exc:
+            raise HTTPException(status_code=404, detail="conversation not found") from exc
+
+    @app.delete("/api/v1/pm-assistant/conversations/{conversation_id}", dependencies=[auth], tags=["PM Assistant"])
+    def delete_assistant_conversation(conversation_id: str, user: dict[str, Any] = Depends(require_auth)) -> dict[str, Any]:
+        try:
+            assistant_history.delete(user, conversation_id)
+        except ConversationNotFound as exc:
+            raise HTTPException(status_code=404, detail="conversation not found") from exc
+        return {"data": {"deleted": 1}}
+
+    @app.delete("/api/v1/pm-assistant/conversations", dependencies=[auth], tags=["PM Assistant"])
+    def delete_all_assistant_conversations(user: dict[str, Any] = Depends(require_auth)) -> dict[str, Any]:
+        return {"data": {"deleted": assistant_history.delete_all(user)}}
 
     @app.post(
         "/api/v1/projects/{project_number}/ai-analysis",

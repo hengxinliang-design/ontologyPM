@@ -1,4 +1,4 @@
-import type { AuthenticatedUser, AuthSession, ChinaHolidayCalendarResponse, ContractType, CrmImportLogsResponse, EmployeeWorktimeResponse, LifecycleStatus, ManagedUser, MenuPermission, PmAssistantChatMessage, PmAssistantResponse, PortfolioResponse, ProjectDetail, ProjectHealthResponse, RecordsResponse, ResourceOperationsResponse, SyncStatus, UserRole, WorktimeBaseline } from "./types";
+import type { AuthenticatedUser, AuthSession, ChinaHolidayCalendarResponse, ContractType, CrmImportLogsResponse, EmployeeWorktimeResponse, LifecycleStatus, ManagedUser, MenuPermission, PmAssistantResponse, PortfolioResponse, ProjectDetail, ProjectHealthResponse, RecordsResponse, ResourceOperationsResponse, SyncStatus, UserRole, WorktimeBaseline } from "./types";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "";
 const API_TOKEN = import.meta.env.VITE_API_TOKEN ?? "";
@@ -272,15 +272,6 @@ export async function ontologyFunction<T>(name: string, parameters: Record<strin
     body: JSON.stringify({ parameters: body })
   });
   return response.data.result;
-}
-
-export async function chatWithPmAssistant(message: string, history: PmAssistantChatMessage[]): Promise<PmAssistantResponse> {
-  const response = await request<{ data: PmAssistantResponse }>("/api/v1/pm-assistant/chat", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ message, history })
-  });
-  return response.data;
 }
 
 export async function analyzeProjectWithPmAssistant(projectNumber: string): Promise<PmAssistantResponse> {

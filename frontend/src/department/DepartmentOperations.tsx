@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
 import { fetchDepartmentReview, recordOperatingCost, saveAnnualPlan } from "./api";
 import { MonthPicker } from "../components/MonthPicker";
+import { StrategyAiPanel } from "../aiWriteback/AiWriteback";
 import "./department.css";
 import { COST_FIELDS, COST_LABEL, PLAN_FIELDS, PLAN_STATUS_LABEL } from "./types";
 import type { CostField, DepartmentReview, KpiKey, PlanCompletion, PlanField } from "./types";
@@ -93,7 +94,7 @@ export function DepartmentOperationsPage({ canEditPlan }: { canEditPlan: boolean
       <KpiGrid review={review} />
       <OperatingCostPanel review={review} canEdit={canEditPlan} onSaved={() => void load()} reportError={setError} />
       <div className="department-columns">
-        <SignalPanel review={review} />
+        <SignalPanel review={review} onChanged={() => void load()} />
         <UtilizationPanel review={review} />
       </div>
     </>}
@@ -230,7 +231,7 @@ function OperatingCostPanel({ review, canEdit, onSaved, reportError }: { review:
   </section>;
 }
 
-function SignalPanel({ review }: { review: DepartmentReview }) {
+function SignalPanel({ review, onChanged }: { review: DepartmentReview; onChanged: () => void }) {
   return <section className="panel department-signals">
     <div className="panel-head"><div><h2>策略信号</h2><p>按优先级排列：推动验收回款 → 争取新合同 → 释放资源。每条信号都附触发依据，由部门管理者决定是否采纳。依赖经营口径的「控制成本」「招聘或外部支援」随经营口径暂停。</p></div></div>
     <ol className="signal-list">
@@ -239,6 +240,8 @@ function SignalPanel({ review }: { review: DepartmentReview }) {
         <ul>{signal.evidence.map(item => <li key={item}>{item}</li>)}</ul>
       </li>)}
     </ol>
+    <StrategyAiPanel notes={review.aiStrategyNotes ?? []} proposals={review.aiStrategyProposals ?? []}
+      canApprove={Boolean(review.canApproveStrategy)} onChanged={onChanged} />
   </section>;
 }
 

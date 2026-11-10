@@ -144,3 +144,39 @@ definition:
   {apiName: receivedPayments, reverseApiName: annualPlan, displayName: 本年到账回款, reverseDisplayName: 计入年度计划,
    source: AnnualOperatingPlan, target: PaymentNode, cardinality: many_to_many, description: 年度计划所属年度已到账的回款节点，即经营收入的来源（D22、D30）。允许悬空：未到账的回款节点、没有设定年度计划的年份的回款,
    join: {sourceKey: year, targetKey: receivedYear}}
+---
+kind: LinkType
+version: v1
+definition:
+  {apiName: aiProposals, reverseApiName: project, displayName: AI 建议, reverseDisplayName: 所属项目,
+   source: Project, target: AiProposal, cardinality: one_to_many, description: 关于项目的 AI 建议（D52）。AI 策略建议可以不属于任何项目，所以从建议一侧允许悬空,
+   join: {sourceKey: projectNumber, targetKey: projectNumber}}
+---
+kind: LinkType
+version: v1
+definition:
+  {apiName: aiRiskFlags, reverseApiName: project, displayName: AI 风险标记, reverseDisplayName: 所属项目,
+   source: Project, target: AiRiskFlag, cardinality: one_to_many, description: 项目上经批准的 AI 风险标记（D53）,
+   join: {sourceKey: projectNumber, targetKey: projectNumber}}
+---
+kind: LinkType
+version: v1
+definition:
+  {apiName: sourceProposal, reverseApiName: openedIntervention, displayName: 来源 AI 建议, reverseDisplayName: 生成的管理干预,
+   source: Intervention, target: AiProposal, cardinality: many_to_one, description: 批准 AI 建议时新建的管理干预记下来源建议（D51）。允许悬空：人工发起的干预没有来源建议,
+   join: {sourceKey: sourceProposalId, targetKey: proposalId}}
+---
+kind: LinkType
+version: v1
+definition:
+  {apiName: proposal, reverseApiName: riskFlags, displayName: 来源 AI 建议, reverseDisplayName: 生成的 AI 风险标记,
+   source: AiRiskFlag, target: AiProposal, cardinality: many_to_one, description: AI 风险标记由批准的建议生成（D51）,
+   join: {sourceKey: proposalId, targetKey: proposalId}}
+---
+kind: LinkType
+version: v1
+definition:
+  {apiName: proposal, reverseApiName: strategyNotes, displayName: 来源 AI 建议, reverseDisplayName: 生成的 AI 策略建议,
+   source: AiStrategyNote, target: AiProposal, cardinality: many_to_one, description: AI 策略建议由批准的建议生成（D51）,
+   join: {sourceKey: proposalId, targetKey: proposalId}}
+

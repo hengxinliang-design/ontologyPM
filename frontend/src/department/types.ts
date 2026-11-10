@@ -1,3 +1,4 @@
+import type { AiStrategyNote, AiStrategyProposal } from "../aiWriteback/types";
 // Department review (ontology 4.0.0). Amounts are decimal strings; null means "unknown" or "redacted".
 // Person-day economics is paused, so the review carries no revenue, margin or backlog figures.
 export type ResourceHealthStatus = "overloaded" | "fatigue" | "fragmented" | "idle" | "first_month" | "healthy";
@@ -94,6 +95,10 @@ export interface DepartmentReview {
   utilization_by_month: Array<{ month: string; utilization_percent: number; active_employees: number }>;
   signals: StrategySignal[];
   headcount: number;
+  // 8.6.0 (D51, D53): approved AI strategy notes and strategy suggestions waiting for approval, beside the rule signals.
+  aiStrategyNotes?: AiStrategyNote[];
+  aiStrategyProposals?: AiStrategyProposal[];
+  canApproveStrategy?: boolean;
 }
 
 export const HEALTH_STATUS_LABEL: Record<ResourceHealthStatus, string> = {

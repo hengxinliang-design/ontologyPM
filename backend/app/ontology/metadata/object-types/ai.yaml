@@ -1,0 +1,112 @@
+# AI suggestions written back after a person approves them (requirements baseline D51-D55, ontology 8.6.0).
+# The model only drafts candidates; a suggestion becomes a management intervention, an AI risk flag or an AI
+# strategy note when someone whose role allows it approves it. Every item cites facts the ontology can check;
+# the system rechecks them every hour and closes or expires what no longer holds.
+kind: ObjectType
+version: v1
+definition:
+  apiName: AiProposal
+  displayName: AI 建议
+  pluralDisplayName: AI 建议
+  description: PM Assistant 或项目 AI 分析给出、由用户提交审批的候选（D52）。待批准的建议在项目待处理事项中提醒；批准后生成管理干预、AI 风险标记或 AI 策略建议（D51）；超过待批天数或依据不再成立时自动过期，同一去重键的新建议取代旧建议（D54）。
+  primaryKey: proposalId
+  titleProperty: title
+  datasource: aiProposals
+  backingDatasets: [ai_proposals]
+  readPermissions: [projects, department]
+  projectScope: projectNumber
+  icon: sparkles
+  displayOrder: 16
+  defaultOrder: -submittedAt
+  listProperties: [title, kind, status, projectNumber]
+  properties:
+    - {apiName: proposalId, displayName: 建议 ID, type: string, sourceKind: system, source: ai_proposals.proposal_id}
+    - {apiName: kind, displayName: 类型, type: enum, valueType: AiProposalKind, sourceKind: manual, source: 提交时选择：管理干预、AI 风险标记或 AI 策略建议}
+    - {apiName: projectNumber, displayName: 项目编号, type: string, sourceKind: manual, source: ai_proposals.project_number（AI 策略建议可以为空）, searchable: true}
+    - {apiName: category, displayName: 策略类别, type: enum, valueType: StrategyCategory, sourceKind: manual, source: ai_proposals.category（仅 AI 策略建议）}
+    - {apiName: title, displayName: 标题, type: string, sourceKind: manual, source: ai_proposals.title（候选卡片的标题，用户可在提交前修改）, searchable: true}
+    - {apiName: detail, displayName: 说明, type: string, sourceKind: manual, source: ai_proposals.detail}
+    - {apiName: basis, displayName: 依据, type: json, sourceKind: manual, source: 引用的系统事实（D55）：对象属性比较、项目预警或策略信号，附提交时的读法}
+    - {apiName: parameters, displayName: 干预参数, type: json, sourceKind: manual, source: 管理干预的类型、负责人与截止日期，批准时用于新建干预}
+    - {apiName: source, displayName: 来源, type: string, sourceKind: manual, source: assistant（PM Assistant）或 projectAnalysis（项目 AI 分析）}
+    - {apiName: sourceRef, displayName: 来源记录, type: string, sourceKind: manual, source: PM Assistant 对话编号等，可为空}
+    - {apiName: status, displayName: 状态, type: enum, valueType: AiProposalStatus, sourceKind: manual, source: ai_proposals.status：批准、驳回由人执行；过期、被取代由系统执行（D54）}
+    - {apiName: submittedBy, displayName: 提交人, type: string, sourceKind: system, source: ai_proposals.submitted_by}
+    - {apiName: submittedAt, displayName: 提交时间, type: datetime, sourceKind: system, source: ai_proposals.submitted_at}
+    - {apiName: expiresOn, displayName: 待批截止, type: date, sourceKind: system, source: 提交日 + 运营口径「AI 建议待批天数」（D54）}
+    - {apiName: decidedBy, displayName: 处理人, type: string, sourceKind: system, source: 批准或驳回的人；系统过期时为 system}
+    - {apiName: decidedAt, displayName: 处理时间, type: datetime, sourceKind: system, source: ai_proposals.decided_at}
+    - {apiName: decisionNote, displayName: 处理说明, type: string, sourceKind: manual, source: 批准或驳回时填写；系统过期时写明原因}
+    - {apiName: resultId, displayName: 生成的记录, type: string, sourceKind: system, source: 批准后生成的管理干预、AI 风险标记或 AI 策略建议的编号}
+    - {apiName: basisHolds, displayName: 依据仍成立, type: boolean, sourceKind: system, source: 最近一次复核的结果：每条依据都成立为是（D54，每小时复核）}
+    - {apiName: basisNote, displayName: 依据复核, type: string, sourceKind: system, source: 最近一次复核时每条依据的读法；不成立时列出不成立的依据}
+    - {apiName: checkedAt, displayName: 复核时间, type: datetime, sourceKind: system, source: 复核结果最近一次变化的时间}
+---
+kind: ObjectType
+version: v1
+definition:
+  apiName: AiRiskFlag
+  displayName: AI 风险标记
+  pluralDisplayName: AI 风险标记
+  description: 批准后的 AI 风险判断，单独显示在项目上，不改变规则判定的风险等级（D53）；在项目待处理事项中按关注级提醒。批准后有效到「AI 结论有效天数」，可续期；依据不再成立时系统自动关闭并写明原因（D54）。
+  primaryKey: flagId
+  titleProperty: title
+  datasource: aiRiskFlags
+  backingDatasets: [ai_risk_flags]
+  readPermissions: [projects, health]
+  projectScope: projectNumber
+  icon: flag
+  displayOrder: 17
+  defaultOrder: -approvedAt
+  listProperties: [title, projectNumber, status, validUntil]
+  properties:
+    - {apiName: flagId, displayName: 标记 ID, type: string, sourceKind: system, source: ai_risk_flags.flag_id}
+    - {apiName: projectNumber, displayName: 项目编号, type: string, sourceKind: system, source: 来自所批准的 AI 建议, searchable: true}
+    - {apiName: title, displayName: 风险, type: string, sourceKind: system, source: 来自所批准的 AI 建议, searchable: true}
+    - {apiName: detail, displayName: 说明, type: string, sourceKind: system, source: 来自所批准的 AI 建议}
+    - {apiName: basis, displayName: 依据, type: json, sourceKind: system, source: 来自所批准的 AI 建议（D55）}
+    - {apiName: proposalId, displayName: 来源建议, type: string, sourceKind: system, source: ai_risk_flags.proposal_id}
+    - {apiName: status, displayName: 状态, type: enum, valueType: AiFindingStatus, sourceKind: manual, source: 有效；人工或系统关闭；超过有效期为已过期；同一去重键新批准的取代旧的（D54）}
+    - {apiName: approvedBy, displayName: 批准人, type: string, sourceKind: system, source: ai_risk_flags.approved_by}
+    - {apiName: approvedAt, displayName: 批准时间, type: datetime, sourceKind: system, source: ai_risk_flags.approved_at}
+    - {apiName: validUntil, displayName: 有效至, type: date, sourceKind: manual, source: 批准或续期当天 + 运营口径「AI 结论有效天数」}
+    - {apiName: closedBy, displayName: 关闭人, type: string, sourceKind: system, source: 人工关闭的人；系统关闭或过期为 system}
+    - {apiName: closedAt, displayName: 关闭时间, type: datetime, sourceKind: system, source: ai_risk_flags.closed_at}
+    - {apiName: closedReason, displayName: 关闭原因, type: string, sourceKind: manual, source: 人工填写，或系统写明哪条依据不再成立、何时过期}
+    - {apiName: basisHolds, displayName: 依据仍成立, type: boolean, sourceKind: system, source: 最近一次复核的结果（D54）}
+    - {apiName: basisNote, displayName: 依据复核, type: string, sourceKind: system, source: 最近一次复核时每条依据的读法}
+    - {apiName: checkedAt, displayName: 复核时间, type: datetime, sourceKind: system, source: 复核结果最近一次变化的时间}
+---
+kind: ObjectType
+version: v1
+definition:
+  apiName: AiStrategyNote
+  displayName: AI 策略建议
+  pluralDisplayName: AI 策略建议
+  description: 批准后的部门级 AI 策略建议，显示在部门经营「策略信号」中规则信号的下方，标明是 AI 建议并由谁批准；只能由管理员或部门负责人批准和维护（D51）。有效期、续期与自动关闭同 AI 风险标记（D54）。
+  primaryKey: noteId
+  titleProperty: title
+  datasource: aiStrategyNotes
+  backingDatasets: [ai_strategy_notes]
+  readPermissions: [department, projects]
+  icon: compass
+  displayOrder: 18
+  defaultOrder: -approvedAt
+  listProperties: [title, category, status, validUntil]
+  properties:
+    - {apiName: noteId, displayName: 建议 ID, type: string, sourceKind: system, source: ai_strategy_notes.note_id}
+    - {apiName: category, displayName: 策略类别, type: enum, valueType: StrategyCategory, sourceKind: system, source: 来自所批准的 AI 建议}
+    - {apiName: title, displayName: 策略, type: string, sourceKind: system, source: 来自所批准的 AI 建议, searchable: true}
+    - {apiName: detail, displayName: 说明, type: string, sourceKind: system, source: 来自所批准的 AI 建议}
+    - {apiName: basis, displayName: 依据, type: json, sourceKind: system, source: 来自所批准的 AI 建议（D55）}
+    - {apiName: proposalId, displayName: 来源建议, type: string, sourceKind: system, source: ai_strategy_notes.proposal_id}
+    - {apiName: status, displayName: 状态, type: enum, valueType: AiFindingStatus, sourceKind: manual, source: 同 AI 风险标记（D54）}
+    - {apiName: approvedBy, displayName: 批准人, type: string, sourceKind: system, source: ai_strategy_notes.approved_by}
+    - {apiName: approvedAt, displayName: 批准时间, type: datetime, sourceKind: system, source: ai_strategy_notes.approved_at}
+    - {apiName: validUntil, displayName: 有效至, type: date, sourceKind: manual, source: 批准或续期当天 + 运营口径「AI 结论有效天数」}
+    - {apiName: closedBy, displayName: 关闭人, type: string, sourceKind: system, source: 人工关闭的人；系统关闭或过期为 system}
+    - {apiName: closedAt, displayName: 关闭时间, type: datetime, sourceKind: system, source: ai_strategy_notes.closed_at}
+    - {apiName: closedReason, displayName: 关闭原因, type: string, sourceKind: manual, source: 人工填写，或系统写明哪条依据不再成立、何时过期}
+    - {apiName: basisHolds, displayName: 依据仍成立, type: boolean, sourceKind: system, source: 最近一次复核的结果（D54）}
+    - {apiName: basisNote, displayName: 依据复核, type: string, sourceKind: system, source: 最近一次复核时每条依据的读法}
+    - {apiName: checkedAt, displayName: 复核时间, type: datetime, sourceKind: system, source: 复核结果最近一次变化的时间}

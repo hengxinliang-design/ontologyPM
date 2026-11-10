@@ -17,7 +17,7 @@ definition:
     - {apiName: setPlannedStart, displayName: 填写计划开始日期, property: plannedStart, when: [{property: contractType, notIn: [sales]}, {property: lifecycleStatus, notIn: [completed, closed]}], action: configureProject}
     - {apiName: setPlannedEnd, displayName: 填写计划结束日期, property: plannedEnd, when: [{property: contractType, notIn: [sales]}, {property: lifecycleStatus, notIn: [completed, closed]}], action: configureProject}
     - {apiName: planMilestones, displayName: 制定里程碑计划, link: milestones, minCount: 1, action: createMilestone}
-  backingDatasets: [records, project_settings, time_entries, milestones, payment_nodes, payment_terms, interventions, opportunity_outcomes, investment_settings, worktime_baseline_config]
+  backingDatasets: [records, project_settings, time_entries, milestones, payment_nodes, payment_terms, interventions, opportunity_outcomes, investment_settings, worktime_baseline_config, ai_proposals, ai_risk_flags]
   readPermissions: [projects, health, resource, department]
   projectScope: projectNumber
   icon: briefcase
@@ -62,6 +62,8 @@ definition:
     - {apiName: overduePaymentNodes, displayName: 逾期回款节点, type: integer, sourceKind: derived, source: 计划日期已过且未到账, derivedFrom: projectFacts, unit: count}
     - {apiName: openInterventions, displayName: 未关闭干预, type: integer, sourceKind: derived, source: count(interventions where status != closed), derivedFrom: projectFacts, unit: count}
     - {apiName: overdueInterventions, displayName: 逾期干预, type: integer, sourceKind: derived, source: count(interventions where status != closed and dueDate < 今天)；每条逾期干预在待处理事项中提醒（关注级），不计入风险等级, derivedFrom: projectFacts, unit: count}
+    - {apiName: activeAiRiskFlags, displayName: AI 风险标记, type: integer, sourceKind: derived, source: count(AI 风险标记 where status = active)；每条在待处理事项中按关注级提醒，不计入风险等级（D53）, derivedFrom: projectFacts, unit: count}
+    - {apiName: pendingAiProposals, displayName: 待批准的 AI 建议, type: integer, sourceKind: derived, source: count(AI 建议 where status = pending)；每条在待处理事项中提醒，不计入风险等级（D52）, derivedFrom: projectFacts, unit: count}
     - {apiName: maintenanceComplete, displayName: 人工维护完整, type: boolean, sourceKind: derived, source: 对象类型声明的维护要求全部满足（项目类型、预算人天、项目经理、计划起止、里程碑；项目经理与计划起止不适用于售前阶段和已结束、已关闭的项目；见 maintenanceRequirements）, derivedFrom: maintenanceStatus}
     - {apiName: maintenanceGapCount, displayName: 待维护项数, type: integer, sourceKind: derived, source: 未满足的维护要求数, derivedFrom: maintenanceStatus, unit: count}
     - {apiName: maintenanceChecklist, displayName: 维护清单, type: json, sourceKind: derived, source: 每条适用的维护要求及是否已维护、由哪个动作维护, derivedFrom: maintenanceStatus}

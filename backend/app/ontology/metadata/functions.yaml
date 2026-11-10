@@ -284,4 +284,17 @@ definition:
   outputType: EmployeeLoadForecast
   permissions: [resource]
   implementation: employeeLoadForecast
+---
+kind: Function
+version: v1
+definition:
+  apiName: aiSuggestionOverview
+  displayName: AI 建议与标记
+  description: 一个项目（不填则为能看到的全部项目）待批准的 AI 建议、有效的 AI 风险标记、由 AI 建议生成的管理干预的依据是否仍成立，以及最近 30 天处理过的建议（D51–D54）。每条都带依据的复核结果；能否批准按当前账号的角色给出。
+  parameters:
+    - {apiName: project, displayName: 项目, type: object_ref, objectType: Project}
+  outputType: AiSuggestionOverview
+  permissions: [projects]
+  implementation: aiSuggestionOverview
+  dataScope: project
 

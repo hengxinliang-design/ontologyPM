@@ -2,6 +2,7 @@
 # 依据：用户 2026-11-08「给我们的规则模型或者机器学习模型做一个优化，能实际被系统采用的」，选择「模型自动把关」「每月初自动训练」「运营口径参数」「按输出分别启用」「函数 + 页面列」，并确认真实环境已有超过 12 个月工时；需求基线 D46–D49（在 D35–D39、G10 之上）；设计稿 docs/ontology-design/2026-11-01-small-model-pilot.md。
 kind: OntologyBuild
 stage: release
+supersededBy: 2026-11-09-ai-writeback.yaml
 topic: 负荷预测的数据核对、滚动回测与门槛判断做进系统，每月初用真实工时自动训练并登记版本，达标的输出才对外提供
 ontologyVersion: 8.5.0
 date: 2026-11-08

@@ -52,6 +52,8 @@ class Settings:
     pm_analysis_model: str | None = None  # None: same as pm_assistant_model
     # D46: train the load forecast at start-up and hourly when a new month begins (off in tests unless asked for).
     load_forecast_auto_train: bool = False
+    # D54: recheck the facts behind AI suggestions, flags and notes every hour (off in tests, which call refresh()).
+    ai_findings_auto_refresh: bool = False
 
     @property
     def analysis_model(self) -> str:
@@ -89,6 +91,7 @@ class Settings:
             pm_assistant_provider=provider,
             pm_analysis_model=os.getenv("TSG_PM_ANALYSIS_MODEL") or DEFAULT_ANALYSIS_MODELS.get(provider),
             load_forecast_auto_train=os.getenv("TSG_PM_LOAD_FORECAST_AUTO_TRAIN", "true").lower() in {"1", "true", "yes"},
+            ai_findings_auto_refresh=os.getenv("TSG_PM_AI_FINDINGS_AUTO_REFRESH", "true").lower() in {"1", "true", "yes"},
             cloudflare_account_id=os.getenv("CLOUDFLARE_ACCOUNT_ID") or None,
             cloudflare_api_token=os.getenv("CLOUDFLARE_API_TOKEN") or None,
             ark_api_key=os.getenv("ARK_API_KEY") or None,

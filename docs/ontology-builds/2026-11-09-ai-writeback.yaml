@@ -1,0 +1,169 @@
+# 本体构建包（发布稿）：AI 建议经人工批准写回系统。本体 8.6.0（新增对象类型 AiProposal、AiRiskFlag、AiStrategyNote，7 个动作，函数 aiSuggestionOverview，运营口径 2 个参数，非破坏性）。
+# 依据：用户 2026-11-09「发挥本体的真正亮点价值：AI 分析出现需要干预事项、需要高度关注的建议和策略时，调用相关组件回写系统对应模块（策略信号、管理干预、风险 tag），写入要审核批准；注意时效性，不要越积越多又不能更新」。
+# 用户选择：一人按角色批准；用户点「提交审批」才进入审批；AI 风险标记单独显示、不改风险等级；依据复核 + 有效期 + 去重。记为需求基线 D51–D55。
+kind: OntologyBuild
+stage: release
+topic: AI 只出候选，人提交、人批准后才写进管理干预、AI 风险标记与 AI 策略建议；每条都引用可核对的系统事实，每小时复核，过时的自动关闭或过期，同类只留一条
+ontologyVersion: 8.6.0
+date: 2026-11-09
+scope:
+  - CQ-A1 AI 刚给出的这条建议，引用的事实现在还成立吗？是谁提交的、等谁批准、什么时候过期？
+  - CQ-A2 某个项目有哪些经批准的 AI 风险标记？每条的依据、批准人、有效期是什么？它们改变风险等级了吗？
+  - CQ-A3 部门现在采纳了哪些 AI 策略建议？依据是什么，谁批准的？
+  - CQ-A4 哪些由 AI 建议生成的管理干预，其依据已经不成立、可以考虑关闭？
+  - CQ-A5 哪些 AI 内容因为依据不再成立或到期而被系统关闭、过期？原因是什么？
+  - CQ-A6 同一件事被 AI 重复提出时，系统里保留的是哪一条？
+
+rules:
+  - id: R1
+    statement: 「提交 AI 建议」只在用户点「提交审批」时执行（D52）。提交前核对：标题不为空；管理干预与 AI 风险标记指明项目，管理干预有不早于今天的截止日期，AI 策略建议有类别；依据为 1–5 条结构化事实（对象属性比较、项目预警、策略信号，D55），格式正确、提交人有权查看（对象类型、安全标记、项目范围）、至少一条关于该项目，并且现在都成立。依据连同提交时的读法一起保存。
+    basis: D52、D55；原则 1（LLM 生成，本体裁决）、原则 14（无法核对不等于成立）。
+    acceptance: WDR101 预算人天 120 时，「预算人天 ≥ 100」可以提交，「≥ 500」被拒并显示「当前 120.00」；空依据、未知类型、引用 AI_ 预警、全部依据只关于 TPL149、未知属性分别被拒；管理干预缺截止日期被拒；项目经理引用本人范围外的项目被拒（「不在你的范围」）。
+    verifiedBy: [test_a_suggestion_needs_facts_that_hold_and_that_the_submitter_may_see, test_alert_and_signal_facts_are_checked_against_the_rules_outputs]
+    ontology: [submitAiProposal, AiProposal, AiProposal.basis, aiProposalFields, aiBasisHolds]
+  - id: R2
+    statement: 一人按角色批准（D51）：管理干预与 AI 风险标记由能维护该项目的人批准（管理员、PMO，项目经理只限本人项目，范围由读取建议时的数据范围保证）；AI 策略建议只由管理员或部门负责人批准、续期、关闭。提交人的角色允许时可以批准自己提交的建议。批准、驳回只对待批准且未过待批天数的建议有效；批准前再核对一次依据。
+    basis: D51（用户 2026-11-09 选择「One person, by role」）；D4 的「不引入审批流」不再适用于 AI 建议。
+    acceptance: PMO 批准 AI 策略建议被拒（「管理员或部门负责人」）；部门负责人可以批准；只有「health」菜单的账号无权执行批准动作；本项目的项目经理可以批准 AI 风险标记；同一 PMO 提交并批准管理干预成功，批准人为 pmo.a；已批准的建议再批准被拒（「已批准」）。
+    verifiedBy: [test_approver_roles, test_approving_an_intervention_opens_an_ordinary_intervention_that_remembers_its_suggestion]
+    ontology: [approveAiProposal, rejectAiProposal, aiApproverRole, aiProposalPending]
+  - id: R3
+    statement: 批准「管理干预」类建议时，新建一条普通的管理干预：标题、类型、负责人（不填取项目经理）、截止日期取自建议，说明写入备注，干预记下来源建议（Intervention.sourceProposalId）；建议改为已批准并记下生成的干预。此后干预按原有规则逾期提醒、由人关闭。
+    basis: D51；原则 16（批准动作的 edits 声明 Intervention.*，writeback 声明 interventions）。
+    acceptance: 批准「与客户确认追加预算」（类型资源、截止 14 天后）后，生成的干预标题、类型、截止日期一致，负责人为项目经理刘浪，sourceProposalId 指向该建议；建议状态已批准、处理说明「同意」。
+    verifiedBy: [test_approving_an_intervention_opens_an_ordinary_intervention_that_remembers_its_suggestion, test_actions_write_only_declared_datasets]
+    ontology: [approveAiProposal, Intervention.sourceProposalId, Intervention.sourceProposal, AiProposal.resultId]
+  - id: R4
+    statement: 批准后的 AI 风险标记单独显示在项目上（含依据、批准人、有效期），并作为项目预警 AI_RISK_FLAG 按关注级出现在待处理事项中；待批准的建议同样以 AI_PROPOSAL_PENDING 提醒。风险等级仍只由规则判定，AI 预警在判定之后加入、不参与。项目新增派生属性「AI 风险标记」「待批准的 AI 建议」（条数）。
+    basis: D53（用户选择「Separate tag, rules unchanged」）；与 D33 逾期干预不计入风险等级同一做法。
+    acceptance: WDR101 批准一条风险标记后，项目 activeAiRiskFlags = 1、pendingAiProposals = 0，风险等级与批准前相同；项目风险评估的预警含 AI_RISK_FLAG（warning，标题含「预算可能不够」）；aiSuggestionOverview 列出这条标记。
+    verifiedBy: [test_an_ai_risk_flag_is_a_pending_item_but_leaves_the_risk_level_to_the_rules, test_approving_an_intervention_opens_an_ordinary_intervention_that_remembers_its_suggestion]
+    ontology: [AiRiskFlag, Project.activeAiRiskFlags, Project.pendingAiProposals, Project.aiRiskFlags, aiSuggestionOverview]
+  - id: R5
+    statement: 系统启动后每小时复核一次（TSG_PM_AI_FINDINGS_AUTO_REFRESH，缺省开启）：以系统身份对待批准的建议、有效的 AI 风险标记与 AI 策略建议、由建议生成且未关闭的管理干预逐条核对依据，记下结果（只在结果变化时写入）。依据不再成立时：风险标记与策略建议自动关闭并写明哪条不成立及当前值；待批准的建议自动过期；管理干预不自动关闭，只把来源建议标为「依据仍成立：否」，由人决定。关闭人、处理人记为 system。
+    basis: D54（用户选择「Recheck + expiry + dedupe」）；原则 13（判断要带依据，依据变了判断就要变）。
+    acceptance: 依据成立时复核结果为 checked 3、expired 0、closed 0；把 WDR101 预算人天改为 80 后，风险标记被 system 关闭，原因含「依据不再成立」「当前 80.00」；由建议生成的干预仍为待处理，来源建议 basisHolds 为否；「> 50」的待批建议仍待批准。里程碑确认完成后，引用 MILESTONE_DUE 的风险标记被关闭，原因含「已没有预警 MILESTONE_DUE」。
+    verifiedBy: [test_the_hourly_recheck_closes_what_no_longer_holds_and_expires_what_is_late, test_alert_and_signal_facts_are_checked_against_the_rules_outputs]
+    ontology: [AiProposal.basisHolds, AiProposal.basisNote, AiRiskFlag.basisHolds, AiRiskFlag.closedReason, AiStrategyNote.basisHolds]
+  - id: R6
+    statement: 有效期：AI 风险标记与 AI 策略建议批准或续期后有效「AI 结论有效天数」（默认 30）天，过期由复核改为已过期；续期只在依据仍成立时可以，从当天起重新计算。待批准的建议提交后「AI 建议待批天数」（默认 7）天未处理即过期。
+    basis: D54。
+    acceptance: 有效天数改为 10 后批准的标记有效至今天 + 10；续期后第 9 天复核不过期、第 11 天复核过期，原因含「有效期到」；过期的标记不能再关闭（「只有有效的记录」）。提交后第 8 天复核，待批建议过期，原因含「超过待批天数」。
+    verifiedBy: [test_a_flag_expires_after_its_valid_days_unless_renewed, test_the_hourly_recheck_closes_what_no_longer_holds_and_expires_what_is_late]
+    ontology: [renewAiRiskFlag, closeAiRiskFlag, renewAiStrategyNote, closeAiStrategyNote, AiRiskFlag.validUntil, AiProposal.expiresOn, aiFindingActive]
+  - id: R7
+    statement: 去重：同一主体（项目；AI 策略建议为类别）+ 同一类型 + 同一组依据（对象、属性、比较符；预警代码；信号与项目，不含比较值）只保留一条。新提交的建议取代旧的待批准建议；新批准的风险标记或策略建议取代同键的有效记录。被取代的写明被哪一条取代。
+    basis: D54（「同一项目 + 类型 + 依据只保留一条」）。
+    acceptance: 对 WDR101「预算人天 ≥ 100」与「≥ 90」先后提交风险标记，前者被取代、后者待批准；同依据的管理干预另算一条；先后批准两条同键风险标记，前一条被取代、后一条有效。
+    verifiedBy: [test_one_item_per_subject_kind_and_facts]
+    ontology: [AiProposal.status, AiRiskFlag.status, submitAiProposal, approveAiProposal]
+  - id: R8
+    statement: 两个天数是运营口径参数：「AI 建议待批天数」1–90（默认 7）、「AI 结论有效天数」1–365（默认 30），用「调整运营口径」修改并留审计，范围与系统设置页共用 POLICY_RANGES。
+    basis: D54；原则 7（数值做成参数）；经验库 L07、L10。
+    acceptance: 默认值 7 与 30；待批天数改为 0 被拒；改为 3 后新提交的建议待批截止为今天 + 3。
+    verifiedBy: [test_the_day_counts_are_operating_policy_parameters]
+    ontology: [OperatingPolicy.aiProposalPendingDays, OperatingPolicy.aiFindingValidDays, updateOperatingPolicy]
+  - id: R9
+    statement: 部门经营复盘在规则策略信号之外返回 aiStrategyNotes（有效的 AI 策略建议，带类别名与批准人）、aiStrategyProposals（待批准的策略建议）和当前账号能否批准；页面显示在「策略信号」下方并标明是 AI 建议。规则信号仍只由规则计算，AI 策略建议不会变成规则信号。
+    basis: D51、D53；部门经营页原有说明「由部门管理者决定是否采纳」。
+    acceptance: 部门负责人看到待批准的「争取 WDR101 二期」并可批准；批准后列在 aiStrategyNotes（争取新合同，批准人 head.a），待批准列表为空；PMO 关闭被拒，部门负责人关闭后状态已关闭、原因「已安排」。
+    verifiedBy: [test_strategy_notes_sit_beside_the_rule_signals]
+    ontology: [AiStrategyNote, departmentOperatingReview, StrategyCategory]
+  - id: R10
+    statement: PM Assistant 只能起草：可以用 suggest_action 给出 submitAiProposal 候选（系统预检，结果是卡片，不写库）；批准、驳回、续期、关闭 AI 内容不在可建议的动作中，强行提出时预检不通过。项目 AI 分析的每条待处理事项带上规则预警代码，用户可把处理建议提交为管理干预建议（依据为该预警）。
+    basis: D51、D52；原则 1；repo-map 陷阱 22（写操作只能走 suggest_action）。
+    acceptance: suggest_action 的动作枚举含 submitAiProposal，不含 approveAiProposal、rejectAiProposal、closeAiRiskFlag；起草风险标记预检通过且没有建议入库；对已提交的建议提出 approveAiProposal，预检未通过（「只能由人处理」），建议仍待批准。分析条目带 code 字段。
+    verifiedBy: [test_the_assistant_may_draft_a_suggestion_but_never_approve_one, test_actions_are_kept_only_when_the_facts_support_them, test_ai_alerts_are_not_issues_for_the_model, test_fb1_assistant_card_is_saved_and_submitted_by_a_person]
+    ontology: [submitAiProposal, approveAiProposal]
+  - id: R11
+    statement: 每个新动作只写它声明的数据集：提交写 ai_proposals；批准写 ai_proposals 以及 interventions、ai_risk_flags、ai_strategy_notes 之一；续期、关闭只写对应的表。复核任务是系统联动，写入 ai_proposals、ai_risk_flags、ai_strategy_notes，已登记在需求基线第 6 节联动清单。
+    basis: 原则 16；需求基线第 6 节新增四行联动。
+    acceptance: test_actions_write_only_declared_datasets 逐个执行 25 个动作（含 7 个新动作、三种批准），实际写入不超出 writeback，且每个写入的数据集都属于所编辑的对象类型。
+    verifiedBy: [test_actions_write_only_declared_datasets, test_every_object_type_opens_with_links_and_actions]
+    ontology: [AiProposal, AiRiskFlag, AiStrategyNote, AiProposal.openedIntervention]
+
+exceptions:
+  - rule: R1
+    case: 引用带安全标记的属性（例如金额 FINANCE、个人工时 PERSONNEL），而提交人没有对应权限。
+    handling: 视为「无法核对」，不能提交，提示「当前账号无权查看」；不显示该属性的当前值。
+    basis: 原则 14（已隐藏不是否，也不是是）；与对象浏览的脱敏一致。
+  - rule: R1
+    case: 比较值的写法不同，例如属性当前为「80.00」，依据写 80 或「80%」。
+    handling: 两边都能读成数字时按数字比较（80 = 80.00，「80%」去掉百分号）；不是数字时只支持「等于 / 不等于」，按文字比较，其他比较符判为不成立。
+    basis: 规范化（build-package 例外清单第 9 项）；模型常把百分比写成带 % 的文字。
+  - rule: R1
+    case: 依据引用 AI 自己的预警（AI_RISK_FLAG、AI_PROPOSAL_PENDING）。
+    handling: 提交时拒绝；复核时这两类预警也不计入可引用的预警。
+    basis: 避免 AI 结论以 AI 结论为依据而自我证明（原则 1）。
+  - rule: R1
+    case: AI 策略建议不属于任何项目，或依据只涉及部门信号。
+    handling: 允许不填项目；不要求依据涉及某个项目。项目经理看不到不属于项目的建议（AiProposal 按项目编号限定范围）。
+    basis: D51；策略是部门级的。
+  - rule: R2
+    case: 提交人与批准人是同一个人。
+    handling: 允许（一人按角色批准），审计中提交人与批准人同名，评审时可以据此复查；不做两人把关。
+    basis: 用户 2026-11-09 选择「One person, by role」而不是两人把关。
+  - rule: R2
+    case: 部门负责人没有「项目管理」菜单。
+    handling: 不能批准管理干预和 AI 风险标记，也打不开项目详情（经验库 L43）；只在部门经营页批准、续期、关闭 AI 策略建议。PMO 有部门经营菜单但不能批准策略建议。
+    basis: D51 的角色划分；roles.ts 的默认菜单。
+  - rule: R3
+    case: 建议提交时截止日期不早于今天，但批准时已经过了截止日期。
+    handling: 批准时不再检查截止日期，生成的干预立即按 D32 作为逾期干预提醒，由人调整或关闭。
+    basis: 保留提交时的意图；逾期提醒本身就是要人处理的信号。
+  - rule: R4
+    case: 风险标记的依据在两次复核之间已经不成立。
+    handling: 标记在下次复核前仍显示，若上次复核已不成立则提醒文字带「依据已不成立，下次复核时关闭」；风险等级不受影响。
+    basis: D54 每小时复核；不在每次读取时写库，避免对象索引反复失效（经验库 L04 同类）。
+  - rule: R5
+    case: 依据引用的对象被删除（例如里程碑逻辑删除）或属性在后续本体版本中被移除。
+    handling: 复核判为「无法核对 / 不存在」，按依据不成立处理：标记与策略建议关闭，待批建议过期，并写明原因。
+    basis: 原则 14：无法核对的不能当作成立。
+  - rule: R5
+    case: 提交人能看到、系统复核时以系统身份运行。
+    handling: 复核不受提交人的数据范围和标记限制，结果只写成立与否和读法；读法中可能含提交人当初无权看到的当前值，但只在有权读该对象的页面显示。
+    basis: 复核是系统联动（第 6 节）；对象读取仍按读者权限脱敏。
+  - rule: R5
+    case: 由建议生成的管理干预已经关闭。
+    handling: 不再复核它的来源建议，basisHolds 保留关闭前最后一次的结果。
+    basis: 关闭后不再需要提示。
+  - rule: R6
+    case: 运营口径中的天数被修改。
+    handling: 只影响之后的提交、批准和续期；已有的待批截止和有效期不变。
+    basis: 与负荷预测门槛修改不追溯同一做法；避免一次修改让大量记录同时过期。
+  - rule: R6
+    case: 服务时区。
+    handling: 「今天」取 ProjectRepository.today()，即服务时区 XTCRM_TIMEZONE（config.py 缺省 America/Detroit）的当天；待批截止和有效期按这一天计算，按日期比较。北京时间上午时 Detroit 仍是前一天，截止日会晚半天左右。
+    basis: 经验库 L31（系统事实先查配置）。
+  - rule: R7
+    case: 同一事实但比较符不同（例如「≥ 100」与「< 50」）。
+    handling: 视为不同依据，各保留一条。
+    basis: 比较符改变了判断的含义；比较值不改变（只是门槛松紧）。
+  - rule: R7
+    case: 已批准的建议又被新提交了一条同键建议。
+    handling: 新建议正常待批；批准后取代旧的有效记录，旧记录写明被谁取代。待批阶段不影响已有的有效记录。
+    basis: D54：新批准的取代旧的有效条目。
+  - rule: R8
+    case: 系统设置页没有这两个参数的输入框（与负荷预测门槛、连续过载月数相同）。
+    handling: 管理员在本体浏览器的「运营口径参数」上执行「调整运营口径」修改；系统设置接口 PATCH /api/v1/worktime-baseline 也接受这两个字段，范围相同并记入同一动作的审计。
+    basis: 经验库 L10（两条写入路径一份范围）；页面是否增加输入框留给后续界面需求。
+  - rule: R9
+    case: 没有部门经营菜单的用户（例如项目经理）。
+    handling: 看不到部门经营页和 AI 策略建议；在 PM Assistant 中起草策略建议后可以提交，由管理员或部门负责人批准。
+    basis: D51；部门经营菜单权限不变。
+  - rule: R10
+    case: 用户在历史对话中打开几天前的候选卡片再提交。
+    handling: 提交时重新预检，依据不再成立或字段不全时拒绝，卡片显示原因。
+    basis: D50 保存的建议卡片是当时的预检结果；R1 以提交时为准。
+  - rule: R10
+    case: 项目的预警中含 AI_RISK_FLAG、AI_PROPOSAL_PENDING（AI 自己的标记与待批建议）。
+    handling: 项目 AI 分析的待处理事项不含这两类，模型不会对自己的产出再给处理建议，也不会因此挤掉规则预警（分析最多 6 条）；页面的待处理事项照常显示它们。
+    basis: 2026-11-10 功能测试发现（F-B12）；与 R1 不能引用 AI_ 预警同一考虑。
+  - rule: R10
+    case: 项目 AI 分析的条目来自维护缺口或风险原因（没有预警代码）。
+    handling: 这类条目不提供「提交为干预建议」，因为没有可核对的预警作依据。
+    basis: D55：依据必须可核对。
+  - rule: R11
+    case: 复核任务的写入不经过动作。
+    handling: 由 AiFindingsService.refresh 以 system 身份写入，记在每条记录的关闭人 / 处理人与原因中，并登记在需求基线联动清单；测试直接调用 refresh 验证。
+    basis: 与负荷预测自动训练（D46）同为系统联动。

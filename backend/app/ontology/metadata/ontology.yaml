@@ -6,7 +6,7 @@ version: v1
 definition:
   apiName: tsg-pm
   displayName: TSG PM 项目运营本体
-  version: 8.5.0
+  version: 8.6.0
   description: 把 CRM、工时与人工维护数据统一为项目运营语义模型：对象、关系、动作、函数与安全策略。
 ---
 kind: Marking
@@ -207,3 +207,49 @@ definition:
     - {value: idle, label: 闲置}
     - {value: first_month, label: 首月（不评价闲置）}
     - {value: healthy, label: 健康}
+---
+kind: ValueType
+version: v1
+definition:
+  apiName: AiProposalKind
+  displayName: AI 建议类型
+  values:
+    - {value: intervention, label: 管理干预}
+    - {value: riskFlag, label: AI 风险标记}
+    - {value: strategyNote, label: AI 策略建议}
+---
+kind: ValueType
+version: v1
+definition:
+  apiName: AiProposalStatus
+  displayName: AI 建议状态
+  values:
+    - {value: pending, label: 待批准}
+    - {value: approved, label: 已批准}
+    - {value: rejected, label: 已驳回}
+    - {value: expired, label: 已过期}
+    - {value: superseded, label: 已被取代}
+---
+kind: ValueType
+version: v1
+definition:
+  apiName: AiFindingStatus
+  displayName: AI 结论状态
+  values:
+    - {value: active, label: 有效}
+    - {value: closed, label: 已关闭}
+    - {value: expired, label: 已过期}
+    - {value: superseded, label: 已被取代}
+---
+kind: ValueType
+version: v1
+definition:
+  apiName: StrategyCategory
+  displayName: 策略类别
+  values:
+    - {value: push_acceptance, label: 推动验收回款}
+    - {value: control_cost, label: 控制成本}
+    - {value: staffing_support, label: 招聘或外部支援}
+    - {value: win_contracts, label: 争取新合同}
+    - {value: release_resources, label: 释放资源}
+    - {value: other, label: 其他}

@@ -133,14 +133,18 @@ def fact_sheet(project: dict[str, Any], enum_labels: dict[str, dict[str, str]]) 
 
 def issues(project: dict[str, Any]) -> list[dict[str, str]]:
     """The pending items the drawer shows (项目待处理事项), in its order: alerts, else maintenance gaps and risk reasons."""
-    alerts = list(project.get("anomaly_alerts") or [])
+    # 8.6.0: AI risk flags and pending AI suggestions are the approval queue, not project facts for the model to act on;
+    # left in, they would ask the model about its own output and could push rule alerts past MAX_ISSUES.
+    alerts = [a for a in project.get("anomaly_alerts") or [] if not str(a.get("code") or "").startswith("AI_")]
     if not alerts:
         if not project.get("maintenance_complete", True):
             alerts.append({"severity": "warning", "title": "同步后待人工维护", "detail": "、".join(project.get("maintenance_reasons") or [])})
         alerts += [{"severity": "warning", "title": "项目风险提示", "detail": reason} for reason in project.get("risk_reasons") or []]
     ranked = sorted(alerts, key=lambda alert: alert.get("severity") != "critical")
     return [{"id": f"I{index}", "level": "高" if alert.get("severity") == "critical" else "中",
-             "title": str(alert.get("title") or ""), "detail": str(alert.get("detail") or "")}
+             "title": str(alert.get("title") or ""), "detail": str(alert.get("detail") or ""),
+             # 8.6.0 (D55): the rule alert behind the item, cited when its action is submitted as an AI suggestion.
+             "code": alert.get("code")}
             for index, alert in enumerate(ranked[:MAX_ISSUES], start=1)]
 
 
@@ -280,7 +284,8 @@ def verify(reply: dict[str, Any] | None, facts: list[str], project: dict[str, An
         if action and pm:
             for name in plain_members:
                 action = action.replace(name, pm)
-        items.append({"level": issue["level"], "title": issue["title"], "evidence": issue["detail"], "action": action})
+        items.append({"level": issue["level"], "title": issue["title"], "evidence": issue["detail"], "action": action,
+                      "code": issue.get("code")})
     return {"conclusion": conclusion, "findings": findings[:MAX_FINDINGS], "items": items, "dropped": dropped,
             "formatted": model_conclusion or bool(findings) or any(item["action"] for item in items)}
 

@@ -28,6 +28,14 @@ def test_every_object_type_opens_with_links_and_actions(tmp_path):
         apply(client, "createPaymentTerm", {"project": "WDR101", "name": "首付款", "plannedAmount": "1000"})
         import_entries(client, [entry("S1", "WDR101", "2026-10-12")])
         client.app.state.load_forecast.train("2026-10")  # one model version (D46): too little history, still listed
+        # 8.6.0: an AI risk flag and an AI strategy note, each approved from a suggestion; one suggestion left pending.
+        fact = [{"type": "fact", "objectType": "Project", "primaryKey": "WDR101", "property": "projectNumber", "op": "=", "value": "WDR101"}]
+        for kind, extra in (("riskFlag", {"project": "WDR101"}), ("strategyNote", {"category": "other"})):
+            submitted = client.post("/api/v1/ontology/actions/submitAiProposal/apply", json={"parameters": {
+                "kind": kind, "title": "AI 判断", "basis": fact, **extra}}).json()["data"]
+            proposal = next(e["primaryKey"] for e in submitted["edits"] if e["operation"] == "create")
+            apply(client, "approveAiProposal", {"proposal": proposal})
+        apply(client, "submitAiProposal", {"kind": "intervention", "project": "WDR101", "title": "待批", "dueDate": "2999-12-31", "basis": fact})
 
         opened = set()
         for definition in ontology.object_types:

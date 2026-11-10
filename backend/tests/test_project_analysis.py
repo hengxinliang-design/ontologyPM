@@ -50,11 +50,20 @@ def test_issues_are_the_drawer_alerts_in_order_not_the_models_choice():
     assert [i["title"] for i in project_analysis.issues(quiet)] == ["同步后待人工维护", "项目风险提示"]
 
 
+def test_ai_alerts_are_not_issues_for_the_model():
+    """8.6.0 functional test F-B12: the AI's own flags and pending suggestions stay out of the analysis issues."""
+    ai = [{"code": "AI_RISK_FLAG", "severity": "warning", "title": f"AI 风险标记 · {n}", "detail": "d"} for n in range(7)]
+    project = {**QYD203, "anomaly_alerts": ai + [{"code": "MILESTONE_DUE", "severity": "warning", "title": "系统上线 · 已延期 5 天", "detail": "x"}]}
+    assert [i["title"] for i in project_analysis.issues(project)] == ["系统上线 · 已延期 5 天"]
+    only_ai = {**QYD203, "anomaly_alerts": ai[:1], "maintenance_complete": False, "maintenance_reasons": ["请指定项目经理"]}
+    assert [i["title"] for i in project_analysis.issues(only_ai)][0] == "同步后待人工维护", "maintenance gaps still show"
+
+
 def test_actions_are_kept_only_when_the_facts_support_them():
     result = review("结论：客户未确认工时缺口 18.00 人天待处理\nI1：钱经理本周与客户确认 145.00 人天中的差异")
     assert result["conclusion"] == "客户未确认工时缺口 18.00 人天待处理"
     assert result["items"] == [{"level": "中", "title": "存在客户未确认工时", "evidence": GAP,
-                                "action": "钱经理本周与客户确认 145.00 人天中的差异"}]
+                                "action": "钱经理本周与客户确认 145.00 人天中的差异", "code": None}]
     # QYD203's mistakes: the start date as a deadline, a made-up figure; and generic advice.
     for action in ("钱经理在 2026-04-01 前完成评审", "钱经理复核超出的 30 人天", "加强沟通，密切关注进度"):
         dropped = review(f"结论：工时待确认\nI1：{action}")

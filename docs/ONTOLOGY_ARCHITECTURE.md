@@ -588,6 +588,19 @@ when: [{property: contractType, notIn: [sales]}, {property: lifecycleStatus, not
 
 构建包见 [2026-11-08-load-forecast.yaml](./ontology-builds/2026-11-08-load-forecast.yaml)。
 
+### 11.38 AI 建议经人工批准写回（v8.6.0）
+
+需求基线 D51–D55。原则 1「LLM 生成，本体裁决」第一次落到写入上：AI 的结论先是候选（`AiProposal`），引用本体能核对的事实，人批准后才成为事实。
+
+- **依据** `derivations/ai_basis.py`：`normalize`、`check`、`dedupe_key` 是唯一实现。三种事实：对象属性比较（按读者的对象类型、安全标记、项目范围读取，读不到即「无法核对」）、项目预警（`ai_lookups` 读项目的 anomaly_alerts，排除 AI_ 开头的）、策略信号（部门复盘的 signals）。数字按数字比较，其他只支持等于 / 不等于。
+- **对象** `AiProposal`（表 `ai_proposals`）、`AiRiskFlag`（`ai_risk_flags`）、`AiStrategyNote`（`ai_strategy_notes`），三张表登记在 `OBJECT_DATASETS`；项目的 backingDatasets 加入 ai_proposals、ai_risk_flags，使待批建议与标记进入项目的待处理事项（在风险等级判定之后加入，`_add_ai_alerts`）。
+- **动作** 提交、批准、驳回，以及风险标记与策略建议各自的续期、关闭；批准的 edits 声明 Intervention.*、AiRiskFlag.*、AiStrategyNote.*。角色检查在提交条件 `aiApproverRole`，数据范围由读取目标对象时的 projectScope 保证。
+- **复核** `app/ai_findings.py` 的 `AiFindingsService.refresh(today)`：`main.py` lifespan 每小时运行（`TSG_PM_AI_FINDINGS_AUTO_REFRESH`，默认开启，测试关闭）；只在结果变化时写库，避免对象索引每小时失效。
+- **助手** `suggest_action` 可以预检 `submitAiProposal`（结果是候选卡片），批准类动作从可建议的动作中移除（`AI_DECISION_ACTIONS`）。
+- **函数** `aiSuggestionOverview`：项目的待批建议（含当前账号能否批准）、有效风险标记、由建议生成的干预的依据状态、最近 30 天处理过的建议。部门复盘在规则信号之外返回 aiStrategyNotes、aiStrategyProposals。
+
+规模：18 个对象类型、26 种关系、25 个动作、21 个函数、20 个值类型、2 个安全标记。构建包见 [2026-11-09-ai-writeback.yaml](./ontology-builds/2026-11-09-ai-writeback.yaml)。
+
 ## 12. 代码结构
 
 ```text

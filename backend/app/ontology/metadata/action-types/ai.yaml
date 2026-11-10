@@ -1,0 +1,147 @@
+# AI suggestions written back after a person approves them (requirements baseline D51-D55, ontology 8.6.0).
+kind: ActionType
+version: v1
+definition:
+  apiName: submitAiProposal
+  displayName: 提交 AI 建议
+  description: 把 PM Assistant 或项目 AI 分析给出的候选提交审批（D52）。系统先核对引用的事实；同一项目（策略建议为同一类别）、同一类型、同一依据已有待批准的建议时，新的取代旧的（D54）。
+  objectType: Project
+  targetParameter: project
+  createsObject: true
+  parameters:
+    - {apiName: kind, displayName: 类型, type: enum, valueType: AiProposalKind, required: true}
+    - {apiName: project, displayName: 项目, type: object_ref, objectType: Project, description: 管理干预和 AI 风险标记必填；AI 策略建议可不填}
+    - {apiName: title, displayName: 标题, type: string, required: true, maxLength: 120}
+    - {apiName: detail, displayName: 说明, type: string, maxLength: 2000}
+    - {apiName: basis, displayName: 依据, type: json, required: true, description: "1–5 条可核对的系统事实（D55）：对象属性比较 type=fact（objectType、primaryKey、property、op、value）；项目预警 type=alert（project、code）；策略信号 type=signal（signal，可带 project）"}
+    - {apiName: interventionType, displayName: 干预类型, type: enum, valueType: InterventionType, description: 仅管理干预，缺省为其他}
+    - {apiName: owner, displayName: 负责人, type: string, description: 仅管理干预，不填时取项目经理}
+    - {apiName: dueDate, displayName: 截止日期, type: date, description: 管理干预必填，不能早于今天}
+    - {apiName: category, displayName: 策略类别, type: enum, valueType: StrategyCategory, description: AI 策略建议必填}
+    - {apiName: source, displayName: 来源, type: string, maxLength: 20, description: assistant（PM Assistant，缺省）或 projectAnalysis（项目 AI 分析）}
+    - {apiName: sourceRef, displayName: 来源记录, type: string, maxLength: 80}
+  permissions: [projects]
+  edits: [AiProposal.*]
+  writeback: [ai_proposals]
+  handler: submitAiProposal
+  submissionCriteria:
+    - {description: 标题不为空；干预与风险标记指明项目，干预有不早于今天的截止日期，策略建议有类别, rule: aiProposalFields}
+    - {description: 依据格式正确、提交人有权查看、涉及该项目，且现在都成立, rule: aiBasisHolds}
+---
+kind: ActionType
+version: v1
+definition:
+  apiName: approveAiProposal
+  displayName: 批准 AI 建议
+  description: 批准一条待批准的 AI 建议（D51）：管理干预新建为干预并记下来源；AI 风险标记、AI 策略建议新建为有效记录，有效期为运营口径天数，同一去重键的旧记录被取代（D54）。批准前再核对一次依据。
+  objectType: AiProposal
+  targetParameter: proposal
+  parameters:
+    - {apiName: proposal, displayName: AI 建议, type: object_ref, objectType: AiProposal, required: true}
+    - {apiName: note, displayName: 批准说明, type: string, maxLength: 500}
+  permissions: [projects, department]
+  edits: [AiProposal.status, AiProposal.decidedBy, AiProposal.decidedAt, AiProposal.decisionNote, AiProposal.resultId, Intervention.*, AiRiskFlag.*, AiStrategyNote.*]
+  writeback: [ai_proposals, interventions, ai_risk_flags, ai_strategy_notes]
+  handler: approveAiProposal
+  submissionCriteria:
+    - {description: 建议仍待批准且未超过待批天数, rule: aiProposalPending}
+    - {description: 批准人的角色允许：项目类由能维护该项目的人，策略建议由管理员或部门负责人, rule: aiApproverRole}
+    - {description: 依据现在仍成立, rule: aiBasisHolds}
+---
+kind: ActionType
+version: v1
+definition:
+  apiName: rejectAiProposal
+  displayName: 驳回 AI 建议
+  description: 驳回一条待批准的 AI 建议，可写明原因；不生成任何记录（D51）。
+  objectType: AiProposal
+  targetParameter: proposal
+  tone: danger
+  parameters:
+    - {apiName: proposal, displayName: AI 建议, type: object_ref, objectType: AiProposal, required: true}
+    - {apiName: note, displayName: 驳回原因, type: string, maxLength: 500}
+  permissions: [projects, department]
+  edits: [AiProposal.status, AiProposal.decidedBy, AiProposal.decidedAt, AiProposal.decisionNote]
+  writeback: [ai_proposals]
+  handler: rejectAiProposal
+  submissionCriteria:
+    - {description: 建议仍待批准且未超过待批天数, rule: aiProposalPending}
+    - {description: 处理人的角色允许, rule: aiApproverRole}
+---
+kind: ActionType
+version: v1
+definition:
+  apiName: renewAiRiskFlag
+  displayName: 续期 AI 风险标记
+  description: 依据仍成立时，把有效期从今天起再延长「AI 结论有效天数」（D54）。
+  objectType: AiRiskFlag
+  targetParameter: flag
+  parameters:
+    - {apiName: flag, displayName: AI 风险标记, type: object_ref, objectType: AiRiskFlag, required: true}
+  permissions: [projects]
+  edits: [AiRiskFlag.validUntil, AiRiskFlag.basisHolds, AiRiskFlag.basisNote, AiRiskFlag.checkedAt]
+  writeback: [ai_risk_flags]
+  handler: renewAiRiskFlag
+  submissionCriteria:
+    - {description: 标记有效, rule: aiFindingActive}
+    - {description: 处理人能维护该项目, rule: aiApproverRole}
+    - {description: 依据现在仍成立, rule: aiBasisHolds}
+---
+kind: ActionType
+version: v1
+definition:
+  apiName: closeAiRiskFlag
+  displayName: 关闭 AI 风险标记
+  description: 风险已处理或判断有误时人工关闭，写明原因（D54）。
+  objectType: AiRiskFlag
+  targetParameter: flag
+  tone: danger
+  parameters:
+    - {apiName: flag, displayName: AI 风险标记, type: object_ref, objectType: AiRiskFlag, required: true}
+    - {apiName: reason, displayName: 关闭原因, type: string, maxLength: 500}
+  permissions: [projects]
+  edits: [AiRiskFlag.status, AiRiskFlag.closedBy, AiRiskFlag.closedAt, AiRiskFlag.closedReason]
+  writeback: [ai_risk_flags]
+  handler: closeAiRiskFlag
+  submissionCriteria:
+    - {description: 标记有效, rule: aiFindingActive}
+    - {description: 处理人能维护该项目, rule: aiApproverRole}
+---
+kind: ActionType
+version: v1
+definition:
+  apiName: renewAiStrategyNote
+  displayName: 续期 AI 策略建议
+  description: 依据仍成立时，把有效期从今天起再延长「AI 结论有效天数」（D54）。
+  objectType: AiStrategyNote
+  targetParameter: note
+  parameters:
+    - {apiName: note, displayName: AI 策略建议, type: object_ref, objectType: AiStrategyNote, required: true}
+  permissions: [department, projects]
+  edits: [AiStrategyNote.validUntil, AiStrategyNote.basisHolds, AiStrategyNote.basisNote, AiStrategyNote.checkedAt]
+  writeback: [ai_strategy_notes]
+  handler: renewAiStrategyNote
+  submissionCriteria:
+    - {description: 策略建议有效, rule: aiFindingActive}
+    - {description: 处理人是管理员或部门负责人, rule: aiApproverRole}
+    - {description: 依据现在仍成立, rule: aiBasisHolds}
+---
+kind: ActionType
+version: v1
+definition:
+  apiName: closeAiStrategyNote
+  displayName: 关闭 AI 策略建议
+  description: 策略已执行或不再适用时人工关闭，写明原因（D54）。
+  objectType: AiStrategyNote
+  targetParameter: note
+  tone: danger
+  parameters:
+    - {apiName: note, displayName: AI 策略建议, type: object_ref, objectType: AiStrategyNote, required: true}
+    - {apiName: reason, displayName: 关闭原因, type: string, maxLength: 500}
+  permissions: [department, projects]
+  edits: [AiStrategyNote.status, AiStrategyNote.closedBy, AiStrategyNote.closedAt, AiStrategyNote.closedReason]
+  writeback: [ai_strategy_notes]
+  handler: closeAiStrategyNote
+  submissionCriteria:
+    - {description: 策略建议有效, rule: aiFindingActive}
+    - {description: 处理人是管理员或部门负责人, rule: aiApproverRole}

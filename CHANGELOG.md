@@ -4,6 +4,7 @@
 
 | 产品版本 | 本体版本 | 日期 | 构建包 |
 | --- | --- | --- | --- |
+| v1.39.0 | 8.6.0 | 2026-11-10 | [2026-11-09-ai-writeback](docs/ontology-builds/2026-11-09-ai-writeback.yaml) |
 | v1.38.2 | 8.5.0 | 2026-11-09 | —（只改界面） |
 | v1.38.1 | 8.5.0 | 2026-11-09 | —（只改评测脚本） |
 | v1.38.0 | 8.5.0 | 2026-11-09 | —（本体元数据不变） |
@@ -33,6 +34,24 @@
 | v1.22.0 | 7.6.0 | 2026-10-30 | [2026-10-29-logical-delete](docs/ontology-builds/2026-10-29-logical-delete.yaml) |
 | v1.21.0 | 7.5.0 | 2026-10-29 | [2026-10-29-rule-homes-and-linkages](docs/ontology-builds/2026-10-29-rule-homes-and-linkages.yaml) |
 | v1.20.0 | 7.4.0 | 2026-10-29 | [2026-10-29-milestone-span-period](docs/ontology-builds/2026-10-29-milestone-span-period.yaml) |
+
+## v1.39.0 — PM Assistant 独立页面与历史对话；AI 建议经人工批准写回（本体 8.6.0）
+
+### AI 建议经人工批准写回（需求基线 D51–D55，本体 8.6.0）
+
+- AI 只出候选，人提交、人批准才写进系统（D51、D52）：PM Assistant 的回答里出现「管理干预 / AI 风险标记 / AI 策略建议」候选卡片，点「提交审批」才进入审批；项目详情「AI 分析」的处理建议可「提交为干预建议」（依据为该条预警）。AI 不能批准、驳回、续期或关闭。
+- 一人按角色批准（D51，修订 D4）：管理干预与 AI 风险标记由管理员、PMO 或本项目的项目经理在项目详情「AI 建议与风险标记」中批准；AI 策略建议由管理员或部门负责人在部门经营「策略信号」下方采纳。批准的干预就是普通的管理干预，记下来源建议。
+- AI 风险标记不改风险等级（D53）：单独显示在项目上，并以「AI 风险标记 · …」按关注级进入待处理事项；待批准的建议同样提醒。
+- 时效（D54、D55）：每条都引用可核对的系统事实（对象属性比较、项目预警、策略信号），提交、批准时核对，此后每小时复核；依据不再成立时风险标记与策略建议自动关闭并写明原因，待批建议过期，由建议生成的干预提示「依据已不成立」。有效 30 天可续期，待批 7 天过期（运营口径参数）；同一项目（策略为同一类别）+ 类型 + 依据只留一条。
+- 本体 8.6.0：对象类型 AiProposal、AiRiskFlag、AiStrategyNote；动作 submitAiProposal、approveAiProposal、rejectAiProposal、renewAiRiskFlag、closeAiRiskFlag、renewAiStrategyNote、closeAiStrategyNote；函数 aiSuggestionOverview；运营口径 aiProposalPendingDays、aiFindingValidDays；Project.activeAiRiskFlags、pendingAiProposals，Intervention.sourceProposalId。构建包 2026-11-09-ai-writeback。测试 tests/test_ai_findings.py（11 个，不调用模型）。
+- 功能逻辑测试（2026-11-10，报告 docs/test-reports/2026-11-10-v1.39-functional.md）：tests/test_functional_v139.py 18 个场景，开启登录、5 个角色账号、假模型。修复两处：项目 AI 分析的待处理事项不再包含 AI 自己的标记与待批建议；助手候选卡片的依据显示成「项目 SEY103 的预算使用率 ≥ 80（当前 85.0）」这样的读法，而不是字段名。
+
+### PM Assistant 独立页面与历史对话（需求基线 D50）
+
+- 新页面「PM Assistant」（查询与运营监控）：左侧是本人的历史对话，可搜索问题或回答内容、打开、删除一段或全部；右侧阅读并继续追问。右下角悬浮入口保留，和页面共用同一段对话，「历史与全屏」打开页面。
+- 历史对话保存在服务端（D50，修订 D17）：回答成功后问题和回答（含依据、建议动作、模型名）存入提问人自己的对话，只有本人可见，保存到本人删除为止；在旧对话里追问时，上下文是服务端保存的最近 6 条消息，不再由浏览器传。审计日志不变，仍不含回答。新增表 `assistant_conversations`、`assistant_messages` 与接口 `GET/DELETE /api/v1/pm-assistant/conversations[/{id}]`，问答接口新增 `conversation_id`。
+- 阅读更顺：悬浮面板改为固定高度，对话区是唯一滚动的区域；「本次依据」从面板底部移到每条回答末尾并折叠；标题栏压成一行；收到新回答时滚到这次的问题处，从回答第一行开始读；输入框可多行（Enter 发送，Shift+Enter 换行）。
+- 测试：tests/test_assistant_history.py（7 个，假模型），前端 assistant/whenUsed.test.ts。
 
 ## v1.38.2 — 项目详情的添加表单不再局促（本体 8.5.0 不变）
 

@@ -244,6 +244,19 @@
 
 预测措辞为「预计」，用于提前安排工作，不用于排班和绩效评价（设计稿 7.5）。演示数据的回测成绩不作为采用依据（D39）。
 
+### 8.2 AI 建议写回（本体 8.6.0，D51–D55）
+
+| 规则 | 口径 | 本体位置 |
+| --- | --- | --- |
+| 进入审批 | 只在用户点「提交审批」时：PM Assistant 的候选卡片、项目 AI 分析的处理建议；AI 不自动提交、不能批准 | `submitAiProposal` |
+| 依据 | 1–5 条可核对的系统事实：对象属性比较、项目预警（不含 AI_ 开头的）、策略信号；提交人要有权看到；干预与风险标记至少一条关于该项目；提交、批准、续期时都要成立 | `AiProposal.basis`、校验 `aiBasisHolds` |
+| 谁批准 | 一人按角色：管理干预、AI 风险标记由管理员、PMO、本项目的项目经理；AI 策略建议由管理员或部门负责人；提交人角色允许时可批自己的 | `approveAiProposal`、校验 `aiApproverRole` |
+| 批准结果 | 干预：新建普通管理干预并记下来源；风险标记、策略建议：新建有效记录，有效至今天 + 「AI 结论有效天数」 | `Intervention.sourceProposalId`、`AiRiskFlag`、`AiStrategyNote` |
+| 风险等级 | 不受 AI 风险标记影响；标记与待批建议作为关注级待处理事项（AI_RISK_FLAG、AI_PROPOSAL_PENDING） | `Project.activeAiRiskFlags`、`Project.pendingAiProposals` |
+| 复核 | 每小时一次（系统）：依据不成立时风险标记、策略建议关闭并写明原因，待批建议过期，干预只标记「依据已不成立」；超过有效期为已过期；待批超过「AI 建议待批天数」为已过期 | `AiFindingsService.refresh`（`app/ai_findings.py`），检查实现在 `derivations/ai_basis.py` |
+| 去重 | 同一主体（项目；策略为类别）+ 类型 + 依据（不含比较值）只保留一条：新提交取代旧的待批建议，新批准取代旧的有效记录 | `ai_basis.dedupe_key` |
+| 天数参数 | AI 建议待批天数 1–90（默认 7）、AI 结论有效天数 1–365（默认 30） | `OperatingPolicy.aiProposalPendingDays`、`OperatingPolicy.aiFindingValidDays` |
+
 ## 9. 里程碑与回款节点
 
 | 规则 | 口径 | 本体位置 |

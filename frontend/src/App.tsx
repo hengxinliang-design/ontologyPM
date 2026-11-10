@@ -7,6 +7,12 @@ import { executeFunction } from "./ontology/api";
 import { forecastCell, forecastEnabled, forecastOutputLines, forecastStatusLine, type LoadForecastResult } from "./loadForecast";
 import { DayPicker } from "react-day-picker";
 import { Markdown } from "./AssistantMarkdown";
+import { AssistantLauncher } from "./assistant/AssistantLauncher";
+import { InterventionDraft, ProjectAiSection } from "./aiWriteback/AiWriteback";
+import { fetchAiOverview } from "./aiWriteback/api";
+import { INTERVENTION_TYPE_LABELS } from "./aiWriteback/types";
+import type { AiOverview } from "./aiWriteback/types";
+import { AssistantPage } from "./assistant/AssistantPage";
 import { OntologyExplorer } from "./ontology/OntologyExplorer";
 import { milestonePayload, showsLegacyPaymentNote } from "./milestoneForm";
 import { ROLE_OPTIONS, defaultMenus, menuAllowed, projectManagerHint, roleOption } from "./roles";
@@ -19,7 +25,6 @@ import "react-day-picker/style.css";
 import {
   confirmMilestone,
   confirmPayment,
-  chatWithPmAssistant,
   ApiError,
   analyzeProjectWithPmAssistant,
   createMilestone,
@@ -68,8 +73,6 @@ import type {
   ManagedUser,
   MenuPermission,
   PaymentSummary,
-  PmAssistantChatMessage,
-  PmAssistantSuggestion,
   ProjectDetail,
   ProjectHealthResponse,
   ProjectHealthRow,
@@ -87,13 +90,17 @@ const ANALYTICS_PAGE_SIZE = 50;
 const IMPORT_LOG_PAGE_SIZE = 10;
 const WORKTIME_MONTH_STORAGE_KEY = "tsg-pm-worktime-month";
 const RESOURCE_MONTH_STORAGE_KEY = "tsg-pm-resource-month";
-type View = "projects" | "investment" | "department" | "resource" | "employeeWorktime" | "crm" | "sync" | "ontology" | "settings";
+type View = "projects" | "investment" | "department" | "resource" | "employeeWorktime" | "crm" | "assistant" | "sync" | "ontology" | "settings";
 
 
 
 
 export function App() {
   const [view, setView] = useState<View>("projects");
+  // PM Assistant (D50): the conversation open in the page and the floating panel, and a counter that refreshes the history list.
+  const [assistantConversation, setAssistantConversation] = useState<string | null>(null);
+  const [assistantRevision, setAssistantRevision] = useState(0);
+  const assistantChanged = useCallback(() => setAssistantRevision(value => value + 1), []);
   const [authUser, setAuthUser] = useState<AuthenticatedUser | null>(() => getStoredUser());
   const [authLoading, setAuthLoading] = useState(() => Boolean(getStoredUser()));
   const [health, setHealth] = useState<ProjectHealthResponse | null>(null);
@@ -156,7 +163,7 @@ export function App() {
 
   useEffect(() => {
     const routePermission: Record<View, MenuPermission[]> = {
-      projects: ["projects", "health"], investment: ["investment"], department: ["department"], resource: ["resource"], crm: ["crm"],
+      projects: ["projects", "health"], investment: ["investment"], department: ["department"], resource: ["resource"], crm: ["crm"], assistant: ["projects"],
       employeeWorktime: ["employeeWorktime"], sync: ["sync"], ontology: ["ontology"], settings: ["settings"]
     };
     const allowed = (candidate: View) => routePermission[candidate].some(canAccess);
@@ -322,7 +329,7 @@ export function App() {
     { label: "合同 / 订单源记录", value: sync?.source_stats.contract_order ?? "—", tone: "" },
     { label: "销售机会源记录", value: sync?.source_stats.sales_opportunity ?? "—", tone: "" },
     { label: "转项目已合并", value: sync?.validation.merged_opportunities ?? "—", tone: "" }
-  ] : view === "settings" || view === "ontology" || view === "investment" || view === "department" ? [] : [
+  ] : view === "settings" || view === "ontology" || view === "investment" || view === "department" || view === "assistant" ? [] : [
     { label: "有效记录", value: records?.meta.total_records ?? "—", tone: "" },
     { label: "合同 / 订单", value: sync?.source_stats.contract_order ?? "—", tone: "" },
     { label: "销售机会", value: sync?.source_stats.sales_opportunity ?? "—", tone: "" },
@@ -365,6 +372,7 @@ export function App() {
             {canAccess("department") && <button className={`nav-item ${view === "department" ? "active" : ""}`} onClick={() => switchView("department")}><span>◈</span> 部门经营</button>}
             {canAccess("resource") && <button className={`nav-item ${view === "resource" ? "active" : ""}`} onClick={() => switchView("resource")}><span>◉</span> 资源运营监控</button>}
             {canAccess("crm") && <button className={`nav-item ${view === "crm" ? "active" : ""}`} onClick={() => switchView("crm")}><span>⌘</span> CRM 数据查询</button>}
+            {canAccess("projects") && <button className={`nav-item ${view === "assistant" ? "active" : ""}`} onClick={() => switchView("assistant")}><span>✦</span> PM Assistant</button>}
           </div>
           <div className="nav-group nav-group-maintenance">
             <p>数据维护</p>
@@ -388,7 +396,7 @@ export function App() {
 
       <main>
         <header className="topbar">
-          <div><p className="eyebrow">{VIEW_GROUP[view]}</p><h1>{view === "projects" ? "项目管理" : view === "investment" ? "投入成本分析" : view === "department" ? "部门经营" : view === "resource" ? "资源运营监控" : view === "employeeWorktime" ? "员工工时数据" : view === "sync" ? "项目/商机数据维护" : view === "settings" ? "系统设置" : view === "ontology" ? "本体浏览器" : "CRM 数据查询"}</h1></div>
+          <div><p className="eyebrow">{VIEW_GROUP[view]}</p><h1>{view === "projects" ? "项目管理" : view === "investment" ? "投入成本分析" : view === "department" ? "部门经营" : view === "resource" ? "资源运营监控" : view === "employeeWorktime" ? "员工工时数据" : view === "sync" ? "项目/商机数据维护" : view === "settings" ? "系统设置" : view === "ontology" ? "本体浏览器" : view === "assistant" ? "PM Assistant" : "CRM 数据查询"}</h1></div>
           {view === "crm" && <div className="top-actions">
             <button className="button secondary" onClick={() => void downloadExport("csv")}>导出 CSV</button>
           </div>}
@@ -440,6 +448,8 @@ export function App() {
           <SystemSettings baseline={worktimeBaseline} onBaselineSaved={setWorktimeBaseline} />
         ) : view === "ontology" ? (
           <OntologyExplorer />
+        ) : view === "assistant" ? (
+          <AssistantPage conversationId={assistantConversation} onSelect={setAssistantConversation} revision={assistantRevision} onChanged={assistantChanged} />
         ) : view === "department" ? (
           <DepartmentOperationsPage canEditPlan={canAccess("department")} />
         ) : view === "investment" ? (
@@ -467,7 +477,8 @@ export function App() {
           await load();
         }}
       />}
-      {canAccess("projects") && <PmAssistant />}
+      {canAccess("projects") && view !== "assistant" && <AssistantLauncher conversationId={assistantConversation} onSelect={setAssistantConversation}
+        onChanged={assistantChanged} onOpenPage={() => switchView("assistant")} />}
     </div>
   );
 }
@@ -475,6 +486,7 @@ export function App() {
 // The sidebar group each page sits in, shown above the page title so the header says where you are.
 const VIEW_GROUP: Record<View, string> = {
   projects: "查询与运营监控", investment: "查询与运营监控", department: "查询与运营监控", resource: "查询与运营监控", crm: "查询与运营监控",
+  assistant: "查询与运营监控",
   employeeWorktime: "数据维护", sync: "数据维护", ontology: "语义层", settings: "系统",
 };
 
@@ -686,68 +698,6 @@ function UserSettings() {
       </form>
     </div>
   </section>;
-}
-
-function PmAssistant() {
-  const [open, setOpen] = useState(false);
-  const [draft, setDraft] = useState("");
-  const [messages, setMessages] = useState<PmAssistantChatMessage[]>([]);
-  const [sources, setSources] = useState<string[]>([]);
-  const [suggestions, setSuggestions] = useState<PmAssistantSuggestion[]>([]);
-  const [sending, setSending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  async function send(question = draft) {
-    const content = question.trim();
-    if (!content || sending) return;
-    const nextHistory = [...messages, { role: "user" as const, content }];
-    setMessages(nextHistory);
-    setDraft("");
-    setSending(true);
-    setError(null);
-    try {
-      const response = await chatWithPmAssistant(content, messages);
-      setMessages([...nextHistory, { role: "assistant", content: response.answer }]);
-      setSources(response.sources);
-      setSuggestions(response.suggestions ?? []);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "PM Assistant 暂时无法回答，请稍后重试。");
-    } finally {
-      setSending(false);
-    }
-  }
-
-  function submit(event: FormEvent) {
-    event.preventDefault();
-    void send();
-  }
-
-  return <div className="pm-assistant" aria-live="polite">
-    {open && <section className="pm-assistant-panel" role="dialog" aria-label="PM Assistant">
-      <header className="pm-assistant-head">
-        <div><span className="pm-assistant-kicker">AI PROJECT COPILOT</span><h2>PM Assistant</h2><p>按你的权限调用系统本体回答项目管理问题</p></div>
-        <button type="button" className="pm-assistant-close" aria-label="关闭 PM Assistant" onClick={() => setOpen(false)}>×</button>
-      </header>
-      <div className="pm-assistant-conversation">
-        {!messages.length && <div className="pm-assistant-welcome"><strong>可以问我什么？</strong><p>我会调用系统的本体函数和对象查询，按「结论、数据、依据」回答；资料不足时说明缺少什么。需要改数据时只给出经系统预检的建议，不会直接修改。</p><div className="pm-assistant-suggestions">{["哪些项目需要优先关注？", "目前有哪些待回款项目？", "工时超预算的项目有哪些？"].map(question => <button key={question} type="button" onClick={() => void send(question)}>{question}</button>)}</div></div>}
-        {messages.map((item, index) => <article key={`${item.role}-${index}`} className={`pm-message ${item.role}`}><span>{item.role === "user" ? "你" : "PM Assistant"}</span>{item.role === "assistant" ? <Markdown text={item.content} /> : <p>{item.content}</p>}</article>)}
-        {sending && <article className="pm-message assistant pending"><span>PM Assistant</span><p>正在查询系统本体并整理回答…</p></article>}
-      </div>
-      {sources.length > 0 && <div className="pm-assistant-sources"><span>本次依据</span>{sources.map(source => <small key={source}>{source}</small>)}</div>}
-      {suggestions.length > 0 && <div className="pm-assistant-actions"><span>建议动作（未执行）</span>
-        {suggestions.map((item, index) => <article key={`${item.actionType}-${index}`} className={item.valid ? "valid" : "invalid"}>
-          <header><strong>{item.displayName}</strong><i>{item.valid ? "预检通过" : "预检未通过"}</i></header>
-          <p>{Object.entries(item.parameters).map(([key, value]) => `${key}：${typeof value === "string" ? value : JSON.stringify(value)}`).join("；")}</p>
-          {item.reason && <p>理由：{item.reason}</p>}
-          {item.reasons.length > 0 && <ul>{item.reasons.map(reason => <li key={reason}>{reason}</li>)}</ul>}
-        </article>)}
-        <small>请在业务页面执行；执行时系统会再次校验。</small>
-      </div>}
-      {error && <p className="pm-assistant-error">{error}</p>}
-      <form className="pm-assistant-form" onSubmit={submit}><label htmlFor="pm-assistant-input">你的问题</label><div><input id="pm-assistant-input" value={draft} onChange={event => setDraft(event.target.value)} disabled={sending} placeholder="例如：哪些项目本月需要跟进？" maxLength={2000} /><button className="button primary" disabled={sending || !draft.trim()} type="submit">发送</button></div></form>
-    </section>}
-    <button type="button" className="pm-assistant-launcher" aria-expanded={open} onClick={() => setOpen(!open)}><span>AI</span><strong>PM Assistant</strong></button>
-  </div>;
 }
 
 function RiskBadge({ project }: { project: Pick<ProjectSummary, "project_number" | "risk_level" | "anomaly_count" | "anomaly_alerts" | "risk_reasons"> }) {
@@ -1215,7 +1165,6 @@ function PmoResourceTable({ project }: { project: ProjectDetail }) {
 }
 
 // Labels of the ontology value types InterventionType and InterventionStatus (ontology.yaml, D34).
-const INTERVENTION_TYPE_LABELS: Record<string, string> = { schedule: "进度", resource: "资源", payment: "回款", customer: "客户", quality: "质量", management: "其他" };
 const INTERVENTION_STATUS_LABELS: Record<string, string> = { open: "待处理", in_progress: "处理中", closed: "已关闭" };
 
 function ProjectDrawer({ project, close, refresh }: { project: ProjectDetail; close: () => void; refresh: () => Promise<void> }) {
@@ -1274,6 +1223,21 @@ function ProjectDrawer({ project, close, refresh }: { project: ProjectDetail; cl
     setSaving(true); setMessage(null);
     try { await action(); await refresh(); setMessage(success, "ok"); }
     catch (err) { setMessage(err instanceof Error ? err.message : "操作失败"); }
+    finally { setSaving(false); }
+  }
+
+  // 8.6.0 (D51-D54): AI suggestions waiting for approval and the project's AI risk flags. Loaded only for people who
+  // may maintain projects (the function needs the 项目管理 menu); for others the section stays hidden.
+  const [aiOverview, setAiOverview] = useState<AiOverview | null>(null);
+  useEffect(() => {
+    let live = true;
+    fetchAiOverview(project.project_number).then(data => { if (live) setAiOverview(data); }).catch(() => { if (live) setAiOverview(null); });
+    return () => { live = false; };
+  }, [project]);
+  async function aiAct(action: () => Promise<void>, success: string): Promise<boolean> {
+    setSaving(true); setMessage(null);
+    try { await action(); await refresh(); setMessage(success, "ok"); return true; }
+    catch (err) { setMessage(err instanceof Error ? err.message : "操作失败"); return false; }
     finally { setSaving(false); }
   }
 
@@ -1458,7 +1422,11 @@ function ProjectDrawer({ project, close, refresh }: { project: ProjectDetail; cl
     <button className="drawer-close" onClick={close}>×</button>
     <p className="eyebrow">{project.project_number}</p><h2>{displayProjectName(project.project_number, project.subject)}</h2>
     <div className="drawer-badges"><span>{contractTypeLabel(project.contract_type)}</span><span>{lifecycleLabel(project.lifecycle_status)}</span><span className={`risk ${project.risk_level}`}>{riskLabel(project.risk_level)}</span>{project.redacted_markings?.length ? <RedactionNote markings={project.redacted_markings} /> : null}</div>
-    {actionAlerts.length > 0 && <section className="alert-stack" aria-label="项目待处理事项"><div className="alert-stack-head"><div className="alert-stack-icon" aria-hidden="true">!</div><div><h3>项目待处理事项</h3><small>按优先级处理风险和人工维护事项</small></div><span className="alert-stack-count">{actionAlerts.length} 项</span><button type="button" className="ai-analysis-button" disabled={analyzing} onClick={() => void requestAiAnalysis()}>{analyzing ? "正在分析…" : aiAnalysis ? "重新分析" : "AI 分析"}</button></div><div className="alert-stack-list">{actionAlerts.map((alert, index) => <article className={`anomaly-alert ${alert.severity}`} key={`${alert.code}-${index}`}><span className="anomaly-alert-icon" aria-hidden="true">{alert.severity === "critical" ? "!" : "◷"}</span><div className="anomaly-alert-content"><div><strong>{alert.title}</strong><span>{alert.severity === "critical" ? "严重" : "关注"}</span></div><p>{alert.detail}</p>{(() => { const action = aiActionFor(aiAnalysis?.review, alert); return action ? <p className="anomaly-alert-action"><span>AI 建议</span>{action}</p> : null; })()}</div></article>)}</div>{aiAnalysis && <ProjectReviewCard analysis={aiAnalysis} />}{analysisError && <p className="ai-analysis-error">{analysisError}</p>}</section>}
+    {actionAlerts.length > 0 && <section className="alert-stack" aria-label="项目待处理事项"><div className="alert-stack-head"><div className="alert-stack-icon" aria-hidden="true">!</div><div><h3>项目待处理事项</h3><small>按优先级处理风险和人工维护事项</small></div><span className="alert-stack-count">{actionAlerts.length} 项</span><button type="button" className="ai-analysis-button" disabled={analyzing} onClick={() => void requestAiAnalysis()}>{analyzing ? "正在分析…" : aiAnalysis ? "重新分析" : "AI 分析"}</button></div><div className="alert-stack-list">{actionAlerts.map((alert, index) => <article className={`anomaly-alert ${alert.severity}`} key={`${alert.code}-${index}`}><span className="anomaly-alert-icon" aria-hidden="true">{alert.severity === "critical" ? "!" : "◷"}</span><div className="anomaly-alert-content"><div><strong>{alert.title}</strong><span>{alert.severity === "critical" ? "严重" : "关注"}</span></div><p>{alert.detail}</p>{(() => { const action = aiActionFor(aiAnalysis?.review, alert); return action ? <>
+              <p className="anomaly-alert-action"><span>AI 建议</span>{action}</p>
+              {aiOverview && alert.code && !alert.code.startsWith("AI_") && <InterventionDraft project={project.project_number} code={alert.code} alertTitle={alert.title}
+                action={action} owner={project.project_manager ?? ""} act={aiAct} saving={saving} />}
+            </> : null; })()}</div></article>)}</div>{aiAnalysis && <ProjectReviewCard analysis={aiAnalysis} />}{analysisError && <p className="ai-analysis-error">{analysisError}</p>}</section>}
     {message && <div className={`inline-message ${message.tone}`} role={message.tone === "error" ? "alert" : "status"}><span>{message.text}</span><button type="button" aria-label="关闭提示" onClick={() => setMessageState(null)}>×</button></div>}
     <section className="detail-section source-section"><div className="section-title"><div><h3>项目主数据库汇总 <span className="source-tag">系统接口 · 只读</span></h3><small>{project.revenue_settlement_basis === "workload" ? "开口合同按工作量确认收入：合同金额仅作框架额参考，不用于计算回款完成率。" : "合同金额取 CRM 导入模板；工时与人工维护字段分别独立汇总"}</small></div></div><div className="detail-metrics six"><article><span>{project.revenue_settlement_basis === "workload" ? "合同框架额（CRM）" : "合同金额（CRM）"}</span><b>{money(project.contract_value)}</b></article><article><span>{project.revenue_settlement_basis === "workload" ? "确认收入（开票）" : "已开票（CRM）"}</span><b>{money(project.revenue_settlement_basis === "workload" ? project.recognized_revenue_amount : project.invoiced_amount)}</b></article><article><span>{project.revenue_settlement_basis === "workload" ? "实际已回款（CRM）" : "已回款（CRM）"}</span><b>{money(project.crm_received_amount)}</b></article><article><span>预算人天</span><b>{project.planned_person_days ? `${project.planned_person_days} 人天` : "未设置"}</b></article><article><span>累计实际人天</span><b>{project.actual_person_days} 人天</b></article><article className={Number(project.confirmation_gap_person_days) > 0 ? "metric-alert" : ""}><span>待客户确认缺口</span><b>{project.confirmation_gap_person_days} 人天</b></article></div></section>
 
@@ -1579,11 +1547,15 @@ function ProjectDrawer({ project, close, refresh }: { project: ProjectDetail; cl
       </form>}
     </section>
 
+    <ProjectAiSection overview={aiOverview} saving={saving} act={aiAct} />
+
     <section className="detail-section"><div className="section-title"><div><h3>管理干预 <span className="manual-tag">人工维护</span></h3><small>针对项目风险需要跟踪到关闭的事项；过了截止日期仍未关闭会进入待处理事项提醒，不影响风险等级。</small></div>{!interventionFormOpen && <button type="button" className="button secondary add-action" disabled={saving} onClick={() => { setIntervention({ ...emptyIntervention, owner: settings.project_manager }); setInterventionFormOpen(true); }}>＋ 发起干预</button>}</div>
       {(() => {
         const row = (item: ProjectDetail["interventions"][number]) => <li key={item.intervention_id} className={`panel-row ${item.status === "closed" ? "completed" : item.overdue ? "overdue" : ""}`}>
           <span className="panel-row-lead">{INTERVENTION_TYPE_LABELS[item.intervention_type] ?? item.intervention_type}</span>
-          <div className="panel-row-main"><strong>{item.title}</strong><small>负责人 {item.owner || "未指定"} · {item.due_date ? `截止 ${item.due_date}` : "未设截止日期"}{item.notes ? ` · ${item.notes}` : ""}</small></div>
+          <div className="panel-row-main"><strong>{item.title}</strong><small>负责人 {item.owner || "未指定"} · {item.due_date ? `截止 ${item.due_date}` : "未设截止日期"}{item.notes ? ` · ${item.notes}` : ""}</small>
+            {(() => { const source = aiOverview?.interventionBasis[item.intervention_id]; return source ? <small className={source.basisHolds ? "ai-muted" : "ai-basis-stale"}>
+              {source.basisHolds ? "来自 AI 建议，依据仍成立" : `来自 AI 建议；${source.basisNote ?? "依据已不成立"}，可考虑关闭`}</small> : null; })()}</div>
           <b className="panel-row-status">{INTERVENTION_STATUS_LABELS[item.status] ?? item.status}{item.overdue ? " · 已逾期" : ""}</b>
           <div className="panel-row-actions">{item.status !== "closed" && <>
             {item.status === "open" && <button type="button" className="row-action" disabled={saving} onClick={() => moveIntervention(item, "in_progress")}>开始处理</button>}

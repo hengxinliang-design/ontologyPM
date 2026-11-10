@@ -216,16 +216,15 @@ Content-Type: application/json
 
 ```json
 {
-  "message": "哪些项目需要优先关注？",
-  "history": [
-    {"role": "user", "content": "本月回款情况如何？"},
-    {"role": "assistant", "content": "……"}
-  ]
+  "message": "那 SEY103 呢？",
+  "conversation_id": "conv_2644df061d044426"
 }
 ```
 
 - `message` 必填，最长 2000 个字符。
-- `history` 可选；最多取最近 6 条对话作为上下文。
+- `conversation_id` 可选（需求基线 D50）：给出时是这段已保存对话里的追问，上下文为服务端保存的最近 6 条消息（每条最多 1200 个字符），请求里的 `history` 不再使用；不是本人的对话返回 404。不给时开始一段新对话，以问题作标题。
+- 回答成功后，问题和回答（含依据、建议动作、模型名）保存到提问人自己的对话里，响应带回 `conversation_id`；回答失败时什么都不保存。
+- `history` 可选，只在没有 `conversation_id` 时使用（旧调用方式）；最多取最近 6 条。
 - 模型为服务端配置的 `TSG_PM_ASSISTANT_MODEL`。
 
 模型服务（`TSG_PM_ASSISTANT_PROVIDER`，各服务互不回退：所选服务未配置时返回 503「尚未配置模型服务」，不会改用另一种）：
@@ -252,10 +251,38 @@ Content-Type: application/json
        "reason": "客户要求延后", "valid": true, "reasons": []}
     ],
     "model": "gpt-5.2",
-    "provider": "openai"
+    "provider": "openai",
+    "conversation_id": "conv_2644df061d044426"
   }
 }
 ```
+
+#### AI 建议写回（D51–D55，本体 8.6.0）
+
+回答的 `suggestions` 中 `actionType` 为 `submitAiProposal` 的是 AI 建议候选：`parameters` 含 `kind`（intervention / riskFlag / strategyNote）、`title`、`basis` 等，`valid` 为预检结果。用户确认后由页面调用本体动作 `POST /api/v1/ontology/actions/submitAiProposal/apply`（`X-TSG-Channel: business`）提交；批准、驳回、续期、关闭是 `approveAiProposal`、`rejectAiProposal`、`renewAiRiskFlag`、`closeAiRiskFlag`、`renewAiStrategyNote`、`closeAiStrategyNote`，助手不能建议这些动作。`basis` 示例：
+
+```json
+[
+  {"type": "fact", "objectType": "Project", "primaryKey": "SEY103", "property": "budgetUtilization", "op": ">=", "value": 80},
+  {"type": "alert", "project": "SEY101", "code": "MILESTONE_DUE"},
+  {"type": "signal", "signal": "push_acceptance", "project": "SEY101"}
+]
+```
+
+项目的待批建议、有效风险标记和由建议生成的干预的依据状态由本体函数 `aiSuggestionOverview` 返回；部门复盘 `departmentOperatingReview` 另返回 `aiStrategyNotes`、`aiStrategyProposals`、`canApproveStrategy`。
+
+#### 历史对话（D50）
+
+每个用户只能看到、追问和删除自己的对话，保存到本人删除为止；管理员也看不到别人的对话，审计日志仍然不含回答。
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/api/v1/pm-assistant/conversations?q=&limit=100` | 本人的对话，最近使用的在前；`q` 匹配标题或任意一条问答内容；`limit` 最多 500 |
+| GET | `/api/v1/pm-assistant/conversations/{conversation_id}` | 一段对话的全部消息：`role`、`content`、`sources`、`suggestions`、`model`、`created_at` |
+| DELETE | `/api/v1/pm-assistant/conversations/{conversation_id}` | 删除一段对话，返回 `{"deleted": 1}` |
+| DELETE | `/api/v1/pm-assistant/conversations` | 删除本人的全部对话，返回删除的段数 |
+
+需要 `projects` 菜单权限，与问答相同。保存的建议动作是提问当时的预检结果，到业务页面执行时会按当时的数据重新校验。
 
 ## 4. CRM 记录接口
 

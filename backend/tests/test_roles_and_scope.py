@@ -109,7 +109,8 @@ def test_project_manager_sees_and_maintains_only_own_projects(tmp_path):
         assert execute(client, pm, "costObjectInvestment", {"costObject": "TPL149"}).status_code == 403
         assert execute(client, pm, "workingCalendar", {"startDate": "2026-10-01", "endDate": "2026-10-31"}).status_code == 200
         schema = client.get("/api/v1/ontology/schema", headers=pm).json()["data"]
-        assert {t["apiName"] for t in schema["objectTypes"]} <= {"Project", "Milestone", "PaymentNode", "PaymentTerm", "Intervention"}
+        assert {t["apiName"] for t in schema["objectTypes"]} <= {"Project", "Milestone", "PaymentNode", "PaymentTerm", "Intervention",
+                                                                 "AiProposal", "AiRiskFlag"}
 
         # Maintenance: own projects only.
         own = client.post("/api/v1/projects/TPL149/milestones", headers=pm, json={"name": "PM 自建", "planned_end": "2026-12-20"})
@@ -144,11 +145,11 @@ def test_scoped_requests_do_not_pollute_the_shared_index(tmp_path):
 def test_function_data_scope_is_declared():
     declared = {f.api_name: f.data_scope for f in load_ontology().functions}
     project = {"projectRiskAssessment", "projectBudgetStatus", "projectPaymentStatus", "projectHealthForPeriod",
-               "portfolioSummary", "projectList", "portfolioHealth", "projectOverview", "maintenanceWorklist"}
+               "portfolioSummary", "projectList", "portfolioHealth", "projectOverview", "maintenanceWorklist", "aiSuggestionOverview"}
     assert {name for name, scope in declared.items() if scope == "project"} == project
     assert {name for name, scope in declared.items() if scope == "shared"} == {"workingCalendar"}
     scoped_types = {t.api_name for t in load_ontology().object_types if t.project_scope}
-    assert scoped_types == {"Project", "Milestone", "PaymentNode", "PaymentTerm", "Intervention"}
+    assert scoped_types == {"Project", "Milestone", "PaymentNode", "PaymentTerm", "Intervention", "AiProposal", "AiRiskFlag"}
 
 
 def test_base_program_endpoints_follow_the_scope(tmp_path):

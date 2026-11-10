@@ -83,12 +83,6 @@ main { min-width: 0; padding: 34px 38px 52px; overflow: hidden; }
 .button.disabled, .button:disabled { cursor: wait; opacity: .56; pointer-events: none; }
 
 .error-banner { margin-bottom: 18px; padding: 13px 16px; border: 1px solid #f5c3cb; border-radius: var(--radius-md); background: var(--danger-soft); color: var(--danger); font-size: var(--fs-sm); font-weight: 650; }
-.pm-assistant { position: fixed; z-index: 60; right: 28px; bottom: 26px; display: grid; justify-items: end; gap: 12px; }
-.pm-assistant-launcher { display: inline-flex; min-height: 48px; align-items: center; gap: 9px; padding: 0 17px 0 7px; border: 1px solid #1e4b9c; border-radius: 999px; background: #234f9f; box-shadow: 0 12px 28px rgba(26, 61, 122, .28); color: #fff; cursor: pointer; font-size: var(--fs-sm); font-weight: 750; }.pm-assistant-launcher > span { display: grid; width: 34px; height: 34px; place-items: center; border-radius: 50%; background: #fff; color: #234f9f; font-size: var(--fs-xs); font-weight: 850; letter-spacing: .3px; }.pm-assistant-launcher:not(:disabled):hover { background: #1d458d; box-shadow: 0 16px 32px rgba(26, 61, 122, .32); }
-.pm-assistant-panel { display: grid; width: min(408px, calc(100vw - 36px)); max-height: min(650px, calc(100dvh - 110px)); grid-template-rows: auto minmax(0, 1fr) auto auto auto; overflow: hidden; border: 1px solid #cbd9ec; border-radius: 16px; background: var(--surface); box-shadow: 0 22px 56px rgba(16, 39, 74, .24); }.pm-assistant-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; padding: 17px 18px 15px; border-bottom: 1px solid #e3eaf3; background: #f7faff; }.pm-assistant-kicker { display: block; margin-bottom: 4px; color: #466994; font-size: var(--fs-xs); font-weight: 800; letter-spacing: 1.1px; }.pm-assistant-head h2 { margin: 0; color: var(--text); font-size: var(--fs-lg); letter-spacing: -.2px; }.pm-assistant-head p { margin: 4px 0 0; color: var(--text-secondary); font-size: var(--fs-xs); line-height: 1.4; }.pm-assistant-close { display: grid; width: 30px; height: 30px; flex: 0 0 auto; place-items: center; padding: 0; border: 1px solid #d9e3ef; border-radius: 8px; background: var(--surface); color: #536b88; cursor: pointer; font-size: var(--fs-xl); line-height: 1; }
-.pm-assistant-conversation { display: grid; align-content: start; gap: 12px; min-height: 180px; overflow: auto; padding: 16px 18px; background: #fbfcfe; }.pm-assistant-welcome { padding: 2px 0 8px; }.pm-assistant-welcome strong { color: var(--text); font-size: var(--fs-base); }.pm-assistant-welcome p { margin: 6px 0 13px; color: var(--text-secondary); font-size: var(--fs-xs); line-height: 1.55; }.pm-assistant-suggestions { display: grid; gap: 7px; }.pm-assistant-suggestions button { min-height: 34px; padding: 7px 10px; border: 1px solid #d7e2f2; border-radius: 8px; background: #fff; color: #315886; cursor: pointer; font-size: var(--fs-xs); font-weight: 650; text-align: left; }.pm-assistant-suggestions button:not(:disabled):hover { border-color: #aac2e6; background: #f1f6ff; }
-.pm-message { max-width: 92%; padding: 10px 12px; border: 1px solid #dfe7f1; border-radius: 10px; background: #fff; color: var(--text); }.pm-message.user { justify-self: end; border-color: #c9daf4; background: #edf4ff; }.pm-message span { display: block; margin-bottom: 4px; color: #66809f; font-size: var(--fs-xs); font-weight: 800; }.pm-message.user span { color: #345f9b; }.pm-message p { margin: 0; white-space: pre-wrap; font-size: var(--fs-sm); line-height: 1.55; }.pm-message.pending { color: var(--text-secondary); }.pm-assistant-sources { display: flex; flex-wrap: wrap; gap: 5px; padding: 9px 18px; border-top: 1px solid #e7edf5; background: #f8fafc; color: var(--text-secondary); }.pm-assistant-sources span { margin-right: 2px; color: #58708f; font-size: var(--fs-xs); font-weight: 800; }.pm-assistant-sources small { padding: 2px 6px; border-radius: 4px; background: #eaf1fb; color: #4f6b8d; font-size: var(--fs-xs); }.pm-assistant-error { margin: 0; padding: 9px 18px; border-top: 1px solid #f5d2d7; background: #fff5f6; color: var(--danger); font-size: var(--fs-xs); line-height: 1.45; }
-.pm-assistant-form { padding: 12px 18px 16px; border-top: 1px solid #e7edf5; background: var(--surface); }.pm-assistant-form label { display: block; margin-bottom: 6px; color: var(--text-secondary); font-size: var(--fs-xs); font-weight: 750; }.pm-assistant-form > div { display: flex; gap: 8px; }.pm-assistant-form input { width: 100%; min-width: 0; min-height: 40px; padding: 0 11px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: #fff; color: var(--text); font-size: var(--fs-sm); }.pm-assistant-form .button { min-width: 62px; min-height: 40px; padding: 0 12px; }
 .metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 18px; margin-bottom: 24px; }
 .metric { position: relative; min-height: 130px; overflow: hidden; padding: 22px; border: 1px solid var(--line-subtle); border-radius: var(--radius-lg); background: var(--surface); box-shadow: var(--shadow-sm); }
 .metric::after { position: absolute; top: -28px; right: -26px; width: 82px; height: 82px; border-radius: 50%; background: currentColor; content: ""; opacity: .075; }
@@ -341,7 +335,6 @@ td small { display: block; margin-top: 4px; color: var(--text-tertiary); font-si
   .nav-group > p { grid-column: 1 / -1; padding: 0 8px; }
   .nav-group-system { display: none; }
   .nav-item { padding: 9px 10px; font-size: var(--fs-sm); }
-  .pm-assistant { right: 16px; bottom: 16px; }.pm-assistant-panel { max-height: min(640px, calc(100dvh - 88px)); }.pm-assistant-launcher strong { display: none; }.pm-assistant-launcher { width: 50px; justify-content: center; padding: 0; }
   .sidebar-foot { display: flex; margin-top: 16px; padding: 14px 8px 0; }
   main { padding: 24px 16px 36px; }
   .topbar { margin-bottom: 22px; }.topbar h1 { font-size: var(--fs-2xl); }
@@ -455,16 +448,6 @@ main { padding-bottom: 104px; }
 .warn-text { color: var(--warning); }
 
 /* PM Assistant suggested actions (requirements baseline D16): pre-checked, never executed. */
-.pm-assistant-actions { display: grid; gap: 8px; padding: 10px 16px; border-top: 1px solid var(--line, #e3e8ef); }
-.pm-assistant-actions > span { font-size: var(--fs-xs); font-weight: 700; color: var(--text-secondary, #5b6475); }
-.pm-assistant-actions article { padding: 8px 10px; border: 1px solid var(--line, #e3e8ef); border-radius: 8px; background: var(--surface, #fff); }
-.pm-assistant-actions article.valid { border-left: 3px solid var(--success, #1f8a5b); }
-.pm-assistant-actions article.invalid { border-left: 3px solid var(--warning); background: var(--warning-soft); }
-.pm-assistant-actions header { display: flex; justify-content: space-between; gap: 8px; font-size: var(--fs-sm); }
-.pm-assistant-actions header i { font-style: normal; font-size: var(--fs-xs); color: var(--text-secondary, #5b6475); }
-.pm-assistant-actions p, .pm-assistant-actions li { margin: 4px 0 0; font-size: var(--fs-xs); overflow-wrap: anywhere; }
-.pm-assistant-actions ul { margin: 4px 0 0; padding-left: 18px; }
-.pm-assistant-actions > small { font-size: var(--fs-xs); color: var(--text-tertiary, #8a93a3); }
 
 /* UI check 2026-10-30 ---------------------------------------------------------------------------------------- */
 /* A bare <small> is the caption size, not "smaller than its parent" (that gave 10px and 13.33px off the scale). */
@@ -493,8 +476,6 @@ tr.clickable:focus-visible { outline: 3px solid rgba(40, 88, 184, .35); outline-
 }
 
 /* PM Assistant answers rendered from Markdown (AssistantMarkdown.tsx). Grid items default to min-width: auto, which let a wide table stretch the bubble past the panel. */
-.pm-assistant-conversation { grid-template-columns: minmax(0, 1fr); }
-.pm-message { min-width: 0; }
 .markdown { min-width: 0; font-size: var(--fs-sm); line-height: 1.55; overflow-wrap: anywhere; }
 .markdown > * { margin: 0; }
 .markdown > * + * { margin-top: 8px; }

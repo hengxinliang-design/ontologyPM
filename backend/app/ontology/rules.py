@@ -13,7 +13,12 @@ import re
 from decimal import Decimal, InvalidOperation
 from typing import Any, Callable
 
-from .derivations.economics import DepartmentAnalysis, plan_targets
+import json
+from datetime import timedelta
+
+from .derivations import ai_basis
+from .derivations.economics import SIGNAL_LABELS, DepartmentAnalysis, plan_targets
+from ..ai_findings import FINDING_TABLES, AiFindingRepository
 from .derivations.resources import ResourceMetrics
 from .derivations.load_forecast import LoadForecastService
 from .derivations.project import (
@@ -226,6 +231,7 @@ def derive_project_facts(ctx: OntologyContext, objects: list[dict[str, Any]], ob
     policy = ctx.projects.get_worktime_baseline()
     thresholds = _budget_thresholds(policy)
     as_of = ctx.projects.today()
+    ai_items = _ai_project_items(ctx)
     result = {}
     for item in objects:
         bundle = item["__sources"]
@@ -236,6 +242,7 @@ def derive_project_facts(ctx: OntologyContext, objects: list[dict[str, Any]], ob
             maintenance_reasons=[entry["label"] for entry in item["maintenanceChecklist"] if not entry["met"]],
         )
         p["maintenance_checklist"] = item["maintenanceChecklist"]
+        _add_ai_alerts(p, ai_items.get(item["projectNumber"], {}))
         result[item["projectNumber"]] = {
             "masterCategory": p["master_category"],
             "lifecycleSource": p.get("lifecycle_source"),
@@ -259,6 +266,8 @@ def derive_project_facts(ctx: OntologyContext, objects: list[dict[str, Any]], ob
             "overduePaymentNodes": p["overdue_payment_nodes"],
             "openInterventions": p["open_interventions"],
             "overdueInterventions": p["overdue_interventions"],
+            "activeAiRiskFlags": p["active_ai_risk_flags"],
+            "pendingAiProposals": p["pending_ai_proposals"],
             "riskLevel": p["risk_level"],
             "riskReasons": p["risk_reasons"],
             "__facts": p,
@@ -671,13 +680,16 @@ OPERATING_POLICY_FIELDS = {
     "forecastMaeImprovementPercent": "forecast_mae_improvement_percent",
     "forecastMinAuc": "forecast_min_auc",
     "forecastMaxCalibrationError": "forecast_max_calibration_error",
+    "aiProposalPendingDays": "ai_proposal_pending_days",
+    "aiFindingValidDays": "ai_finding_valid_days",
     "notes": "notes",
 }
 
 
 # Stored as text like every other parameter; the ontology declares them as integers.
 INTEGER_POLICY_FIELDS = frozenset({"overloadConsecutiveMonths", "maxConcurrentProjects",
-                                   "forecastMinHistoryMonths", "forecastMinPersonMonths"})
+                                   "forecastMinHistoryMonths", "forecastMinPersonMonths",
+                                   "aiProposalPendingDays", "aiFindingValidDays"})
 
 
 @RULES.datasource("operatingPolicy")
@@ -758,6 +770,8 @@ def load_interventions(ctx: OntologyContext) -> list[dict[str, Any]]:
             "overdue": row["status"] != "closed" and bool(row.get("due_date")) and row["due_date"] < today,
             "notes": row.get("notes"),
             "updatedAt": row["updated_at"],
+            # 8.6.0 (D51): opened by approving an AI suggestion; the suggestion keeps checking its facts (D54).
+            "sourceProposalId": row.get("source_proposal_id"),
         }
         for row in ctx.table("interventions", "project_number, updated_at DESC")
     ]
@@ -1543,7 +1557,7 @@ def fn_department_review(ctx: OntologyContext, params: dict[str, Any]) -> dict[s
     year, month = params.get("year"), params.get("month")
     if year and month and int(month[:4]) != int(year):  # D41: an explicit month must lie in the chosen year
         raise ValueError(f"截至月份 {month} 不在 {year} 年内")
-    review = _department(ctx).department_review(int(year) if year else None, month)
+    review = {**_department(ctx).department_review(int(year) if year else None, month), **_ai_strategy_view(ctx)}
     if _finance_visible(ctx):
         return review
     money_kpis = {"new_contracts", "collections"}
@@ -1687,3 +1701,291 @@ def fn_maintenance_worklist(ctx: OntologyContext, params: dict[str, Any]) -> dic
     rows.sort(key=lambda r: (-len(r["pending"]), r["objectType"], r["primaryKey"]))
     return {"summary": summary, "data": rows}
 
+
+# ------------------------------------------------------------ AI suggestions written back (8.6.0, D51-D55)
+AI_KIND_LABELS = {"intervention": "管理干预", "riskFlag": "AI 风险标记", "strategyNote": "AI 策略建议"}
+AI_PROPOSAL_STATUS_LABELS = {"pending": "待批准", "approved": "已批准", "rejected": "已驳回", "expired": "已过期",
+                             "superseded": "已被取代"}
+
+
+def _ai_repo(ctx: OntologyContext) -> AiFindingRepository:
+    return ctx.dataset("ai:repository", lambda: AiFindingRepository(ctx.database))
+
+
+def _loads(raw: Any, default: Any) -> Any:
+    try:
+        return json.loads(raw) if raw else default
+    except (TypeError, json.JSONDecodeError):
+        return default
+
+
+def ai_policy_days(ctx: OntologyContext) -> tuple[int, int]:
+    """D54: days a suggestion may wait for approval, days an approved flag or note lasts (operating policy)."""
+    policy = ctx.projects.get_worktime_baseline()
+    return int(Decimal(policy.get("ai_proposal_pending_days") or "7")), int(Decimal(policy.get("ai_finding_valid_days") or "30"))
+
+
+def ai_lookups(ctx: OntologyContext) -> ai_basis.Lookups:
+    """The rule outputs AI facts may cite, read as ``ctx``'s principal. AI's own alerts cannot be cited."""
+    def alerts(project_number: str) -> list[dict[str, Any]] | None:
+        fact = ctx.project_fact(project_number)
+        if fact is None:
+            return None
+        return [a for a in fact["anomaly_alerts"] if not str(a.get("code") or "").startswith("AI_")]
+
+    def signals() -> list[dict[str, Any]]:
+        return ctx.dataset("ai:signals", lambda: _department(ctx).department_review(None, None)["signals"])
+
+    return ai_basis.Lookups(alerts, signals, dict(SIGNAL_LABELS))
+
+
+def _ai_check(ctx: OntologyContext, raw: Any) -> tuple[list[dict[str, Any]], bool, str]:
+    facts = ai_basis.normalize(raw)
+    results = ai_basis.check(ctx, facts, ai_lookups(ctx))
+    holds, note = ai_basis.summary(results)
+    return [{**fact, "text": result["text"]} for fact, result in zip(facts, results)], holds, note
+
+
+def _ai_project_items(ctx: OntologyContext) -> dict[str, dict[str, list[dict[str, Any]]]]:
+    """Active AI risk flags and pending AI suggestions per project, for the project's pending items (D53)."""
+    items: dict[str, dict[str, list[dict[str, Any]]]] = {}
+    for row in ctx.table("ai_risk_flags", "approved_at DESC, flag_id"):
+        if row["status"] == "active":
+            items.setdefault(row["project_number"], {"flags": [], "pending": []})["flags"].append(row)
+    for row in ctx.table("ai_proposals", "submitted_at DESC, proposal_id"):
+        if row["status"] == "pending" and row.get("project_number"):
+            items.setdefault(row["project_number"], {"flags": [], "pending": []})["pending"].append(row)
+    return items
+
+
+def _add_ai_alerts(p: dict[str, Any], items: dict[str, list[dict[str, Any]]]) -> None:
+    """D53: AI risk flags and pending suggestions are pending items at attention level; the risk level stays the
+    rules' own (it was decided before these are added)."""
+    flags, pending = items.get("flags", []), items.get("pending", [])
+    for flag in flags:
+        stale = "" if flag["basis_holds"] else "；依据已不成立，下次复核时关闭"
+        p["anomaly_alerts"].append({
+            "code": "AI_RISK_FLAG", "severity": "warning", "title": f"AI 风险标记 · {flag['title']}",
+            "detail": f"{flag['approved_by']} {flag['approved_at'][:10]} 批准，有效至 {flag['valid_until']}{stale}",
+        })
+    for row in pending:
+        p["anomaly_alerts"].append({
+            "code": "AI_PROPOSAL_PENDING", "severity": "warning", "title": f"AI 建议待批准 · {row['title']}",
+            "detail": f"{AI_KIND_LABELS[row['kind']]}，{row['submitted_by']} 提交，{row['expires_on']} 后未处理将过期",
+        })
+    p["anomaly_count"] = len(p["anomaly_alerts"])
+    p["active_ai_risk_flags"] = len(flags)
+    p["pending_ai_proposals"] = len(pending)
+
+
+@RULES.datasource("aiProposals")
+def load_ai_proposals(ctx: OntologyContext) -> list[dict[str, Any]]:
+    return [{
+        "proposalId": row["proposal_id"], "kind": row["kind"], "projectNumber": row.get("project_number"),
+        "category": row.get("category"), "title": row["title"], "detail": row.get("detail"),
+        "basis": _loads(row["basis_json"], []), "parameters": _loads(row["parameters_json"], {}),
+        "source": row["source"], "sourceRef": row.get("source_ref"), "status": row["status"],
+        "submittedBy": row["submitted_by"], "submittedAt": row["submitted_at"], "expiresOn": row["expires_on"],
+        "decidedBy": row.get("decided_by"), "decidedAt": row.get("decided_at"), "decisionNote": row.get("decision_note"),
+        "resultId": row.get("result_id"), "basisHolds": bool(row["basis_holds"]), "basisNote": row.get("basis_note"),
+        "checkedAt": row.get("checked_at"),
+    } for row in ctx.table("ai_proposals", "submitted_at DESC, proposal_id")]
+
+
+def _finding_object(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "title": row["title"], "detail": row.get("detail"), "basis": _loads(row["basis_json"], []),
+        "proposalId": row["proposal_id"], "status": row["status"], "approvedBy": row["approved_by"],
+        "approvedAt": row["approved_at"], "validUntil": row["valid_until"], "closedBy": row.get("closed_by"),
+        "closedAt": row.get("closed_at"), "closedReason": row.get("closed_reason"),
+        "basisHolds": bool(row["basis_holds"]), "basisNote": row.get("basis_note"), "checkedAt": row.get("checked_at"),
+    }
+
+
+@RULES.datasource("aiRiskFlags")
+def load_ai_risk_flags(ctx: OntologyContext) -> list[dict[str, Any]]:
+    return [{"flagId": row["flag_id"], "projectNumber": row["project_number"], **_finding_object(row)}
+            for row in ctx.table("ai_risk_flags", "approved_at DESC, flag_id")]
+
+
+@RULES.datasource("aiStrategyNotes")
+def load_ai_strategy_notes(ctx: OntologyContext) -> list[dict[str, Any]]:
+    return [{"noteId": row["note_id"], "category": row["category"], **_finding_object(row)}
+            for row in ctx.table("ai_strategy_notes", "approved_at DESC, note_id")]
+
+
+@RULES.criterion("aiProposalFields")
+def ai_proposal_fields(ctx, values, target) -> str | None:
+    """D51/D52: what each kind needs before it can be submitted."""
+    kind = values.get("kind")
+    if not str(values.get("title") or "").strip():
+        return "标题不能为空"
+    if values.get("source") not in (None, "", "assistant", "projectAnalysis"):
+        return "来源只能是 assistant 或 projectAnalysis"
+    if kind in ("intervention", "riskFlag") and not values.get("project"):
+        return f"{AI_KIND_LABELS[kind]}必须指明项目"
+    if kind == "intervention":
+        if not values.get("dueDate"):
+            return "管理干预必须有截止日期"
+        if values["dueDate"] < ctx.projects.today().isoformat():
+            return "截止日期不能早于今天"
+    if kind == "strategyNote" and not values.get("category"):
+        return "AI 策略建议必须选择类别"
+    return None
+
+
+@RULES.criterion("aiBasisHolds")
+def ai_basis_holds(ctx, values, target) -> str | None:
+    """D54/D55: the cited facts are well formed, visible to the actor, about the item's project, and hold now."""
+    raw = values.get("basis") if values.get("basis") is not None else (target or {}).get("basis")
+    try:
+        facts, holds, note = _ai_check(ctx, raw)
+    except ai_basis.BasisError as exc:
+        return str(exc)
+    kind = values.get("kind") or (target or {}).get("kind")
+    project = values.get("project") or (target or {}).get("projectNumber")
+    if kind in ("intervention", "riskFlag") and project and project not in ai_basis.projects_cited(ctx, facts):
+        return f"依据中至少要有一条关于项目 {project} 的事实"
+    return None if holds else note
+
+
+@RULES.criterion("aiProposalPending")
+def ai_proposal_pending(ctx, values, target) -> str | None:
+    if target is None:
+        return "未找到这条 AI 建议"
+    if target["status"] != "pending":
+        return f"这条建议{AI_PROPOSAL_STATUS_LABELS.get(target['status'], target['status'])}，不能再批准或驳回"
+    if target["expiresOn"] < ctx.projects.today().isoformat():
+        return f"这条建议已超过待批天数（{target['expiresOn']} 到期）"
+    return None
+
+
+@RULES.criterion("aiApproverRole")
+def ai_approver_role(ctx, values, target) -> str | None:
+    """D51: one person by role. Project items: whoever may maintain the project (its scope is already applied when
+    the target is read); strategy notes: an administrator or the department head."""
+    kind = (target or {}).get("kind") or ("strategyNote" if (target or {}).get("noteId") else "riskFlag")
+    principal = ctx.principal
+    if kind == "strategyNote":
+        if principal.is_admin or principal.role == "department_head":
+            return None
+        return "AI 策略建议只能由管理员或部门负责人批准和维护"
+    if principal.holds_any(("projects",)):
+        return None
+    return "管理干预和 AI 风险标记只能由能维护该项目的人批准（管理员、PMO、本项目的项目经理）"
+
+
+@RULES.criterion("aiFindingActive")
+def ai_finding_active(ctx, values, target) -> str | None:
+    if target is None:
+        return "未找到这条记录"
+    return None if target["status"] == "active" else "只有有效的记录可以续期或关闭"
+
+
+@RULES.handler("submitAiProposal")
+def submit_ai_proposal(ctx, values, target, actor):
+    facts, _holds, note = _ai_check(ctx, values["basis"])
+    kind = values["kind"]
+    project = values.get("project") or None
+    category = values.get("category") or None
+    subject = category if kind == "strategyNote" else project
+    pending_days, _ = ai_policy_days(ctx)
+    parameters = {key: values[key] for key in ("interventionType", "owner", "dueDate") if values.get(key)}
+    row, superseded = _ai_repo(ctx).submit({
+        "kind": kind, "project_number": project, "category": category, "title": str(values["title"]).strip(),
+        "detail": (str(values.get("detail") or "").strip() or None), "basis": facts, "parameters": parameters,
+        "dedupe_key": ai_basis.dedupe_key(kind, subject, facts), "source": values.get("source") or "assistant",
+        "source_ref": values.get("sourceRef"), "basis_note": note,
+    }, actor, ctx.projects.today() + timedelta(days=pending_days))
+    edits = [_edit("AiProposal", row["proposal_id"], "create")] + [_edit("AiProposal", old, "update") for old in superseded]
+    message = f"已提交，等待批准（{row['expires_on']} 前未处理将过期）" + (f"；取代了 {len(superseded)} 条相同的待批建议" if superseded else "")
+    return {"edits": edits, "record": row, "message": message}
+
+
+@RULES.handler("approveAiProposal")
+def approve_ai_proposal(ctx, values, target, actor):
+    repo = _ai_repo(ctx)
+    proposal = repo.proposal(target["proposalId"])
+    if proposal is None:
+        raise ValueError("未找到这条 AI 建议")
+    _facts, _holds, basis_note = _ai_check(ctx, _loads(proposal["basis_json"], []))
+    edits = [_edit("AiProposal", proposal["proposal_id"], "update")]
+    kind = proposal["kind"]
+    if kind == "intervention":
+        params = _loads(proposal["parameters_json"], {})
+        row = ctx.projects.create_intervention(proposal["project_number"], {
+            "title": proposal["title"], "intervention_type": params.get("interventionType"), "owner": params.get("owner"),
+            "due_date": params.get("dueDate"), "notes": proposal.get("detail"), "source_proposal_id": proposal["proposal_id"],
+        })
+        result_id = row["intervention_id"]
+        edits.append(_edit("Intervention", result_id, "create"))
+    else:
+        _, valid_days = ai_policy_days(ctx)
+        result_id, superseded = repo.create_finding(kind, proposal, actor, ctx.projects.today() + timedelta(days=valid_days), basis_note)
+        object_type = "AiRiskFlag" if kind == "riskFlag" else "AiStrategyNote"
+        edits += [_edit(object_type, result_id, "create")] + [_edit(object_type, old, "update") for old in superseded]
+    repo.decide(proposal["proposal_id"], "approved", actor, (values.get("note") or None), result_id)
+    return {"edits": edits, "message": f"已批准，生成{AI_KIND_LABELS[kind]} {result_id}"}
+
+
+@RULES.handler("rejectAiProposal")
+def reject_ai_proposal(ctx, values, target, actor):
+    _ai_repo(ctx).decide(target["proposalId"], "rejected", actor, (values.get("note") or None))
+    return {"edits": [_edit("AiProposal", target["proposalId"], "update")], "message": "已驳回"}
+
+
+def _finding_handlers(kind: str, object_type: str, key: str, renew_name: str, close_name: str) -> None:
+    @RULES.handler(renew_name)
+    def renew(ctx, values, target, actor):
+        _, valid_days = ai_policy_days(ctx)
+        _facts, _holds, note = _ai_check(ctx, target["basis"])
+        until = ctx.projects.today() + timedelta(days=valid_days)
+        _ai_repo(ctx).renew(kind, target[key], until, note)
+        return {"edits": [_edit(object_type, target[key], "update")], "message": f"已续期至 {until.isoformat()}"}
+
+    @RULES.handler(close_name)
+    def close(ctx, values, target, actor):
+        _ai_repo(ctx).close(kind, target[key], actor, str(values.get("reason") or "").strip() or "人工关闭")
+        return {"edits": [_edit(object_type, target[key], "update")], "message": "已关闭"}
+
+
+_finding_handlers("riskFlag", "AiRiskFlag", "flagId", "renewAiRiskFlag", "closeAiRiskFlag")
+_finding_handlers("strategyNote", "AiStrategyNote", "noteId", "renewAiStrategyNote", "closeAiStrategyNote")
+assert set(FINDING_TABLES) == {"riskFlag", "strategyNote"}
+
+
+def _can_approve(ctx: OntologyContext, kind: str) -> bool:
+    return ai_approver_role(ctx, {}, {"kind": kind}) is None
+
+
+@RULES.function("aiSuggestionOverview")
+def fn_ai_suggestion_overview(ctx: OntologyContext, params: dict[str, Any]) -> dict[str, Any]:
+    """D51-D54 for one project or all visible ones: suggestions waiting for approval, active AI risk flags, the
+    facts behind interventions opened from a suggestion, and what was decided recently."""
+    project = params.get("project")
+    mine = lambda item: not project or item.get("projectNumber") == project  # noqa: E731
+    proposals = [p for p in ctx.objects("AiProposal") if mine(p)]
+    pending = [{**p, "kindLabel": AI_KIND_LABELS[p["kind"]], "canApprove": _can_approve(ctx, p["kind"])}
+               for p in proposals if p["status"] == "pending"]
+    cutoff = (ctx.projects.today() - timedelta(days=30)).isoformat()
+    recent = [{**p, "kindLabel": AI_KIND_LABELS[p["kind"]], "statusLabel": AI_PROPOSAL_STATUS_LABELS[p["status"]]}
+              for p in proposals if p["status"] != "pending" and (p.get("decidedAt") or "")[:10] >= cutoff][:20]
+    interventions = {p["resultId"]: {"proposalId": p["proposalId"], "basisHolds": p["basisHolds"], "basisNote": p.get("basisNote")}
+                     for p in proposals if p["kind"] == "intervention" and p["status"] == "approved" and p.get("resultId")}
+    flags = [f for f in ctx.objects("AiRiskFlag") if mine(f) and f["status"] == "active"]
+    return {"pending": pending, "riskFlags": flags, "interventionBasis": interventions, "recent": recent,
+            "canApproveProjectItems": _can_approve(ctx, "riskFlag")}
+
+
+def _ai_strategy_view(ctx: OntologyContext) -> dict[str, Any]:
+    """Beside the rule signals on 部门经营 (D51, D53): active AI strategy notes and strategy suggestions to approve."""
+    notes = [_finding_object(row) | {"noteId": row["note_id"], "category": row["category"],
+                                     "categoryLabel": SIGNAL_LABELS.get(row["category"], "其他")}
+             for row in ctx.table("ai_strategy_notes", "approved_at DESC, note_id") if row["status"] == "active"]
+    pending = [{"proposalId": row["proposal_id"], "title": row["title"], "detail": row.get("detail"),
+                "category": row.get("category"), "categoryLabel": SIGNAL_LABELS.get(row.get("category") or "", "其他"),
+                "basis": _loads(row["basis_json"], []), "submittedBy": row["submitted_by"], "submittedAt": row["submitted_at"],
+                "expiresOn": row["expires_on"], "basisHolds": bool(row["basis_holds"]), "basisNote": row.get("basis_note")}
+               for row in ctx.table("ai_proposals", "submitted_at DESC, proposal_id")
+               if row["status"] == "pending" and row["kind"] == "strategyNote"]
+    return {"aiStrategyNotes": notes, "aiStrategyProposals": pending, "canApproveStrategy": _can_approve(ctx, "strategyNote")}

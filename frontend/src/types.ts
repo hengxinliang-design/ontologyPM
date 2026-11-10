@@ -82,11 +82,6 @@ export interface RecordsResponse {
   links: { self: string; next: string | null; previous: string | null };
 }
 
-export interface PmAssistantChatMessage {
-  role: "user" | "assistant";
-  content: string;
-}
-
 // A write the assistant proposes (requirements baseline D16): pre-checked against the action's rules, never executed.
 export interface PmAssistantSuggestion {
   actionType: string;
@@ -95,6 +90,8 @@ export interface PmAssistantSuggestion {
   reason?: string | null;
   valid: boolean;
   reasons: string[];
+  /** submitAiProposal only (8.6.0): how each cited fact reads now, e.g. 「项目 SEY103 的预算使用率 ≥ 80（当前 85.0）」. */
+  basisTexts?: string[];
 }
 
 export interface PmAssistantResponse {

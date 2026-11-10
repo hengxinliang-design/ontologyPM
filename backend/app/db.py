@@ -208,8 +208,82 @@ CREATE TABLE IF NOT EXISTS worktime_baseline_config (
     forecast_mae_improvement_percent TEXT NOT NULL DEFAULT '20.00',
     forecast_min_auc TEXT NOT NULL DEFAULT '0.75',
     forecast_max_calibration_error TEXT NOT NULL DEFAULT '0.05',
+    ai_proposal_pending_days TEXT NOT NULL DEFAULT '7',
+    ai_finding_valid_days TEXT NOT NULL DEFAULT '30',
     notes TEXT,
     updated_at TEXT NOT NULL
+);
+
+-- AI suggestions written back after a person approves them (requirements baseline D51-D55, ontology 8.6.0).
+-- A proposal is a candidate (pending -> approved / rejected / expired / superseded); an approved one becomes a
+-- management intervention, an AI risk flag or an AI strategy note. basis_json holds the system facts it rests on,
+-- rechecked every hour; dedupe_key keeps one item per subject + kind + facts.
+CREATE TABLE IF NOT EXISTS ai_proposals (
+    proposal_id TEXT PRIMARY KEY,
+    kind TEXT NOT NULL CHECK (kind IN ('intervention', 'riskFlag', 'strategyNote')),
+    project_number TEXT,
+    category TEXT,
+    title TEXT NOT NULL,
+    detail TEXT,
+    basis_json TEXT NOT NULL,
+    parameters_json TEXT NOT NULL DEFAULT '{}',
+    dedupe_key TEXT NOT NULL,
+    source TEXT NOT NULL DEFAULT 'assistant',
+    source_ref TEXT,
+    status TEXT NOT NULL DEFAULT 'pending'
+        CHECK (status IN ('pending', 'approved', 'rejected', 'expired', 'superseded')),
+    submitted_by TEXT NOT NULL,
+    submitted_at TEXT NOT NULL,
+    expires_on TEXT NOT NULL,
+    decided_by TEXT,
+    decided_at TEXT,
+    decision_note TEXT,
+    result_id TEXT,
+    basis_holds INTEGER NOT NULL DEFAULT 1,
+    basis_note TEXT,
+    checked_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_ai_proposals_status ON ai_proposals(status, dedupe_key);
+
+CREATE TABLE IF NOT EXISTS ai_risk_flags (
+    flag_id TEXT PRIMARY KEY,
+    project_number TEXT NOT NULL,
+    title TEXT NOT NULL,
+    detail TEXT,
+    basis_json TEXT NOT NULL,
+    dedupe_key TEXT NOT NULL,
+    proposal_id TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'closed', 'expired', 'superseded')),
+    approved_by TEXT NOT NULL,
+    approved_at TEXT NOT NULL,
+    valid_until TEXT NOT NULL,
+    closed_by TEXT,
+    closed_at TEXT,
+    closed_reason TEXT,
+    basis_holds INTEGER NOT NULL DEFAULT 1,
+    basis_note TEXT,
+    checked_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_ai_risk_flags_project ON ai_risk_flags(project_number, status);
+
+CREATE TABLE IF NOT EXISTS ai_strategy_notes (
+    note_id TEXT PRIMARY KEY,
+    category TEXT NOT NULL,
+    title TEXT NOT NULL,
+    detail TEXT,
+    basis_json TEXT NOT NULL,
+    dedupe_key TEXT NOT NULL,
+    proposal_id TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'closed', 'expired', 'superseded')),
+    approved_by TEXT NOT NULL,
+    approved_at TEXT NOT NULL,
+    valid_until TEXT NOT NULL,
+    closed_by TEXT,
+    closed_at TEXT,
+    closed_reason TEXT,
+    basis_holds INTEGER NOT NULL DEFAULT 1,
+    basis_note TEXT,
+    checked_at TEXT
 );
 
 -- Load forecast model versions (requirements baseline D46-D48): one row per monthly training, with the backtest,
@@ -305,7 +379,8 @@ CREATE TABLE IF NOT EXISTS interventions (
     owner TEXT,
     due_date TEXT,
     notes TEXT,
-    updated_at TEXT NOT NULL
+    updated_at TEXT NOT NULL,
+    source_proposal_id TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_intervention_project
@@ -331,6 +406,30 @@ CREATE TABLE IF NOT EXISTS assistant_log (
     status TEXT NOT NULL CHECK (status IN ('succeeded', 'failed')),
     message TEXT,
     created_at TEXT NOT NULL
+);
+
+-- PM Assistant conversations (requirements baseline D50, amends D17): each user's own questions and answers, kept until
+-- that user deletes them; only the owner can read them. The audit log above still keeps no answers.
+CREATE TABLE IF NOT EXISTS assistant_conversations (
+    conversation_id TEXT PRIMARY KEY,
+    owner TEXT NOT NULL,
+    title TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_assistant_conversations_owner ON assistant_conversations(owner, updated_at);
+
+CREATE TABLE IF NOT EXISTS assistant_messages (
+    message_id TEXT PRIMARY KEY,
+    conversation_id TEXT NOT NULL REFERENCES assistant_conversations(conversation_id) ON DELETE CASCADE,
+    seq INTEGER NOT NULL,
+    role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
+    content TEXT NOT NULL,
+    sources_json TEXT NOT NULL DEFAULT '[]',
+    suggestions_json TEXT NOT NULL DEFAULT '[]',
+    model TEXT,
+    created_at TEXT NOT NULL,
+    UNIQUE (conversation_id, seq)
 );
 
 CREATE TABLE IF NOT EXISTS auth_sessions (
@@ -442,6 +541,8 @@ POLICY_COLUMN_DEFAULTS = {
     "forecast_mae_improvement_percent": "20.00",
     "forecast_min_auc": "0.75",
     "forecast_max_calibration_error": "0.05",
+    "ai_proposal_pending_days": "7",
+    "ai_finding_valid_days": "30",
 }
 
 PROJECT_ECONOMICS_COLUMNS = (
@@ -478,6 +579,9 @@ OBJECT_DATASETS = (
     "annual_operating_plans",
     "operating_costs",
     "load_forecast_models",
+    "ai_proposals",
+    "ai_risk_flags",
+    "ai_strategy_notes",
 )
 
 
@@ -603,6 +707,12 @@ class Database:
                 connection.execute(
                     f"ALTER TABLE worktime_baseline_config ADD COLUMN {name} TEXT NOT NULL DEFAULT '{default}'"
                 )
+        intervention_columns = {
+            row["name"] for row in connection.execute("PRAGMA table_info(interventions)").fetchall()
+        }
+        if "source_proposal_id" not in intervention_columns:
+            # 8.6.0 (D51): an intervention opened by approving an AI suggestion remembers the suggestion.
+            connection.execute("ALTER TABLE interventions ADD COLUMN source_proposal_id TEXT")
         settings_columns = {
             row["name"] for row in connection.execute("PRAGMA table_info(project_settings)").fetchall()
         }
