@@ -260,6 +260,9 @@
 | 落实进度（D59） | 策略下列出各项目干预状态；全部关闭提示可关闭；策略关闭后干预提示「所属策略已关闭」；都不自动关闭 | `AiStrategyNote.followUpInterventions`、`aiSuggestionOverview` |
 | 规则未覆盖的策略（D56、D57） | AI 提出的类别不在现有类别中 → 按「其他」提交，记下 AI 提出的类别；部门经营汇总近 90 天的条数、处理情况、示例 | `AiProposal.proposedCategory`、`departmentOperatingReview.aiStrategyGaps` |
 | 比较符写法 | eq / ne / gt / gte / lt / lte 等读作 = / != / > / >= / < / <= | `ai_basis.OPERATOR_ALIASES` |
+| 关闭干预（8.8.0，D63） | 必须填写处理结论（最多 500 字），记在「处理结论」上，备注保留；只约束关闭 | `updateInterventionStatus`、校验 `closingConclusion`（`maintenance_rules.closing_conclusion`） |
+| 干预时间线（D61、D62） | 来源、新建、状态更新（备注与结论）、所属策略失效、依据复核不成立；取自动作审计与记录 | 函数 `interventionHistory` |
+| 历史策略（D61） | 已关闭、已过期、被取代的策略，最近 50 条，带各项目干预的状态与结论 | `departmentOperatingReview.aiStrategyHistory` |
 
 ## 9. 里程碑与回款节点
 

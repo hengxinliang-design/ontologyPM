@@ -206,7 +206,7 @@ def test_fb4_intervention_from_a_suggestion_lives_as_an_ordinary_intervention(wo
     world.client.app.state.ai_findings.refresh()
     marked = world.overview(world.pmo).json()["data"]["result"]["interventionBasis"][intervention["intervention_id"]]
     assert marked["basisHolds"] is False and "当前 60.00" in marked["basisNote"]
-    closed = c.post(f"/api/v1/projects/WDR101/interventions/{intervention['intervention_id']}/status", headers=world.pmo, json={"status": "closed"})
+    closed = c.post(f"/api/v1/projects/WDR101/interventions/{intervention['intervention_id']}/status", headers=world.pmo, json={"status": "closed", "conclusion": "已追加预算"})
     assert closed.status_code == 200, closed.text
     assert world.client.app.state.ai_findings.refresh()["checked"] == 0, "a closed intervention is no longer rechecked"
 
@@ -368,7 +368,28 @@ def test_fb17_a_department_head_breaks_a_strategy_into_project_interventions(wor
     overview = execute(c, world.pm, "projectOverview", {"project": "WDR101"}).json()["data"]["result"]
     mine = next(i for i in overview["interventions"] if i["intervention_id"] == intervention)
     assert (mine["owner"], mine["intervention_type"]) == ("刘浪", "payment")
-    closed = c.post(f"/api/v1/projects/WDR101/interventions/{intervention}/status", headers=world.pm, json={"status": "closed"})
+    closed = c.post(f"/api/v1/projects/WDR101/interventions/{intervention}/status", headers=world.pm, json={"status": "closed", "conclusion": "客户已确认验收计划"})
     assert closed.status_code == 200, "the PM carries it out and closes it"
     [note] = execute(c, world.head, "departmentOperatingReview", {}).json()["data"]["result"]["aiStrategyNotes"]
     assert sorted((f["projectNumber"], f["status"]) for f in note["followUps"]) == [("TPL149", "open"), ("WDR101", "closed")]
+
+
+def test_fb18_history_and_closing_conclusion_over_http(world):
+    """8.8.0 (D61-D63): the PM must write a conclusion to close; the timeline and past strategies show what happened."""
+    c = world.client
+    proposal = world.submit(world.pmo, kind="strategyNote", project=None, category="push_acceptance", title="集中推动验收回款",
+                            basis=[budget(">=", 100)])
+    approved = world.act(world.head, "approveAiProposal", proposal=proposal, projects=["WDR101"], dueDate=(world.today() + timedelta(days=5)).isoformat())
+    intervention = next(e["primaryKey"] for e in approved.json()["data"]["edits"] if e["objectType"] == "Intervention")
+    note = next(e["primaryKey"] for e in approved.json()["data"]["edits"] if e["objectType"] == "AiStrategyNote")
+    status = f"/api/v1/projects/WDR101/interventions/{intervention}/status"
+    refused = c.post(status, headers=world.pm, json={"status": "closed"})
+    assert refused.status_code == 422 and "处理结论" in refused.text
+    assert c.post(status, headers=world.pm, json={"status": "closed", "conclusion": "客户已签验收单"}).status_code == 200
+    timeline = execute(c, world.pm, "interventionHistory", {"intervention": intervention}).json()["data"]["result"]
+    assert [e["title"] for e in timeline["events"]][-1] == "状态改为「已关闭」" and timeline["conclusion"] == "客户已签验收单"
+    assert timeline["origin"]["type"] == "strategy"
+    assert execute(c, world.analyst, "interventionHistory", {"intervention": intervention}).status_code == 403
+    assert world.act(world.head, "closeAiStrategyNote", note=note, reason="已落实").status_code == 200
+    [past] = execute(c, world.head, "departmentOperatingReview", {}).json()["data"]["result"]["aiStrategyHistory"]
+    assert past["followUps"][0]["conclusion"] == "客户已签验收单"

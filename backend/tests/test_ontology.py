@@ -171,7 +171,7 @@ def test_actions_validate_write_back_and_audit(tmp_path):
         ).json()["data"]["edits"][0]["primaryKey"]
         closed = client.post(
             "/api/v1/ontology/actions/updateInterventionStatus/apply",
-            json={"parameters": {"intervention": intervention, "status": "closed"}},
+            json={"parameters": {"intervention": intervention, "status": "closed", "conclusion": "已补充"}},
         )
         assert closed.status_code == 200
         reopen = client.post(

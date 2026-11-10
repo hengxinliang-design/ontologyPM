@@ -997,7 +997,8 @@ class ProjectRepository:
         return self._row_by_id("interventions", "intervention_id", intervention_id)
 
     def update_intervention_status(
-        self, project_number: str, intervention_id: str, status: str, notes: str | None = None
+        self, project_number: str, intervention_id: str, status: str, notes: str | None = None,
+        conclusion: str | None = None,
     ) -> dict[str, Any]:
         current = self._row_by_project_id(
             "interventions", "intervention_id", intervention_id, project_number
@@ -1005,15 +1006,17 @@ class ProjectRepository:
         if current is None:
             raise KeyError("intervention not found")
         rules.ensure(rules.locked("intervention", current["status"]))
+        rules.ensure(rules.closing_conclusion(status, conclusion))
         with self.database.connect() as connection:
             connection.execute(
                 """
-                UPDATE interventions SET status=?, notes=?, updated_at=?
+                UPDATE interventions SET status=?, notes=?, conclusion=?, updated_at=?
                 WHERE intervention_id=? AND project_number=?
                 """,
                 (
                     status,
                     notes if notes is not None else current["notes"],
+                    (str(conclusion).strip() or None) if status == "closed" and conclusion else current.get("conclusion"),
                     self._now(),
                     intervention_id,
                     project_number,

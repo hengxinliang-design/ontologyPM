@@ -9,6 +9,7 @@ import { DayPicker } from "react-day-picker";
 import { Markdown } from "./AssistantMarkdown";
 import { AssistantLauncher } from "./assistant/AssistantLauncher";
 import { InterventionDraft, ProjectAiSection } from "./aiWriteback/AiWriteback";
+import { InterventionTimeline } from "./aiWriteback/history";
 import { fetchAiOverview } from "./aiWriteback/api";
 import { INTERVENTION_TYPE_LABELS } from "./aiWriteback/types";
 import type { AiOverview } from "./aiWriteback/types";
@@ -1200,6 +1201,8 @@ function ProjectDrawer({ project, close, refresh }: { project: ProjectDetail; cl
   const emptyIntervention = { title: "", intervention_type: "management", owner: "", due_date: "", notes: "" };
   const [intervention, setIntervention] = useState(emptyIntervention);
   const [interventionFormOpen, setInterventionFormOpen] = useState(false);
+  // D63: the intervention being closed and its 处理结论 (required).
+  const [closing, setClosing] = useState<{ id: string; conclusion: string } | null>(null);
   const [expandedMonth, setExpandedMonth] = useState(project.monthly_time_entries[0]?.month ?? "");
   const [configEditing, setConfigEditing] = useState(false);
   const [aiAnalysis, setAiAnalysis] = useState<Pick<PmAssistantResponse, "answer" | "sources" | "review" | "facts" | "model"> | null>(null);
@@ -1360,14 +1363,8 @@ function ProjectDrawer({ project, close, refresh }: { project: ProjectDetail; cl
     }, "管理干预已发起");
   }
 
-  function moveIntervention(item: ProjectDetail["interventions"][number], status: "in_progress" | "closed") {
-    let notes: string | undefined;
-    if (status === "closed") {
-      const answer = window.prompt(`关闭「${item.title}」：填写处理结论（可留空）。关闭后不能重新打开。`, item.notes ?? "");
-      if (answer === null) return;
-      notes = answer.trim();
-    }
-    void run(async () => { await updateInterventionStatus(item.intervention_id, status, notes); },
+  function moveIntervention(item: ProjectDetail["interventions"][number], status: "in_progress" | "closed", conclusion?: string) {
+    void run(async () => { await updateInterventionStatus(item.intervention_id, status, conclusion); setClosing(null); },
       status === "closed" ? "管理干预已关闭" : "管理干预已转为处理中");
   }
 
@@ -1557,11 +1554,19 @@ function ProjectDrawer({ project, close, refresh }: { project: ProjectDetail; cl
             {(() => { const source = aiOverview?.interventionBasis[item.intervention_id]; return source ? <small className={source.basisHolds ? "ai-muted" : "ai-basis-stale"}>
               {source.strategyTitle
                 ? `来自部门策略「${source.strategyTitle}」${source.basisHolds ? "" : `；${source.basisNote ?? "所属策略已不成立"}，可考虑关闭`}`
-                : source.basisHolds ? "来自 AI 建议，依据仍成立" : `来自 AI 建议；${source.basisNote ?? "依据已不成立"}，可考虑关闭`}</small> : null; })()}</div>
+                : source.basisHolds ? "来自 AI 建议，依据仍成立" : `来自 AI 建议；${source.basisNote ?? "依据已不成立"}，可考虑关闭`}</small> : null; })()}
+            {item.conclusion && <small className="ai-conclusion">处理结论：{item.conclusion}</small>}
+            {closing?.id === item.intervention_id && <form className="ai-inline-reason" onSubmit={event => { event.preventDefault(); if (closing.conclusion.trim()) moveIntervention(item, "closed", closing.conclusion.trim()); }}>
+              <input autoFocus required maxLength={500} value={closing.conclusion} placeholder="处理结论（必填）：做了什么、结果如何" aria-label="处理结论"
+                onChange={event => setClosing({ id: item.intervention_id, conclusion: event.target.value })} />
+              <button type="submit" className="row-action" disabled={saving || !closing.conclusion.trim()}>确认关闭</button>
+              <button type="button" className="row-action" disabled={saving} onClick={() => setClosing(null)}>取消</button>
+            </form>}
+            <InterventionTimeline interventionId={item.intervention_id} /></div>
           <b className="panel-row-status">{INTERVENTION_STATUS_LABELS[item.status] ?? item.status}{item.overdue ? " · 已逾期" : ""}</b>
           <div className="panel-row-actions">{item.status !== "closed" && <>
             {item.status === "open" && <button type="button" className="row-action" disabled={saving} onClick={() => moveIntervention(item, "in_progress")}>开始处理</button>}
-            <button type="button" className="row-action" disabled={saving} onClick={() => moveIntervention(item, "closed")}>关闭</button>
+            <button type="button" className="row-action" disabled={saving} onClick={() => setClosing({ id: item.intervention_id, conclusion: "" })}>关闭</button>
           </>}</div>
         </li>;
         const open = project.interventions.filter(item => item.status !== "closed");

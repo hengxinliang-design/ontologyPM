@@ -5,6 +5,7 @@
 # 用户选择全部推荐项，记为需求基线 D56–D60。
 kind: OntologyBuild
 stage: release
+supersededBy: 2026-11-10-intervention-history.yaml
 topic: 现有类别覆盖不了的 AI 策略按「其他」提交并汇总为缺口清单；采纳的策略按依据涉及的项目分解为管理干预，策略显示落实进度
 ontologyVersion: 8.7.0
 date: 2026-11-10

@@ -116,6 +116,13 @@ def cost_month(month: Any, current_month: str) -> str | None:
     return None
 
 
+def closing_conclusion(status: Any, conclusion: Any) -> str | None:
+    """D63: an intervention is closed with what was done, so its history says how it ended."""
+    if status == "closed" and not str(conclusion or "").strip():
+        return "关闭干预需要填写处理结论"
+    return None
+
+
 def ensure(reason: str | None) -> None:
     """Base-program guard: raise the rule's reason (the REST layer turns ValueError into a 422)."""
     if reason:

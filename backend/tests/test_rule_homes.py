@@ -119,7 +119,7 @@ def test_actions_write_only_declared_datasets(tmp_path):
         run("deletePaymentNode", {"paymentNode": seeded["首期款"]})
 
         intervention = run("openIntervention", {"project": "WDR101", "title": "补充资源", "dueDate": "2026-12-31"}, "Intervention")
-        run("updateInterventionStatus", {"intervention": intervention, "status": "closed"})
+        run("updateInterventionStatus", {"intervention": intervention, "status": "closed", "conclusion": "已补充"})
         run("recordOpportunityOutcome", {"costObject": "WDR101", "outcome": "lost", "reason": "客户取消"})
         run("reopenOpportunity", {"costObject": "WDR101", "reason": "客户重新启动"})
         run("updateOperatingPolicy", {"policy": "default", "budgetAttentionPercent": "80"})

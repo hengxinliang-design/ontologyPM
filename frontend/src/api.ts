@@ -283,6 +283,18 @@ export async function analyzeProjectWithPmAssistant(projectNumber: string): Prom
 
 // Maintenance after import happens in the ontology: every helper below runs an ontology action, which
 // validates, checks permissions and writes the audit log. The project view is refreshed afterwards.
+/** Like ontologyAction, but returns the edited objects (their properties), e.g. the suggestion just submitted. */
+export async function ontologyActionObjects(name: string, parameters: Record<string, unknown>): Promise<Array<{ objectType: string; properties: Record<string, unknown> }>> {
+  const body = Object.fromEntries(Object.entries(parameters).filter(([, value]) => value !== undefined));
+  const response = await request<{ data: { objects?: Array<{ objectType: string; properties: Record<string, unknown> }> } }>(
+    `/api/v1/ontology/actions/${encodeURIComponent(name)}/apply`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-TSG-Channel": "business" },
+      body: JSON.stringify({ parameters: body })
+    });
+  return response.data.objects ?? [];
+}
+
 export async function ontologyAction(name: string, parameters: Record<string, unknown>): Promise<void> {
   const body = Object.fromEntries(Object.entries(parameters).filter(([, value]) => value !== undefined));
   await request(`/api/v1/ontology/actions/${encodeURIComponent(name)}/apply`, {
@@ -396,8 +408,9 @@ export async function openIntervention(projectNumber: string, payload: Intervent
   });
 }
 
-export async function updateInterventionStatus(interventionId: string, status: "in_progress" | "closed", notes?: string): Promise<void> {
-  await ontologyAction("updateInterventionStatus", { intervention: interventionId, status, notes: notes || undefined });
+export async function updateInterventionStatus(interventionId: string, status: "in_progress" | "closed", conclusion?: string): Promise<void> {
+  // D63 (8.8.0): closing writes a 处理结论 of its own; the original notes stay.
+  await ontologyAction("updateInterventionStatus", { intervention: interventionId, status, conclusion: conclusion || undefined });
 }
 
 export async function confirmMilestone(_projectNumber: string, milestoneId: string, confirmedBy: string): Promise<void> {

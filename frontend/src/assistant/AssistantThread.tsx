@@ -49,8 +49,8 @@ export function useAssistantThread(conversationId: string | null, onSaved: (conv
       const answer = await askAssistant(content, startedIn);
       if (shown.current === startedIn) {
         // Still on the same conversation: show the answer; a new conversation now has its id.
-        setMessages(previous => [...previous, { role: "assistant", content: answer.answer, sources: answer.sources,
-          suggestions: answer.suggestions, model: answer.model }]);
+        setMessages(previous => [...previous, { message_id: answer.message_id, role: "assistant", content: answer.answer,
+          sources: answer.sources, suggestions: answer.suggestions, model: answer.model }]);
         shown.current = answer.conversation_id;
       }
       onSaved(answer.conversation_id);
@@ -75,7 +75,8 @@ function AnswerBasis({ message }: { message: AssistantMessage }) {
   const drafts = (message.suggestions ?? []).filter(item => item.actionType === "submitAiProposal");
   const suggestions = (message.suggestions ?? []).filter(item => item.actionType !== "submitAiProposal");
   return <>
-    {drafts.map((item, index) => <ProposalDraftCard key={`draft-${index}`} item={item} />)}
+    {drafts.map((item, index) => <ProposalDraftCard key={`draft-${index}`} item={item}
+      cardRef={message.message_id ? `${message.message_id}:${(message.suggestions ?? []).indexOf(item)}` : undefined} />)}
     {suggestions.length > 0 && <div className="assistant-suggested">
       <span>建议动作（未执行）</span>
       {suggestions.map((item, index) => <article key={`${item.actionType}-${index}`} className={item.valid ? "valid" : "invalid"}>

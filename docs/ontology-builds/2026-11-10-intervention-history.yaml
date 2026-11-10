@@ -1,0 +1,81 @@
+# 本体构建包（发布稿）：干预与 AI 策略的历史回溯。本体 8.8.0（Intervention 新增「处理结论」，更新干预状态动作新增参数与校验，
+# 新函数 interventionHistory，部门复盘返回历史策略；非破坏性，但关闭干预从此必须写处理结论）。
+# 依据：用户 2026-11-10「针对之前生成的干预内容，需要有一个历史可以查询回溯」；用户选择全部推荐项，记为需求基线 D61–D63。
+kind: OntologyBuild
+stage: release
+topic: 每条管理干预可以查看时间线（来源、经过、处理结论），已失效的 AI 策略留在部门经营可查；关闭干预必须写处理结论
+ontologyVersion: 8.8.0
+date: 2026-11-10
+scope:
+  - CQ-H1 这条干预是怎么来的？来自哪条 AI 建议或部门策略，谁提交、谁批准，依据是什么？
+  - CQ-H2 这条干预经历了什么：谁在什么时候开始处理、关闭，最后做了什么？
+  - CQ-H3 以前采纳过哪些 AI 策略，后来怎样了（关闭、过期、被取代），各项目的干预结论是什么？
+  - CQ-H4 所属策略被关闭或依据不再成立是什么时候、为什么？
+
+rules:
+  - id: R1
+    statement: 关闭管理干预时必须填写处理结论（去掉空格后不为空，最多 500 字），结论记在干预的「处理结论」上，原来的备注保留。规则只有一份实现（maintenance_rules.closing_conclusion），动作的提交条件 closingConclusion 与基础程序兜底都调用它；项目详情、本体浏览器、REST 接口同一结果。8.8.0 以前关闭的干预不受影响。
+    basis: D63（用户选择「Required when closing」）；原则 15（一条规则一份实现）；此前项目详情用浏览器提示框收结论且允许留空、并覆盖备注。
+    acceptance: 不写或只写空格关闭被拒（「需要填写处理结论」），基础程序直接调用也被拒；先「处理中」备注「已协调外包」，再关闭并写「外包两人已到岗」，干预状态已关闭、处理结论为该句、备注仍为「已协调外包」；REST 接口不带结论关闭返回 422，带结论返回 200。
+    verifiedBy: [test_closing_needs_a_conclusion_on_every_write_path, test_drawer_endpoints_follow_project_maintenance_rights, test_fb18_history_and_closing_conclusion_over_http]
+    ontology: [updateInterventionStatus, Intervention.conclusion, closingConclusion]
+  - id: R2
+    statement: 函数「干预时间线」按时间列出一条管理干预的事件：来源（AI 建议或部门策略的提交、批准或采纳，含依据读法）、新建（发起干预 / 批准 AI 建议新建 / 部门策略分解到本项目，含截止日期与负责人）、每次状态更新（含备注与处理结论）、所属策略被关闭或过期（含原因）、来源建议的依据复核不成立（系统）。事件取自动作审计（ontology_action_log）与记录本身，不另存一份；没有动作记录的旧干预只显示「已登记」。
+    basis: D61、D62（用户选择「Beside each item」「All interventions」）；原则 13（判断要带依据）。
+    acceptance: 人工干预的事件依次为「发起干预」（pmo.a）、「状态改为「处理中」」（备注）、「状态改为「已关闭」」（pm.a，处理结论）；部门策略分解的干预依次为提交策略（pmo.a）、采纳部门策略（head.a）、部门策略分解到本项目，最后为「所属策略已关闭」（原因「本月已安排」），来源含依据「项目 WDR101 的预算人天 ≥ 100（当前 120.00）」；AI 建议生成的干预在预算改为 80 并复核后最后一条为「复核：依据已不成立」（系统，含「当前 80.00」）；直接写库的旧干预只有「已登记」。
+    verifiedBy: [test_a_manual_intervention_has_a_timeline, test_an_intervention_from_a_strategy_traces_back_to_it, test_an_intervention_from_a_suggestion_shows_when_its_facts_stopped_holding, test_history_follows_the_scope_and_covers_records_from_before_the_audit]
+    ontology: [interventionHistory, Intervention, Intervention.sourceProposal, AiStrategyNote.followUpInterventions]
+  - id: R3
+    statement: 干预时间线按读者的权限与数据范围：需要项目管理菜单，项目经理只能看本人项目的干预。
+    basis: D2、D11；函数声明 dataScope project。
+    acceptance: 项目经理读其他项目的干预时间线失败；分析人员（没有项目管理菜单）返回 403。
+    verifiedBy: [test_history_follows_the_scope_and_covers_records_from_before_the_audit, test_fb18_history_and_closing_conclusion_over_http, test_function_data_scope_is_declared]
+    ontology: [interventionHistory]
+  - id: R4
+    statement: 部门经营复盘返回 aiStrategyHistory：已关闭、已过期、被取代的 AI 策略建议（最近 50 条，按关闭时间倒序），每条含类别、采纳人与时间、关闭人与原因、依据读法，以及分解出的每项干预的项目、状态与处理结论；有效策略的落实进度也带处理结论。页面在 AI 策略建议下折叠「历史策略」，可按标题搜索。
+    basis: D61。
+    acceptance: 策略有效时历史为空、落实进度中带「客户已签验收单」；关闭（原因「已落实」）后历史列出该策略（已关闭、head.a），干预为 WDR101 已关闭「客户已签验收单」，依据为预算人天 ≥ 100。
+    verifiedBy: [test_strategies_no_longer_in_force_are_kept_with_their_outcomes, test_fb18_history_and_closing_conclusion_over_http]
+    ontology: [departmentOperatingReview, AiStrategyNote]
+
+exceptions:
+  - rule: R1
+    case: 8.8.0 以前已关闭、没有处理结论的干预。
+    handling: 保持原样，处理结论为空；时间线照常显示它们的状态事件，旧的结论若写在备注里，备注仍在。
+    basis: 已关闭的干预锁定（notLocked），不补录；不追溯修改历史记录。
+  - rule: R1
+    case: 只把干预改为「处理中」。
+    handling: 不要求处理结论；只有关闭时才要求。
+    basis: D63 只约束关闭。
+  - rule: R1
+    case: 本体浏览器中由管理员关闭。
+    handling: 同样要求处理结论（同一条规则），参数表单出现「处理结论」。
+    basis: 原则 15；经验库 L10（两条写入路径一份规则）。
+  - rule: R2
+    case: 动作审计里有被拒绝或失败的操作（例如没写结论的关闭）。
+    handling: 不进入时间线，只列成功的操作；被拒的尝试仍在本体浏览器的动作审计中可查。
+    basis: 时间线回答「发生了什么」，不是「谁试过什么」。
+  - rule: R2
+    case: 系统的每小时复核与策略到期不经过动作。
+    handling: 从记录本身取：策略的关闭人（system）、关闭时间与原因，来源建议的复核时间与读法；只在依据不成立或策略已失效时列出，不列每小时的「仍成立」。
+    basis: D54；复核只在结果变化时写库，没有逐小时的记录。
+  - rule: R2
+    case: 由 AI 建议生成的干预，其建议的依据先不成立、后又成立。
+    handling: 时间线只显示最近一次复核的结果（记录上只保留最新的复核读法）；若当前依据成立，不显示「依据已不成立」事件。
+    basis: 复核结果按最新状态保存，不保留每次变化；需要完整轨迹时看本体浏览器的对象审计。
+  - rule: R2
+    case: 干预由导入、演示数据或 8.0.0 以前的接口直接写入，没有动作记录。
+    handling: 只显示「已登记」（取更新时间），并注明早于动作审计。
+    basis: 原则 14：没有记录时说「不知道」，不编造经过。
+  - rule: R3
+    case: 部门负责人没有项目管理菜单，但采纳过策略。
+    handling: 在部门经营的历史策略中看到各项目干预的状态与处理结论；单条干预的完整时间线需要项目管理菜单。
+    basis: D61 就近查询；项目详情需要项目管理菜单（经验库 L43）。
+  - rule: R4
+    case: 超过 50 条的历史策略。
+    handling: 只列最近 50 条（按关闭时间）；更早的可在本体浏览器按状态筛选 AI 策略建议。
+    basis: 页面可读性；D54 不要越积越多，历史仍完整保存在本体中。
+  - rule: R4
+    case: 被取代的策略（同一去重键有新采纳的）。
+    handling: 列入历史，状态「已被取代」，原因写明被哪一条取代；它分解出的干预仍挂在它名下，不转到新策略。
+    basis: 干预的来源是当时采纳的那条策略；回溯要看到真实的来源。

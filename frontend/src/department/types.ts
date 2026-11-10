@@ -1,4 +1,4 @@
-import type { AiStrategyGap, AiStrategyNote, AiStrategyProposal } from "../aiWriteback/types";
+import type { AiStrategyGap, AiStrategyNote, AiStrategyProposal, StrategyHistoryItem } from "../aiWriteback/types";
 // Department review (ontology 4.0.0). Amounts are decimal strings; null means "unknown" or "redacted".
 // Person-day economics is paused, so the review carries no revenue, margin or backlog figures.
 export type ResourceHealthStatus = "overloaded" | "fatigue" | "fragmented" | "idle" | "first_month" | "healthy";
@@ -101,6 +101,8 @@ export interface DepartmentReview {
   canApproveStrategy?: boolean;
   // 8.7.0 (D56): strategies no existing category covers, grouped by the category the model proposed.
   aiStrategyGaps?: AiStrategyGap[];
+  // 8.8.0 (D61): strategies no longer in force, with their interventions and conclusions.
+  aiStrategyHistory?: StrategyHistoryItem[];
 }
 
 export const HEALTH_STATUS_LABEL: Record<ResourceHealthStatus, string> = {

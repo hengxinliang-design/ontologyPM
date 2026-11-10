@@ -94,6 +94,20 @@ export interface PmAssistantSuggestion {
   basisTexts?: string[];
   /** submitAiProposal only (8.7.0, D56): what the pre-check changed, e.g. an uncovered category submitted as 其他. */
   notes?: string[];
+  /** submitAiProposal only (8.8.0): what became of this card — who submitted it when, and its decision. */
+  submission?: CardSubmission;
+}
+
+export interface CardSubmission {
+  proposalId: string;
+  status: "pending" | "approved" | "rejected" | "expired" | "superseded";
+  statusLabel: string;
+  submittedBy: string;
+  submittedAt: string;
+  expiresOn: string;
+  decidedBy: string | null;
+  decidedAt: string | null;
+  decisionNote: string | null;
 }
 
 export interface PmAssistantResponse {
@@ -372,6 +386,8 @@ export interface ProjectDetail extends ProjectSummary {
     owner: string | null;
     due_date: string | null;
     notes: string | null;
+    /** D63 (8.8.0): what was done, written when it was closed; empty for interventions closed before 8.8.0. */
+    conclusion?: string | null;
     /** Open past its due date (D32); computed on the server. */
     overdue: boolean;
   }>;

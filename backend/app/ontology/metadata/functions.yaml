@@ -297,4 +297,17 @@ definition:
   permissions: [projects]
   implementation: aiSuggestionOverview
   dataScope: project
+---
+kind: Function
+version: v1
+definition:
+  apiName: interventionHistory
+  displayName: 干预时间线
+  description: 一条管理干预的来龙去脉（D61、D62）：来源（哪条 AI 建议或部门策略、谁提交谁批准、依据），发起、开始处理、关闭及处理结论，所属策略被关闭或过期、依据复核不成立。按时间排列，取自动作审计与记录本身；早于动作审计的干预只显示登记时间。
+  parameters:
+    - {apiName: intervention, displayName: 管理干预, type: object_ref, objectType: Intervention, required: true}
+  outputType: InterventionHistory
+  permissions: [projects]
+  implementation: interventionHistory
+  dataScope: project
 

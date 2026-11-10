@@ -143,3 +143,45 @@ def test_search_matches_titles_and_messages_and_deleting_removes_messages(tmp_pa
 def test_titles_are_one_line_and_cut():
     assert title_for("  哪些项目\n需要  优先关注？ ") == "哪些项目 需要 优先关注？"
     assert title_for("长" * 60) == "长" * 39 + "…"
+
+
+def test_a_submitted_card_keeps_its_state_after_a_reload(tmp_path, monkeypatch):
+    """8.8.0 (user 2026-11-10): a card submitted for approval showed 「提交审批」 again after a refresh, and did not say
+    who submitted it or when. Cards are linked to what they became (source_ref = answer id + index)."""
+    draft = {"kind": "riskFlag", "project": "WDR101", "title": "预算可能不够",
+             "basis": [{"type": "fact", "objectType": "Project", "primaryKey": "WDR101", "property": "projectNumber", "op": "=", "value": "WDR101"}]}
+    scripted(monkeypatch, [[function_call("suggest_action", {"actionType": "submitAiProposal", "parameters": draft}, "c1")],
+                           "已给出风险标记候选。"])
+    with TestClient(app_for(tmp_path)) as client:
+        answer = ask(client, "WDR101 有风险吗？").json()["data"]
+        assert answer["message_id"].startswith("amsg_")
+        path = f"/api/v1/pm-assistant/conversations/{answer['conversation_id']}"
+        assert "submission" not in client.get(path).json()["data"]["messages"][1]["suggestions"][0]
+        ref = f"{answer['message_id']}:0"
+        submitted = client.post("/api/v1/ontology/actions/submitAiProposal/apply", headers={"X-TSG-Channel": "business"},
+                                json={"parameters": {**draft, "source": "assistant", "sourceRef": ref}}).json()["data"]
+        proposal = submitted["objects"][0]["properties"]
+        assert (proposal["submittedBy"], proposal["sourceRef"]) == ("test", ref)
+        card = client.get(path).json()["data"]["messages"][1]["suggestions"][0]
+        assert (card["submission"]["status"], card["submission"]["statusLabel"], card["submission"]["submittedBy"]) == ("pending", "待批准", "test")
+        assert card["submission"]["submittedAt"] == proposal["submittedAt"]
+        client.post("/api/v1/ontology/actions/approveAiProposal/apply", headers={"X-TSG-Channel": "business"},
+                    json={"parameters": {"proposal": proposal["proposalId"], "note": "同意"}})
+        card = client.get(path).json()["data"]["messages"][1]["suggestions"][0]
+        assert (card["submission"]["status"], card["submission"]["decidedBy"], card["submission"]["decisionNote"]) == ("approved", "test", "同意")
+
+
+def test_cards_submitted_before_linking_are_matched_by_title(tmp_path, monkeypatch):
+    draft = {"kind": "riskFlag", "project": "WDR101", "title": "旧卡片",
+             "basis": [{"type": "fact", "objectType": "Project", "primaryKey": "WDR101", "property": "projectNumber", "op": "=", "value": "WDR101"}]}
+    twin = {**draft, "basis": [*draft["basis"], {"type": "fact", "objectType": "Project", "primaryKey": "WDR101", "property": "nope", "op": "=", "value": 1}]}
+    scripted(monkeypatch, [[function_call("suggest_action", {"actionType": "submitAiProposal", "parameters": twin}, "c0"),
+                            function_call("suggest_action", {"actionType": "submitAiProposal", "parameters": draft}, "c1")], "好的。"])
+    with TestClient(app_for(tmp_path)) as client:
+        answer = ask(client, "WDR101 有风险吗？").json()["data"]
+        client.post("/api/v1/ontology/actions/submitAiProposal/apply", headers={"X-TSG-Channel": "business"},
+                    json={"parameters": {**draft, "source": "assistant"}})
+        cards = client.get(f"/api/v1/pm-assistant/conversations/{answer['conversation_id']}").json()["data"]["messages"][1]["suggestions"]
+    assert "submission" not in cards[0], "same title but other facts: that card was not submitted"
+    assert cards[1]["submission"]["status"] == "pending" and cards[1]["submission"]["submittedBy"] == "test"
+

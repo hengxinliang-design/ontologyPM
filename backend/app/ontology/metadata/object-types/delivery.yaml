@@ -90,6 +90,7 @@ definition:
     - {apiName: dueDate, displayName: 截止日期, type: date, sourceKind: manual, source: interventions.due_date}
     - {apiName: overdue, displayName: 已逾期, type: boolean, sourceKind: derived, source: 状态不是已关闭，且截止日期早于今天（没有截止日期的存量干预不算逾期）}
     - {apiName: notes, displayName: 备注, type: string, sourceKind: manual, source: interventions.notes}
+    - {apiName: conclusion, displayName: 处理结论, type: string, sourceKind: manual, source: interventions.conclusion：关闭时必须填写（D63），进入干预时间线；8.8.0 以前关闭的干预为空}
     - {apiName: sourceProposalId, displayName: 来源 AI 建议, type: string, sourceKind: system, source: interventions.source_proposal_id：批准 AI 建议时新建的干预记下来源建议；来源建议的依据不再成立时提示由人关闭（D54）}
     - {apiName: updatedAt, displayName: 更新时间, type: datetime, sourceKind: manual, source: interventions.updated_at}
 ---

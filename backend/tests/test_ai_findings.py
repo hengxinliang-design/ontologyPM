@@ -342,7 +342,7 @@ def test_an_approved_strategy_is_broken_into_project_interventions(app):
     overview = app.state.ontology_service.execute_function(ADMIN, "aiSuggestionOverview", {"project": "WDR101"})["result"]
     assert overview["interventionBasis"][wdr]["strategyTitle"] == "集中推动验收回款" and overview["interventionBasis"][wdr]["basisHolds"]
 
-    act(app, PMO, "updateInterventionStatus", intervention=tpl, status="closed")
+    act(app, PMO, "updateInterventionStatus", intervention=tpl, status="closed", conclusion="已安排验收")
     note, steps = progress()
     assert steps == [("TPL149", "closed"), ("WDR101", "open")] and note["readyToClose"] is False
     act(app, HEAD, "closeAiStrategyNote", note=note["noteId"], reason="本月已安排")
@@ -355,7 +355,7 @@ def test_all_follow_ups_closed_means_the_strategy_may_be_closed(app):
     proposal = strategy_with_two_projects(app)
     result = act(app, HEAD, "approveAiProposal", proposal=proposal, projects=["WDR101"], dueDate=(today(app) + timedelta(days=3)).isoformat())
     [intervention] = [e["primaryKey"] for e in result["edits"] if e["objectType"] == "Intervention"]
-    act(app, PMO, "updateInterventionStatus", intervention=intervention, status="closed")
+    act(app, PMO, "updateInterventionStatus", intervention=intervention, status="closed", conclusion="已完成")
     [note] = app.state.ontology_service.execute_function(HEAD, "departmentOperatingReview", {})["result"]["aiStrategyNotes"]
     assert note["readyToClose"] is True and note["status"] == "active", "it only says it may be closed"
 

@@ -271,7 +271,9 @@ Content-Type: application/json
 
 项目的待批建议、有效风险标记和由建议生成的干预的依据状态由本体函数 `aiSuggestionOverview` 返回（8.7.0 起，由部门策略分解的干预另带 `strategyTitle`、`strategyStatus`）；部门复盘 `departmentOperatingReview` 另返回 `aiStrategyNotes`（含 `followUps`、`readyToClose`、`citedProjects`）、`aiStrategyProposals`（含 `citedProjects`）、`canApproveStrategy` 与 `aiStrategyGaps`。
 
-8.7.0：`approveAiProposal` 对 AI 策略建议可带 `projects`（依据涉及的项目编号列表）与 `dueDate`，每个项目新建一条管理干预；已采纳的策略用 `breakDownAiStrategyNote`（`note`、`projects`、`dueDate`）补分解。`submitAiProposal` 的策略建议可带 `proposedCategory`（仅类别为 other）。依据的 `op` 也接受 eq、ne、gt、gte、lt、lte。
+8.7.0：`approveAiProposal` 对 AI 策略建议可带 `projects`（依据涉及的项目编号列表）与 `dueDate`，每个项目新建一条管理干预；已采纳的策略用 `breakDownAiStrategyNote`（`note`、`projects`、`dueDate`）补分解。`submitAiProposal` 的策略建议可带 `proposedCategory`（仅类别为 other）。
+
+8.8.0：问答响应带 `message_id`（这条回答的编号）；页面从候选卡片提交时，`sourceRef` 为「message_id:卡片序号」。`GET /api/v1/pm-assistant/conversations/{id}` 中，已提交的卡片带 `submission`：`proposalId`、`status`、`statusLabel`、`submittedBy`、`submittedAt`、`expiresOn`、`decidedBy`、`decidedAt`、`decisionNote`（8.8.0 以前提交、没有来源记录的卡片按同一提交人、类型与标题匹配）。关闭干预（`updateInterventionStatus` 或 `POST /api/v1/projects/{project}/interventions/{id}/status`）必须带 `conclusion`（处理结论），否则 422；本体函数 `interventionHistory`（参数 `intervention`）返回一条干预的来源与事件时间线；部门复盘另返回 `aiStrategyHistory`。依据的 `op` 也接受 eq、ne、gt、gte、lt、lte。
 
 #### 历史对话（D50）
 

@@ -17,6 +17,19 @@ from typing import Any
 from .db import Database
 
 TITLE_CHARS = 40
+# AiProposalStatus labels (ontology.yaml); kept here so the history does not depend on the rule registry.
+PROPOSAL_STATUS_LABELS = {"pending": "待批准", "approved": "已批准", "rejected": "已驳回", "expired": "已过期", "superseded": "已被取代"}
+
+
+def _submission(row: Any) -> dict[str, Any]:
+    return {"proposalId": row["proposal_id"], "status": row["status"], "statusLabel": PROPOSAL_STATUS_LABELS.get(row["status"], row["status"]),
+            "submittedBy": row["submitted_by"], "submittedAt": row["submitted_at"], "expiresOn": row["expires_on"],
+            "decidedBy": row["decided_by"], "decidedAt": row["decided_at"], "decisionNote": row["decision_note"]}
+
+
+def card_ref(message_id: str, index: int) -> str:
+    """The source_ref an AI suggestion submitted from a saved answer carries: which answer, which card."""
+    return f"{message_id}:{index}"
 CONTEXT_MESSAGES = 6
 CONTEXT_CHARS = 1200
 LIST_LIMIT = 500
@@ -72,9 +85,60 @@ class AssistantHistory:
             rows = connection.execute(
                 "SELECT * FROM assistant_messages WHERE conversation_id = ? ORDER BY seq", (conversation_id,)
             ).fetchall()
+            submissions = self._submissions(connection, [row["message_id"] for row in rows if row["role"] == "assistant"])
+            messages = [self._message(row) for row in rows]
+            for message in messages:
+                for index, suggestion in enumerate(message["suggestions"]):
+                    if not isinstance(suggestion, dict) or suggestion.get("actionType") != "submitAiProposal":
+                        continue
+                    found = submissions.get(card_ref(message["message_id"], index)) or self._unlinked_submission(
+                        connection, conversation["owner"], message, suggestion.get("parameters") or {})
+                    if found:
+                        suggestion["submission"] = found
         return {"conversation_id": conversation["conversation_id"], "title": conversation["title"],
                 "created_at": conversation["created_at"], "updated_at": conversation["updated_at"],
-                "messages": [self._message(row) for row in rows]}
+                "messages": messages}
+
+    @staticmethod
+    def _submissions(connection: Any, message_ids: list[str]) -> dict[str, dict[str, Any]]:
+        """What became of the AI suggestion cards in these answers (8.8.0): the latest suggestion each card was submitted
+        as, with who submitted it and when, and its decision. A card is matched by its source_ref (message id + index)."""
+        if not message_ids:
+            return {}
+        refs: dict[str, dict[str, Any]] = {}
+        marks = ",".join("?" * len(message_ids))
+        rows = connection.execute(
+            f"SELECT * FROM ai_proposals WHERE substr(source_ref, 1, instr(source_ref, ':') - 1) IN ({marks}) "
+            "ORDER BY submitted_at", message_ids).fetchall()
+        for row in rows:  # later submissions of the same card replace earlier ones
+            refs[row["source_ref"]] = _submission(row)
+        return refs
+
+    @staticmethod
+    def _unlinked_submission(connection: Any, owner: str, message: dict[str, Any], parameters: dict[str, Any]) -> dict[str, Any] | None:
+        """Cards submitted before cards were linked (before 8.8.0) carry no source_ref: match the owner's suggestion of the
+        same kind and title submitted after the answer."""
+        from .ontology.derivations import ai_basis
+
+        if not parameters.get("title"):
+            return None
+
+        def facts(raw: Any) -> list[str] | None:
+            try:
+                return sorted(ai_basis.identity(f) for f in ai_basis.normalize(raw))
+            except ai_basis.BasisError:
+                return None
+
+        wanted = facts(parameters.get("basis"))
+        if wanted is None:
+            return None  # a card whose facts cannot be read was never submitted
+        rows = connection.execute(
+            "SELECT * FROM ai_proposals WHERE (source_ref IS NULL OR source_ref = '' OR instr(source_ref, ':') = 0) "
+            "AND submitted_by = ? AND kind = ? AND title = ? AND submitted_at >= ? ORDER BY submitted_at DESC",
+            (owner, parameters.get("kind"), str(parameters["title"]).strip(), message["created_at"])).fetchall()
+        # Same kind and title is not enough (two cards in one answer can share a title): the cited facts must match too.
+        row = next((r for r in rows if facts(json.loads(r["basis_json"])) == wanted), None)
+        return _submission(row) if row else None
 
     def context(self, user: dict[str, Any], conversation_id: str) -> list[dict[str, str]]:
         """What a follow-up sends to the model: the last messages of the conversation, cut to size."""
@@ -106,12 +170,13 @@ class AssistantHistory:
                       "suggestions_json, model, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
             connection.execute(insert, ("amsg_" + uuid.uuid4().hex[:16], conversation_id, seq + 1, "user", question,
                                         "[]", "[]", None, now))
-            connection.execute(insert, ("amsg_" + uuid.uuid4().hex[:16], conversation_id, seq + 2, "assistant",
+            answer_id = "amsg_" + uuid.uuid4().hex[:16]
+            connection.execute(insert, (answer_id, conversation_id, seq + 2, "assistant",
                                         answer["answer"], json.dumps(answer.get("sources") or [], ensure_ascii=False),
                                         json.dumps(answer.get("suggestions") or [], ensure_ascii=False, default=str),
                                         answer.get("model"), now))
             connection.commit()
-        return {"conversation_id": conversation_id, "updated_at": now}
+        return {"conversation_id": conversation_id, "updated_at": now, "message_id": answer_id}
 
     def delete(self, user: dict[str, Any], conversation_id: str) -> None:
         with self.database.connect() as connection:

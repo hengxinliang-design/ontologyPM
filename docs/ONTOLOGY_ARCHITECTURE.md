@@ -613,6 +613,16 @@ when: [{property: contractType, notIn: [sales]}, {property: lifecycleStatus, not
 
 规模：18 个对象类型、27 种关系、26 个动作、21 个函数、20 个值类型、2 个安全标记。构建包见 [2026-11-10-strategy-follow-through.yaml](./ontology-builds/2026-11-10-strategy-follow-through.yaml)。
 
+### 11.40 干预与策略的历史回溯（v8.8.0）
+
+需求基线 D61–D63。历史不另存：动作审计 `ontology_action_log` 已记录每次成功的动作（执行人、时间、参数、编辑的对象），系统复核与策略到期记在记录本身（关闭人 system、原因、复核读法）。
+
+- **时间线** 函数 `interventionHistory`（dataScope project）：按干预编号查审计（object_pk 或 edits 中的主键），加上来源建议 / 策略的提交、批准、关闭，按时间排序；没有审计的旧干预只返回「已登记」。
+- **处理结论** `Intervention.conclusion`（新列 interventions.conclusion）；`updateInterventionStatus` 新增 conclusion 参数，提交条件 `closingConclusion` 与 `ProjectRepository.update_intervention_status` 的兜底都调用 `maintenance_rules.closing_conclusion`（原则 15）。
+- **历史策略** 部门复盘的 aiStrategyHistory：非有效的 AiStrategyNote 及其落实干预与结论。
+
+规模：18 个对象类型、27 种关系、26 个动作、22 个函数、20 个值类型、2 个安全标记。构建包见 [2026-11-10-intervention-history.yaml](./ontology-builds/2026-11-10-intervention-history.yaml)。
+
 ## 12. 代码结构
 
 ```text

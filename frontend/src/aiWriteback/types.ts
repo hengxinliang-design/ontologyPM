@@ -47,7 +47,7 @@ export interface AiFinding {
 
 export interface AiRiskFlag extends AiFinding { flagId: string; projectNumber: string }
 /** D58/D59: an intervention a strategy was broken into, on one of its projects. */
-export interface StrategyFollowUp { interventionId: string; projectNumber: string; status: "open" | "in_progress" | "closed"; dueDate: string | null; overdue: boolean }
+export interface StrategyFollowUp { interventionId: string; projectNumber: string; status: "open" | "in_progress" | "closed"; dueDate: string | null; overdue: boolean; conclusion?: string | null }
 
 export interface AiStrategyNote extends AiFinding {
   noteId: string; category: string; categoryLabel: string; proposedCategory?: string | null;
@@ -116,3 +116,23 @@ export interface AiStrategyGap {
   latestAt: string;
   examples: Array<{ proposalId: string; title: string; status: string; statusLabel: string; basis: BasisFact[] }>;
 }
+
+/** D61/D62 (8.8.0): an intervention's timeline. */
+export interface InterventionHistory {
+  interventionId: string;
+  projectNumber: string;
+  title: string;
+  status: string;
+  conclusion: string | null;
+  origin: { type: "strategy" | "suggestion"; title: string; category?: string; status: string | null; statusLabel: string | null; basis: string[] } | null;
+  events: Array<{ at: string | null; actor: string | null; title: string; detail: string | null; kind: string }>;
+}
+
+/** D61: a strategy no longer in force, with its interventions and how they ended. */
+export interface StrategyHistoryItem {
+  noteId: string; title: string; detail: string | null; categoryLabel: string; status: string; statusLabel: string;
+  approvedBy: string; approvedAt: string; closedBy: string | null; closedAt: string | null; closedReason: string | null;
+  basis: string[];
+  followUps: Array<{ interventionId: string; projectNumber: string; status: string; statusLabel: string; conclusion: string | null }>;
+}
+

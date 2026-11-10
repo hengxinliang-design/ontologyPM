@@ -241,7 +241,7 @@ function SignalPanel({ review, onChanged }: { review: DepartmentReview; onChange
       </li>)}
     </ol>
     <StrategyAiPanel notes={review.aiStrategyNotes ?? []} proposals={review.aiStrategyProposals ?? []}
-      canApprove={Boolean(review.canApproveStrategy)} onChanged={onChanged} gaps={review.aiStrategyGaps ?? []} />
+      canApprove={Boolean(review.canApproveStrategy)} onChanged={onChanged} gaps={review.aiStrategyGaps ?? []} history={review.aiStrategyHistory ?? []} />
   </section>;
 }
 

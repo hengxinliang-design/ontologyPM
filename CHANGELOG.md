@@ -4,6 +4,7 @@
 
 | 产品版本 | 本体版本 | 日期 | 构建包 |
 | --- | --- | --- | --- |
+| v1.41.0 | 8.8.0 | 2026-11-10 | [2026-11-10-intervention-history](docs/ontology-builds/2026-11-10-intervention-history.yaml) |
 | v1.40.0 | 8.7.0 | 2026-11-10 | [2026-11-10-strategy-follow-through](docs/ontology-builds/2026-11-10-strategy-follow-through.yaml) |
 | v1.39.0 | 8.6.0 | 2026-11-10 | [2026-11-09-ai-writeback](docs/ontology-builds/2026-11-09-ai-writeback.yaml) |
 | v1.38.2 | 8.5.0 | 2026-11-09 | —（只改界面） |
@@ -35,6 +36,14 @@
 | v1.22.0 | 7.6.0 | 2026-10-30 | [2026-10-29-logical-delete](docs/ontology-builds/2026-10-29-logical-delete.yaml) |
 | v1.21.0 | 7.5.0 | 2026-10-29 | [2026-10-29-rule-homes-and-linkages](docs/ontology-builds/2026-10-29-rule-homes-and-linkages.yaml) |
 | v1.20.0 | 7.4.0 | 2026-10-29 | [2026-10-29-milestone-span-period](docs/ontology-builds/2026-10-29-milestone-span-period.yaml) |
+
+## v1.41.0 — 干预与 AI 策略的历史回溯；助手卡片记得自己的结果（本体 8.8.0）
+
+- 干预时间线（D61、D62）：项目详情每条管理干预可点「历史」展开：来源（哪条 AI 建议或部门策略、谁提交谁批准、依据），发起、开始处理、关闭及处理结论，所属策略被关闭或过期、依据复核不成立。人工发起的与 AI 生成的都有；取自动作审计与记录本身，不另存一份。
+- 历史策略（D61）：部门经营 AI 策略建议下折叠「历史策略」，列出已关闭、已过期、被取代的策略，各项目干预的状态与处理结论，可按标题搜索；有效策略的落实进度也显示处理结论。
+- 关闭须写处理结论（D63）：关闭干预时在行内填写处理结论（必填，最多 500 字），记在新字段「处理结论」上，原备注保留（此前用浏览器提示框、可留空且覆盖备注）；项目详情、本体浏览器与接口同一条规则。8.8.0 以前关闭的干预不受影响。
+- 助手候选卡片记得自己的结果（2026-11-10 用户反馈）：此前提交审批后刷新页面，卡片又变回「提交审批」，也看不出谁、何时提交。现在每张卡片与它提交成的 AI 建议关联（来源记录 = 回答编号 + 卡片序号），打开对话时显示「待批准 / 已批准 / 已驳回 / 已过期」、提交人与提交时间、处理人与处理时间；只有已驳回、已过期、被取代的才出现「重新提交」。8.8.0 以前提交的卡片按标题与类型匹配。问答接口返回 message_id，历史对话的卡片带 submission。
+- 本体 8.8.0：Intervention.conclusion；updateInterventionStatus 新增 conclusion 参数与校验 closingConclusion；新函数 interventionHistory；部门复盘返回 aiStrategyHistory。构建包 2026-11-10-intervention-history。
 
 ## v1.40.0 — AI 策略的缺口清单与分解到项目（需求基线 D56–D60，本体 8.7.0）
 

@@ -24,4 +24,6 @@ export interface ConversationDetail extends Omit<ConversationSummary, "message_c
 
 export interface AssistantAnswer extends PmAssistantResponse {
   conversation_id: string;
+  /** The saved answer's id (8.8.0): cards submitted from it are linked by it, so their state survives a reload. */
+  message_id?: string;
 }

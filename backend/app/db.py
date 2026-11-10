@@ -382,7 +382,8 @@ CREATE TABLE IF NOT EXISTS interventions (
     due_date TEXT,
     notes TEXT,
     updated_at TEXT NOT NULL,
-    source_proposal_id TEXT
+    source_proposal_id TEXT,
+    conclusion TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_intervention_project
@@ -716,6 +717,9 @@ class Database:
             # 8.7.0 (D56): the category the model proposed when no existing one fits (submitted as 其他).
             if "proposed_category" not in {row["name"] for row in connection.execute(f"PRAGMA table_info({table})").fetchall()}:
                 connection.execute(f"ALTER TABLE {table} ADD COLUMN proposed_category TEXT")
+        if "conclusion" not in intervention_columns:
+            # 8.8.0 (D63): what was done, written when the intervention is closed.
+            connection.execute("ALTER TABLE interventions ADD COLUMN conclusion TEXT")
         if "source_proposal_id" not in intervention_columns:
             # 8.6.0 (D51): an intervention opened by approving an AI suggestion remembers the suggestion.
             connection.execute("ALTER TABLE interventions ADD COLUMN source_proposal_id TEXT")

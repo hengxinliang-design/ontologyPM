@@ -1,14 +1,15 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
 import { CalendarDatePicker } from "../components/CalendarDatePicker";
-import type { PmAssistantSuggestion } from "../types";
+import type { CardSubmission, PmAssistantSuggestion } from "../types";
 import {
   approveAiProposal, breakDownAiStrategyNote, closeAiRiskFlag, closeAiStrategyNote, rejectAiProposal, renewAiRiskFlag, renewAiStrategyNote,
-  submitAiProposal
+  submitAiProposal, submitAiProposalCard
 } from "./api";
 import "./ai.css";
+import { StrategyHistory } from "./history";
 import { INTERVENTION_TYPE_LABELS, KIND_LABELS, STRATEGY_CATEGORY_LABELS } from "./types";
-import type { AiKind, AiOverview, AiProposal, AiStrategyGap, AiStrategyNote, AiStrategyProposal, BasisFact } from "./types";
+import type { AiKind, AiOverview, AiProposal, AiStrategyGap, AiStrategyNote, AiStrategyProposal, BasisFact, StrategyHistoryItem } from "./types";
 
 type Act = (run: () => Promise<void>, done: string) => Promise<boolean>;
 
@@ -117,13 +118,14 @@ export function InterventionDraft({ project, code, alertTitle, action, owner, ac
 }
 
 /** 部门经营 → 策略信号: AI strategy notes in force and strategy suggestions to approve (D51, D53). */
-export function StrategyAiPanel({ notes, proposals, canApprove, onChanged, gaps = [] }: {
+export function StrategyAiPanel({ notes, proposals, canApprove, onChanged, gaps = [], history = [] }: {
   notes: AiStrategyNote[]; proposals: AiStrategyProposal[]; canApprove: boolean; onChanged: () => void; gaps?: AiStrategyGap[];
+  history?: StrategyHistoryItem[];
 }) {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ text: string; tone: "ok" | "error" } | null>(null);
   const [adopting, setAdopting] = useState<string | null>(null);
-  if (!notes.length && !proposals.length && !gaps.length) return null;
+  if (!notes.length && !proposals.length && !gaps.length && !history.length) return null;
   async function act(run: () => Promise<void>, done: string) {
     setSaving(true);
     try {
@@ -175,6 +177,7 @@ export function StrategyAiPanel({ notes, proposals, canApprove, onChanged, gaps 
       </li>)}
     </ul>
     <StrategyGaps gaps={gaps} />
+    <StrategyHistory items={history} />
   </div>;
 }
 
@@ -216,7 +219,7 @@ export function FollowUps({ note }: { note: AiStrategyNote }) {
   const closed = items.filter(item => item.status === "closed").length;
   return <div className={`ai-follow ${note.readyToClose ? "ready" : ""}`}>
     <strong>落实进度 {closed}/{items.length}</strong>
-    <span>{items.map(item => `${item.projectNumber} ${FOLLOW_UP_STATUS[item.status] ?? item.status}${item.overdue ? "（已逾期）" : ""}`).join(" · ")}</span>
+    <span>{items.map(item => `${item.projectNumber} ${FOLLOW_UP_STATUS[item.status] ?? item.status}${item.overdue ? "（已逾期）" : ""}${item.conclusion ? `：${item.conclusion}` : ""}`).join(" · ")}</span>
     {note.readyToClose && <em>干预已全部关闭，可以关闭这条策略</em>}
   </div>;
 }
@@ -246,32 +249,58 @@ function readable(fact: Record<string, unknown>): string {
   return `${fact.objectType} ${fact.primaryKey} 的 ${fact.property} ${fact.op} ${String(fact.value)}`;
 }
 
-/** PM Assistant: a drafted AI suggestion (submitAiProposal pre-checked, nothing written) and its 「提交审批」 button. */
-export function ProposalDraftCard({ item }: { item: PmAssistantSuggestion }) {
-  const [state, setState] = useState<{ status: "idle" | "saving" | "done" | "error"; text?: string }>({ status: "idle" });
+function stamp(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const time = new Date(iso);
+  if (Number.isNaN(time.getTime())) return String(iso).slice(0, 16);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${time.getFullYear()}-${pad(time.getMonth() + 1)}-${pad(time.getDate())} ${pad(time.getHours())}:${pad(time.getMinutes())}`;
+}
+
+/** Who submitted the card and when, and what happened to it since (8.8.0). */
+export function SubmissionStatus({ submission }: { submission: CardSubmission }) {
+  const decided = submission.decidedAt && submission.status !== "pending";
+  return <p className={`ai-submission ${submission.status}`}>
+    <strong>{submission.statusLabel}</strong>
+    <span>{submission.submittedBy} 于 {stamp(submission.submittedAt)} 提交审批</span>
+    {submission.status === "pending" && <span>{submission.expiresOn} 前未处理将过期</span>}
+    {decided && <span>{submission.decidedBy === "system" ? "系统" : submission.decidedBy} 于 {stamp(submission.decidedAt)} {submission.statusLabel}{submission.decisionNote ? `：${submission.decisionNote}` : ""}</span>}
+    {submission.status === "pending" && <span>可在项目详情「AI 建议与风险标记」或部门经营「AI 策略建议」中查看与批准</span>}
+  </p>;
+}
+
+/** PM Assistant: a drafted AI suggestion (submitAiProposal pre-checked, nothing written) and its 「提交审批」 button. Once
+ * submitted, the card shows who submitted it when and its status, also after a reload (linked by ``cardRef``). */
+export function ProposalDraftCard({ item, cardRef }: { item: PmAssistantSuggestion; cardRef?: string }) {
+  const [submission, setSubmission] = useState<CardSubmission | null>(item.submission ?? null);
+  const [state, setState] = useState<{ status: "idle" | "saving" | "error"; text?: string }>({ status: "idle" });
   const p = item.parameters as Record<string, unknown>;
   const kind = (p.kind as AiKind) ?? "riskFlag";
   const basis = Array.isArray(p.basis) ? p.basis as Record<string, unknown>[] : [];
+  const canSubmitAgain = !submission || ["rejected", "expired", "superseded"].includes(submission.status);
   async function submit() {
     setState({ status: "saving" });
     try {
-      await submitAiProposal({ ...(p as Record<string, unknown>), source: "assistant" } as never);
-      setState({ status: "done", text: "已提交，等待批准。可在项目详情或部门经营中查看。" });
+      const created = await submitAiProposalCard({ ...(p as Record<string, unknown>), source: "assistant", sourceRef: cardRef } as never);
+      if (created) setSubmission(created);
+      setState({ status: "idle" });
     } catch (err) {
       setState({ status: "error", text: errorText(err) });
     }
   }
-  return <article className={`ai-draft-card ${item.valid ? "valid" : "invalid"}`}>
-    <header><strong>{KIND_LABELS[kind]}候选</strong><i>{item.valid ? "预检通过" : "预检未通过"}</i></header>
+  return <article className={`ai-draft-card ${item.valid ? "valid" : "invalid"} ${submission ? "submitted" : ""}`}>
+    <header><strong>{KIND_LABELS[kind]}候选</strong><i>{submission ? "已提交" : item.valid ? "预检通过" : "预检未通过"}</i></header>
     <p className="ai-draft-title">{String(p.title ?? "")}{p.project ? ` · ${p.project}` : ""}{p.category ? ` · ${STRATEGY_CATEGORY_LABELS[String(p.category)] ?? p.category}${p.proposedCategory ? `（AI：${p.proposedCategory}）` : ""}` : ""}{p.dueDate ? ` · 截止 ${p.dueDate}` : ""}</p>
     {item.notes && item.notes.length > 0 && <ul className="ai-draft-notes">{item.notes.map(note => <li key={note}>{note}</li>)}</ul>}
     {p.detail ? <p>{String(p.detail)}</p> : null}
     {basis.length > 0 && <ul>{basis.map((fact, index) => <li key={index}>依据：{item.basisTexts?.[index] ?? readable(fact)}</li>)}</ul>}
-    {item.reasons.length > 0 && <ul className="ai-draft-reasons">{item.reasons.map(reason => <li key={reason}>{reason}</li>)}</ul>}
+    {!submission && item.reasons.length > 0 && <ul className="ai-draft-reasons">{item.reasons.map(reason => <li key={reason}>{reason}</li>)}</ul>}
+    {submission && <SubmissionStatus submission={submission} />}
     <footer>
-      {state.status === "done" ? <span className="ai-message ok">{state.text}</span> : <>
-        <button type="button" className="row-action" disabled={!item.valid || state.status === "saving"} onClick={() => void submit()}>{state.status === "saving" ? "提交中" : "提交审批"}</button>
-        <small>提交后由有权限的人批准才写进系统；提交时会重新核对依据。</small>
+      {canSubmitAgain && <>
+        <button type="button" className="row-action" disabled={!item.valid || state.status === "saving"} onClick={() => void submit()}>
+          {state.status === "saving" ? "提交中" : submission ? "重新提交" : "提交审批"}</button>
+        <small>{submission ? "上次提交已失效，可以重新提交；提交时会重新核对依据。" : "提交后由有权限的人批准才写进系统；提交时会重新核对依据。"}</small>
       </>}
       {state.status === "error" && <span className="ai-message error">{state.text}</span>}
     </footer>

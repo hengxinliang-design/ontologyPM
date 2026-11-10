@@ -79,18 +79,20 @@ version: v1
 definition:
   apiName: updateInterventionStatus
   displayName: 更新干预状态
-  description: 推进或关闭管理干预；已关闭的干预不能重新打开。
+  description: 推进或关闭管理干预；关闭时必须填写处理结论（D63），已关闭的干预不能重新打开。
   objectType: Intervention
   targetParameter: intervention
   parameters:
     - {apiName: intervention, displayName: 管理干预, type: object_ref, objectType: Intervention, required: true}
     - {apiName: status, displayName: 状态, type: enum, valueType: InterventionStatus, required: true}
     - {apiName: notes, displayName: 备注, type: string, maxLength: 2000}
+    - {apiName: conclusion, displayName: 处理结论, type: string, maxLength: 500, description: 关闭时必填（D63）}
   permissions: [projects]
-  edits: [Intervention.status, Intervention.notes]
+  edits: [Intervention.status, Intervention.notes, Intervention.conclusion]
   writeback: [interventions]
   handler: updateInterventionStatus
   submissionCriteria:
     - description: 已关闭的干预不能重新打开
       rule: notLocked
       args: {lock: intervention}
+    - {description: 关闭时填写处理结论, rule: closingConclusion}

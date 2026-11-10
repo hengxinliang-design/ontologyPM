@@ -417,7 +417,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except ConversationNotFound as exc:  # deleted in another tab while the model was answering
             saved = assistant_history.record(user, None, message.strip(), answer)
             logging.getLogger(__name__).info("conversation %s vanished while answering; started %s", exc, saved["conversation_id"])
-        return {"data": {**answer, "conversation_id": saved["conversation_id"]}}
+        return {"data": {**answer, "conversation_id": saved["conversation_id"], "message_id": saved.get("message_id")}}
 
     @app.get("/api/v1/pm-assistant/conversations", dependencies=[auth], tags=["PM Assistant"])
     def list_assistant_conversations(
@@ -750,7 +750,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         user: dict[str, Any] = Depends(require_auth),
     ) -> dict[str, Any]:
         """D31: the project drawer moves an intervention forward or closes it (closed ones are locked)."""
-        params = action_parameters("updateInterventionStatus", payload, {"status": "status", "notes": "notes"},
+        params = action_parameters("updateInterventionStatus", payload, {"status": "status", "notes": "notes", "conclusion": "conclusion"},
                                    intervention=intervention_id)
         return {"data": maintain(user, "updateInterventionStatus", params, project_number=project_number,
                                  target=("Intervention", intervention_id), missing="intervention not found")}

@@ -50,7 +50,7 @@ def test_overdue_interventions_are_reminders_not_risk(tmp_path):
         open_one(client, due_date=FUTURE)
         closed = open_one(client, due_date=PAST).json()["data"]
         assert client.post(f"/api/v1/projects/WDR101/interventions/{closed['intervention_id']}/status",
-                           json={"status": "closed"}).status_code == 200
+                           json={"status": "closed", "conclusion": "已补充"}).status_code == 200
 
         after = project(client)
         assert (after["open_interventions"], after["overdue_interventions"]) == (2, 1)
@@ -84,6 +84,7 @@ def test_drawer_endpoints_follow_project_maintenance_rights(tmp_path):
                                json={"parameters": {"project": "TPL149"}})
         assert overview.status_code == 403, "like milestones and payments: no project drawer without the maintenance menu"
 
-        assert client.post(status, headers=pm, json={"status": "closed"}).status_code == 200
+        assert client.post(status, headers=pm, json={"status": "closed"}).status_code == 422, "D63: closing needs a conclusion"
+        assert client.post(status, headers=pm, json={"status": "closed", "conclusion": "资源已到位"}).status_code == 200
         reopened = client.post(status, headers=admin, json={"status": "open"})
         assert reopened.status_code == 422 and "已关闭" in reopened.text, "closed interventions stay locked"

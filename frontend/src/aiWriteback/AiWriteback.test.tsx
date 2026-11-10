@@ -158,3 +158,31 @@ describe("8.7.0: strategies carried out on projects (D58, D59)", () => {
   });
 });
 
+describe("8.8.0: a submitted card says who, when and what happened (user 2026-11-10)", () => {
+  const card = (submission?: object) => ({
+    actionType: "submitAiProposal", displayName: "提交 AI 建议", valid: true, reasons: [],
+    parameters: { kind: "riskFlag", project: "SEY103", title: "验收前预算耗尽", basis: [] },
+    ...(submission ? { submission } : {})
+  }) as never;
+
+  it("shows the submitter, time and status instead of the button once submitted", () => {
+    const html = renderToStaticMarkup(<ui.ProposalDraftCard item={card({ proposalId: "aip_1", status: "pending", statusLabel: "待批准",
+      submittedBy: "test", submittedAt: "2026-11-10T02:35:56Z", expiresOn: "2026-11-17", decidedBy: null, decidedAt: null, decisionNote: null })} />);
+    expect(text(html)).toContain("待批准");
+    expect(text(html)).toMatch(/test 于 2026-11-10 \d\d:\d\d 提交审批/);
+    expect(text(html)).toContain("2026-11-17 前未处理将过期");
+    expect(html).not.toMatch(/>提交审批</);
+  });
+
+  it("shows the decision, and offers 重新提交 only when the last submission no longer counts", () => {
+    const approved = renderToStaticMarkup(<ui.ProposalDraftCard item={card({ proposalId: "aip_1", status: "approved", statusLabel: "已批准",
+      submittedBy: "test", submittedAt: "2026-11-10T02:35:56Z", expiresOn: "2026-11-17", decidedBy: "head.a", decidedAt: "2026-11-10T03:00:00Z", decisionNote: "同意" })} />);
+    expect(text(approved)).toMatch(/head\.a 于 2026-11-10 \d\d:\d\d 已批准：同意/);
+    expect(approved).not.toMatch(/重新提交/);
+    const expired = renderToStaticMarkup(<ui.ProposalDraftCard item={card({ proposalId: "aip_1", status: "expired", statusLabel: "已过期",
+      submittedBy: "test", submittedAt: "2026-11-01T02:35:56Z", expiresOn: "2026-11-08", decidedBy: "system", decidedAt: "2026-11-09T00:00:00Z", decisionNote: "超过待批天数" })} />);
+    expect(text(expired)).toContain("系统 于");
+    expect(expired).toMatch(/>重新提交</);
+  });
+});
+

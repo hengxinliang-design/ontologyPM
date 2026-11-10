@@ -145,7 +145,7 @@ def test_scoped_requests_do_not_pollute_the_shared_index(tmp_path):
 def test_function_data_scope_is_declared():
     declared = {f.api_name: f.data_scope for f in load_ontology().functions}
     project = {"projectRiskAssessment", "projectBudgetStatus", "projectPaymentStatus", "projectHealthForPeriod",
-               "portfolioSummary", "projectList", "portfolioHealth", "projectOverview", "maintenanceWorklist", "aiSuggestionOverview"}
+               "portfolioSummary", "projectList", "portfolioHealth", "projectOverview", "maintenanceWorklist", "aiSuggestionOverview", "interventionHistory"}
     assert {name for name, scope in declared.items() if scope == "project"} == project
     assert {name for name, scope in declared.items() if scope == "shared"} == {"workingCalendar"}
     scoped_types = {t.api_name for t in load_ontology().object_types if t.project_scope}

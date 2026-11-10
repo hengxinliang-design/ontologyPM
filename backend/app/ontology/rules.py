@@ -772,6 +772,7 @@ def load_interventions(ctx: OntologyContext) -> list[dict[str, Any]]:
             "updatedAt": row["updated_at"],
             # 8.6.0 (D51): opened by approving an AI suggestion; the suggestion keeps checking its facts (D54).
             "sourceProposalId": row.get("source_proposal_id"),
+            "conclusion": row.get("conclusion"),  # 8.8.0 (D63)
         }
         for row in ctx.table("interventions", "project_number, updated_at DESC")
     ]
@@ -848,6 +849,12 @@ def status_is_not(ctx, values, target, *, status: str, reason: str) -> str | Non
 def not_locked(ctx, values, target, *, lock: str) -> str | None:
     """Status locks (completed milestone, received payment, closed intervention): one table for actions and base program."""
     return maintenance_rules.locked(lock, (target or {}).get("status"))
+
+
+@RULES.criterion("closingConclusion")
+def closing_conclusion(ctx, values, target) -> str | None:
+    """D63: closing needs a conclusion (maintenance_rules.closing_conclusion, shared with the base program)."""
+    return maintenance_rules.closing_conclusion(values.get("status"), values.get("conclusion"))
 
 
 @RULES.criterion("linkedPaymentNotPaid")
@@ -1249,7 +1256,7 @@ def open_intervention(ctx, values, target, actor):
 @RULES.handler("updateInterventionStatus")
 def update_intervention_status(ctx, values, target, actor):
     ctx.projects.update_intervention_status(
-        target["projectNumber"], target["interventionId"], values["status"], values.get("notes")
+        target["projectNumber"], target["interventionId"], values["status"], values.get("notes"), values.get("conclusion")
     )
     return {"edits": [_edit("Intervention", target["interventionId"], "update")]}
 
@@ -2106,6 +2113,7 @@ def _ai_strategy_view(ctx: OntologyContext) -> dict[str, Any]:
             follow_ups.setdefault(row["source_proposal_id"], []).append({
                 "interventionId": row["intervention_id"], "projectNumber": row["project_number"], "status": row["status"],
                 "dueDate": row.get("due_date"), "overdue": row["status"] != "closed" and bool(row.get("due_date")) and row["due_date"] < today,
+                "conclusion": row.get("conclusion"),
             })
     notes = [_finding_object(row) | {"noteId": row["note_id"], "category": row["category"],
                                      "proposedCategory": row.get("proposed_category"),
@@ -2125,4 +2133,104 @@ def _ai_strategy_view(ctx: OntologyContext) -> dict[str, Any]:
                for row in ctx.table("ai_proposals", "submitted_at DESC, proposal_id")
                if row["status"] == "pending" and row["kind"] == "strategyNote"]
     return {"aiStrategyNotes": notes, "aiStrategyProposals": pending, "canApproveStrategy": _can_approve(ctx, "strategyNote"),
-            "aiStrategyGaps": _strategy_gaps(ctx)}
+            "aiStrategyGaps": _strategy_gaps(ctx), "aiStrategyHistory": _strategy_history(ctx)}
+
+
+# ------------------------------------------------------------ history (8.8.0, D61-D63)
+INTERVENTION_STATUS_LABELS = {"open": "待处理", "in_progress": "处理中", "closed": "已关闭"}
+FINDING_STATUS_LABELS = {"active": "有效", "closed": "已关闭", "expired": "已过期", "superseded": "已被取代"}
+ACTION_LABELS = {
+    "openIntervention": "发起干预", "approveAiProposal": "批准 AI 建议，新建干预", "breakDownAiStrategyNote": "部门策略分解到本项目",
+    "updateInterventionStatus": "更新状态",
+}
+
+
+def _action_entries(ctx: OntologyContext, key: str) -> list[dict[str, Any]]:
+    """Succeeded actions that targeted or created this object, oldest first (the ontology action audit)."""
+    with ctx.database.connect() as connection:
+        rows = connection.execute(
+            "SELECT * FROM ontology_action_log WHERE status = 'succeeded' AND (object_pk = ? OR edits_json LIKE ?) "
+            "ORDER BY executed_at, log_id", (key, f'%"primaryKey": "{key}"%')).fetchall()
+    return [dict(row) for row in rows]
+
+
+def _event(at: str | None, actor: str | None, title: str, detail: str | None = None, kind: str = "action") -> dict[str, Any]:
+    return {"at": at, "actor": "系统" if actor == "system" else actor, "title": title, "detail": detail, "kind": kind}
+
+
+@RULES.function("interventionHistory")
+def fn_intervention_history(ctx: OntologyContext, params: dict[str, Any]) -> dict[str, Any]:
+    """D61/D62: how an intervention came about and what happened to it, from the action audit and the records."""
+    item = ctx.get("Intervention", params["intervention"])
+    if item is None:
+        raise ValueError(f"管理干预 {params['intervention']} 不存在")
+    events: list[dict[str, Any]] = []
+    origin = None
+    proposal = _ai_repo(ctx).proposal(item["sourceProposalId"]) if item.get("sourceProposalId") else None
+    note = None
+    if proposal is not None:
+        basis = [fact.get("text") for fact in _loads(proposal["basis_json"], []) if fact.get("text")]
+        if proposal["kind"] == "strategyNote":
+            note = next((row for row in ctx.table("ai_strategy_notes", "approved_at DESC, note_id")
+                         if row["proposal_id"] == proposal["proposal_id"]), None)
+            origin = {"type": "strategy", "title": proposal["title"], "category": _category_label(proposal.get("category"), proposal.get("proposed_category")),
+                      "status": note["status"] if note else None, "statusLabel": FINDING_STATUS_LABELS.get(note["status"]) if note else None,
+                      "basis": basis}
+        else:
+            origin = {"type": "suggestion", "title": proposal["title"], "basis": basis, "status": proposal["status"],
+                      "statusLabel": AI_PROPOSAL_STATUS_LABELS.get(proposal["status"])}
+        events.append(_event(proposal["submitted_at"], proposal["submitted_by"],
+                             f"提交 AI {'策略' if proposal['kind'] == 'strategyNote' else '建议'}「{proposal['title']}」",
+                             "依据：" + "；".join(basis) if basis else None, "origin"))
+        if proposal.get("decided_at") and proposal["status"] == "approved":
+            events.append(_event(proposal["decided_at"], proposal["decided_by"],
+                                 "采纳部门策略" if proposal["kind"] == "strategyNote" else "批准 AI 建议",
+                                 proposal.get("decision_note"), "origin"))
+    for row in _action_entries(ctx, item["interventionId"]):
+        values = _loads(row["parameters_json"], {})
+        if row["action_type"] == "updateInterventionStatus":
+            status = INTERVENTION_STATUS_LABELS.get(values.get("status"), values.get("status"))
+            detail = "；".join(part for part in (f"处理结论：{values['conclusion']}" if values.get("conclusion") else "",
+                                                 f"备注：{values['notes']}" if values.get("notes") else "") if part)
+            events.append(_event(row["executed_at"], row["actor"], f"状态改为「{status}」", detail or None, "status"))
+        elif row["action_type"] in ("approveAiProposal", "breakDownAiStrategyNote", "openIntervention"):
+            detail = f"截止 {item.get('dueDate') or '未设'}，负责人 {item.get('owner') or '未指定'}"
+            from_strategy = proposal is not None and proposal["kind"] == "strategyNote"
+            label = "部门策略分解到本项目" if from_strategy and row["action_type"] != "openIntervention" else ACTION_LABELS[row["action_type"]]
+            events.append(_event(row["executed_at"], row["actor"], label, detail, "created"))
+        else:
+            events.append(_event(row["executed_at"], row["actor"], row["action_type"], row.get("message")))
+    if note is not None and note["status"] != "active" and note.get("closed_at"):
+        events.append(_event(note["closed_at"], note.get("closed_by"),
+                             f"所属策略{FINDING_STATUS_LABELS.get(note['status'], note['status'])}", note.get("closed_reason"), "strategy"))
+    elif proposal is not None and proposal["kind"] == "intervention" and not proposal["basis_holds"] and proposal.get("checked_at"):
+        events.append(_event(proposal["checked_at"], "system", "复核：依据已不成立", proposal.get("basis_note"), "strategy"))
+    if not any(e["kind"] == "created" for e in events):
+        # Interventions from before the audit (or imported) still show when they were last touched.
+        events.append(_event(item.get("updatedAt"), None, "已登记", "早于动作审计的记录，没有更早的经过", "created"))
+    events.sort(key=lambda e: e["at"] or "")
+    return {"interventionId": item["interventionId"], "projectNumber": item["projectNumber"], "title": item["title"],
+            "status": item["status"], "conclusion": item.get("conclusion"), "origin": origin, "events": events}
+
+
+HISTORY_LIMIT = 50
+
+
+def _strategy_history(ctx: OntologyContext) -> list[dict[str, Any]]:
+    """D61: strategies no longer in force, newest first, each with its interventions and how they ended."""
+    follow_ups: dict[str, list[dict[str, Any]]] = {}
+    for row in ctx.table("interventions", INTERVENTION_ORDER):
+        if row.get("source_proposal_id"):
+            follow_ups.setdefault(row["source_proposal_id"], []).append({
+                "interventionId": row["intervention_id"], "projectNumber": row["project_number"], "status": row["status"],
+                "statusLabel": INTERVENTION_STATUS_LABELS.get(row["status"], row["status"]), "conclusion": row.get("conclusion")})
+    rows = [row for row in ctx.table("ai_strategy_notes", "approved_at DESC, note_id") if row["status"] != "active"]
+    rows.sort(key=lambda row: row.get("closed_at") or row["approved_at"], reverse=True)
+    return [{"noteId": row["note_id"], "title": row["title"], "detail": row.get("detail"),
+             "categoryLabel": _category_label(row["category"], row.get("proposed_category")),
+             "status": row["status"], "statusLabel": FINDING_STATUS_LABELS.get(row["status"], row["status"]),
+             "approvedBy": row["approved_by"], "approvedAt": row["approved_at"], "closedBy": row.get("closed_by"),
+             "closedAt": row.get("closed_at"), "closedReason": row.get("closed_reason"),
+             "basis": [fact.get("text") for fact in _loads(row["basis_json"], []) if fact.get("text")],
+             "followUps": follow_ups.get(row["proposal_id"], [])} for row in rows[:HISTORY_LIMIT]]
+
