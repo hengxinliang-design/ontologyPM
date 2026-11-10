@@ -18,7 +18,7 @@ from .db import Database
 
 TITLE_CHARS = 40
 # AiProposalStatus labels (ontology.yaml); kept here so the history does not depend on the rule registry.
-PROPOSAL_STATUS_LABELS = {"pending": "待批准", "approved": "已批准", "rejected": "已驳回", "expired": "已过期", "superseded": "已被取代"}
+PROPOSAL_STATUS_LABELS = {"pending": "待批准", "approved": "已批准", "rejected": "已驳回", "expired": "已过期", "superseded": "已由新提案替换"}
 
 
 def _submission(row: Any) -> dict[str, Any]:

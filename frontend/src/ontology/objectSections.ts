@@ -5,11 +5,12 @@ import type { OntologyObjectType, OntologyProperty, SourceKind } from "./types";
 // Properties not listed land in 「其他」, so a new property is never hidden.
 const SECTIONS: Record<string, Array<[string, string[]]>> = {
   Project: [
-    ["状态概览", ["riskLevel", "lifecycleStatus", "budgetUtilization", "maintenanceComplete", "riskReasons"]],
+    ["状态概览", ["riskLevel", "lifecycleStatus", "budgetUtilization", "maintenanceComplete", "riskReasons", "aiAttention"]],
+    ["人工维护", ["maintenanceGapCount", "maintenanceChecklist"]],
     ["基本信息", ["customerName", "crmOwner", "projectManager", "masterCategory", "signedYear", "category", "contractType", "lifecycleSource", "plannedStart", "plannedEnd", "hoursPerPersonDay", "notes"]],
-    ["合同与回款", ["contractCount", "opportunityCount", "contractValue", "invoicedAmount", "crmReceivedAmount", "outstandingReceivableAmount", "revenueSettlementBasis", "receivedAmount", "paymentTermCount", "unlinkedPaymentTermCount", "paymentNodeTotal", "overduePaymentNodes"]],
+    ["合同与回款", ["contractCount", "opportunityCount", "contractValue", "invoicedAmount", "crmReceivedAmount", "outstandingReceivableAmount", "revenueSettlementBasis", "receivedAmount", "crmSyncPendingAmount", "paymentTermCount", "unlinkedPaymentTermCount", "paymentNodeTotal", "overduePaymentNodes"]],
     ["预算与工时", ["plannedPersonDays", "reportedPersonDays", "customerConfirmedPersonDays", "confirmationGapPersonDays"]],
-    ["里程碑与干预", ["milestoneTotal", "milestoneCompleted", "overdueMilestones", "openInterventions"]],
+    ["里程碑、干预与 AI", ["milestoneTotal", "milestoneCompleted", "overdueMilestones", "openInterventions", "overdueInterventions", "activeAiRiskFlags", "pendingAiProposals"]],
     ["投入成本", ["conversionDate", "opportunityOutcome", "costToWinPersonDays", "deliveryPersonDays", "atRiskPersonDays", "sunkPersonDays"]],
   ],
   CostObject: [

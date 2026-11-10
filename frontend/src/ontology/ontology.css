@@ -278,9 +278,9 @@ tr.selected-row { background: var(--primary-soft) !important; }
 .fr-meter small { color: var(--text-tertiary); font-size: var(--fs-xs); }
 .fr-section h5 { margin: 0 0 8px; color: var(--text); font-size: var(--fs-sm); }
 .fr-alerts { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
-.fr-alerts li { padding: 10px 12px; border: 1px solid #f0dcb2; border-left: 3px solid #e0a12f; border-radius: 9px; background: #fffbf3; }
-.fr-alerts li.critical { border-color: #f3ccd2; border-left-color: #d9475c; background: #fffafb; }
-.fr-alerts li > div { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.fr-alerts > li { padding: 10px 12px; border: 1px solid #f0dcb2; border-left: 3px solid #e0a12f; border-radius: 9px; background: #fffbf3; }
+.fr-alerts > li.critical { border-color: #f3ccd2; border-left-color: #d9475c; background: #fffafb; }
+.fr-alerts > li > div { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .fr-alerts strong { color: var(--text); font-size: var(--fs-sm); }
 .fr-alerts p { margin: 4px 0 0; color: var(--text-secondary); font-size: var(--fs-xs); line-height: 1.5; }
 .fr-next { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 2px 12px; padding: 11px 12px; border: 1px solid #cfdcf0; border-radius: 9px; background: #f5f9ff; }
@@ -364,4 +364,22 @@ details.action-meta > p { margin: 6px 0 0; }
 .ontology-stats div:first-child { border-left: 0; }
 .ontology-stats dt { color: var(--text-secondary); }
 .ontology-stats dd { color: var(--text); font-size: var(--fs-xl); }
+
+/* Folded result lists and checklists (user 2026-11-10: results could not be folded, raw keys were unreadable). */
+.fr-fold { border: 1px solid var(--line-subtle); border-radius: 9px; background: #fff; }
+.fr-fold > summary { display: flex; align-items: center; gap: 10px; padding: 9px 12px; cursor: pointer; list-style: none; color: var(--text); font-size: var(--fs-sm); font-weight: 650; }
+.fr-fold > summary::-webkit-details-marker { display: none; }
+.fr-fold > summary::before { content: "▸"; color: var(--text-tertiary); }
+.fr-fold[open] > summary::before { content: "▾"; }
+.fr-fold > summary em { color: var(--text-tertiary); font-size: var(--fs-xs); font-style: normal; font-weight: 500; }
+.fr-fold > div { display: grid; gap: 10px; padding: 0 12px 12px; overflow-x: auto; }
+.fr-sub { display: block; margin-top: 2px; color: var(--text-tertiary); font-size: var(--fs-xs); }
+.fr-more { margin-top: 6px; }
+.fr-more summary { width: fit-content; color: var(--primary); cursor: pointer; font-size: var(--fs-xs); font-weight: 650; }
+.fr-more p { margin: 6px 0; }
+.checklist { display: grid; gap: 4px; }
+.checklist .pending { color: #9a5b00; }
+.checklist details summary { width: fit-content; color: var(--text-secondary); cursor: pointer; font-size: var(--fs-sm); }
+.checklist details span { display: block; margin-top: 4px; color: var(--text-secondary); font-size: var(--fs-xs); line-height: 1.6; }
+.button.ghost { border: 1px solid transparent; background: transparent; color: var(--primary); }
 

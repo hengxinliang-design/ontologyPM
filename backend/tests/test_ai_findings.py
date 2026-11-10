@@ -424,3 +424,47 @@ def test_one_name_per_concept_for_ai_objects():
     stale = [str(p) for p in root.rglob("*") if p.suffix in {".py", ".yaml"} and ("AI 建议" in p.read_text(encoding="utf-8") or "AI 策略建议" in p.read_text(encoding="utf-8"))]
     assert stale == []
 
+
+def test_a_project_lists_its_ai_conclusions_beside_the_rule_reasons(app):
+    """D65 (8.9.0, user 2026-11-10): SEY103's 风险原因 showed only the rule reason; the approved AI risk flag and the
+    department strategy (AI) that concerns it, with its intervention, were not on the project."""
+    before = objects(app, "Project")["WDR101"]
+    assert before["aiAttention"] == []
+    act(app, ADMIN, "approveAiProposal", proposal=submit(app, title="验收前预算耗尽"))
+    pending = submit(app, kind="intervention", title="追加预算", dueDate=(today(app) + timedelta(days=5)).isoformat())
+    strategy = submit(app, kind="strategyNote", project=None, category="push_acceptance", title="集中推动验收回款", basis=[budget_fact()])
+    act(app, HEAD, "approveAiProposal", proposal=strategy, projects=["WDR101"], dueDate=(today(app) + timedelta(days=7)).isoformat())
+    project = objects(app, "Project")["WDR101"]
+    lines = project["aiAttention"]
+    assert lines[0].startswith("AI 风险标记：验收前预算耗尽（admin.a 批准，有效至")
+    assert lines[1].startswith("待批准的 AI 提案：追加预算（管理干预，pmo.a 提交，")
+    assert lines[2].startswith("部门策略（AI）：集中推动验收回款（本项目落实干预待处理，截止")
+    assert project["riskReasons"] == before["riskReasons"] and project["riskLevel"] == before["riskLevel"], \
+        "the rules' reasons and level stay the rules' own (D53)"
+    assert objects(app, "Project")["TPL149"]["aiAttention"] == [], "nothing about another project"
+    assert pending
+
+
+def test_a_replaced_proposal_says_it_was_resubmitted_not_rejected(app):
+    """D66 (user 2026-11-10): 「已被取代」 read like a failed check. It is a resubmission of the same proposal."""
+    first = submit(app)
+    second = submit(app, title="同一判断的新说法")
+    old = objects(app, "AiProposal")[first]
+    assert old["status"] == "superseded" and old["basisHolds"], "replaced, and its basis still held"
+    assert old["decisionNote"] == f"同一项目、同类、引用相同依据的提案再次提交，已由新提案 {second} 替换；本条未经审批，与依据复核无关"
+    labels = {v["value"]: v["label"] for t in TestClient(app).get("/api/v1/ontology/schema").json()["data"]["valueTypes"]
+              if t["apiName"] == "AiProposalStatus" for v in t["values"]}
+    assert labels["superseded"] == "已由新提案替换"
+
+
+def test_old_replacement_notes_are_reworded_once(app):
+    """D66: notes written before 8.9.1 in the old words are reworded at start-up; others are left alone."""
+    first = submit(app)
+    second = submit(app, title="同一判断的新说法")
+    with app.state.database.connect() as connection:
+        connection.execute("UPDATE ai_proposals SET decision_note = ? WHERE proposal_id = ?", (f"被新提交的建议 {second} 取代", first))
+    app.state.database.initialize()
+    app.state.database.initialize()
+    assert objects(app, "AiProposal")[first]["decisionNote"] == \
+        f"同一项目、同类、引用相同依据的提案再次提交，已由新提案 {second} 替换；本条未经审批，与依据复核无关"
+

@@ -267,6 +267,7 @@ def derive_project_facts(ctx: OntologyContext, objects: list[dict[str, Any]], ob
             "openInterventions": p["open_interventions"],
             "overdueInterventions": p["overdue_interventions"],
             "activeAiRiskFlags": p["active_ai_risk_flags"],
+            "aiAttention": p["ai_attention"],
             "pendingAiProposals": p["pending_ai_proposals"],
             "riskLevel": p["risk_level"],
             "riskReasons": p["risk_reasons"],
@@ -1712,7 +1713,7 @@ def fn_maintenance_worklist(ctx: OntologyContext, params: dict[str, Any]) -> dic
 # ------------------------------------------------------------ AI suggestions written back (8.6.0, D51-D55)
 AI_KIND_LABELS = {"intervention": "管理干预", "riskFlag": "风险标记", "strategyNote": "部门策略"}
 AI_PROPOSAL_STATUS_LABELS = {"pending": "待批准", "approved": "已批准", "rejected": "已驳回", "expired": "已过期",
-                             "superseded": "已被取代"}
+                             "superseded": "已由新提案替换"}
 
 
 def _ai_repo(ctx: OntologyContext) -> AiFindingRepository:
@@ -1762,7 +1763,44 @@ def _ai_project_items(ctx: OntologyContext) -> dict[str, dict[str, list[dict[str
     for row in ctx.table("ai_proposals", "submitted_at DESC, proposal_id"):
         if row["status"] == "pending" and row.get("project_number"):
             items.setdefault(row["project_number"], {"flags": [], "pending": []})["pending"].append(row)
+    # D65: the department strategies (AI) in force that concern a project — its facts cite the project, or it was
+    # broken down into an intervention there — with that project's follow-up.
+    follow_ups: dict[tuple[str, str], dict[str, Any]] = {}
+    for row in ctx.table("interventions", INTERVENTION_ORDER):
+        if row.get("source_proposal_id"):
+            follow_ups[(row["source_proposal_id"], row["project_number"])] = row
+    for note in ctx.table("ai_strategy_notes", "approved_at DESC, note_id"):
+        if note["status"] != "active":
+            continue
+        cited = {str(f.get("project") or "") for f in _loads(note["basis_json"], []) if f.get("type") in ("alert", "signal")}
+        cited |= {str(f.get("primaryKey") or "") for f in _loads(note["basis_json"], [])
+                  if f.get("type") == "fact" and f.get("objectType") == "Project"}
+        cited |= {project for (proposal, project) in follow_ups if proposal == note["proposal_id"]}
+        for project in cited - {""}:
+            items.setdefault(project, {"flags": [], "pending": []}).setdefault("strategies", []).append(
+                (note, follow_ups.get((note["proposal_id"], project))))
     return items
+
+
+def _ai_attention(items: dict[str, Any]) -> list[str]:
+    """D65: the AI conclusions about a project, as lines beside the rules' risk reasons (D53 keeps them apart)."""
+    lines = []
+    for flag in items.get("flags", []):
+        stale = "；依据已不成立" if not flag["basis_holds"] else ""
+        lines.append(f"AI 风险标记：{flag['title']}（{flag['approved_by']} 批准，有效至 {flag['valid_until']}{stale}）")
+    for row in items.get("pending", []):
+        lines.append(f"待批准的 AI 提案：{row['title']}（{AI_KIND_LABELS[row['kind']]}，{row['submitted_by']} 提交，"
+                     f"{row['expires_on']} 前处理）")
+    for note, follow_up in items.get("strategies", []):
+        if follow_up is None:
+            step = "尚未分解到本项目"
+        else:
+            status = {"open": "待处理", "in_progress": "处理中", "closed": "已关闭"}.get(follow_up["status"], follow_up["status"])
+            step = f"本项目落实干预{status}，截止 {follow_up.get('due_date') or '未设'}"
+            if follow_up["status"] == "closed" and follow_up.get("conclusion"):
+                step += f"，结论：{follow_up['conclusion']}"
+        lines.append(f"部门策略（AI）：{note['title']}（{step}）")
+    return lines
 
 
 def _add_ai_alerts(p: dict[str, Any], items: dict[str, list[dict[str, Any]]]) -> None:
@@ -1783,6 +1821,7 @@ def _add_ai_alerts(p: dict[str, Any], items: dict[str, list[dict[str, Any]]]) ->
     p["anomaly_count"] = len(p["anomaly_alerts"])
     p["active_ai_risk_flags"] = len(flags)
     p["pending_ai_proposals"] = len(pending)
+    p["ai_attention"] = _ai_attention(items)
 
 
 @RULES.datasource("aiProposals")
@@ -1955,7 +1994,7 @@ def submit_ai_proposal(ctx, values, target, actor):
         "source_ref": values.get("sourceRef"), "basis_note": note,
     }, actor, ctx.projects.today() + timedelta(days=pending_days))
     edits = [_edit("AiProposal", row["proposal_id"], "create")] + [_edit("AiProposal", old, "update") for old in superseded]
-    message = f"已提交，等待批准（{row['expires_on']} 前未处理将过期）" + (f"；取代了 {len(superseded)} 条相同的待批建议" if superseded else "")
+    message = f"已提交，等待批准（{row['expires_on']} 前未处理将过期）" + (f"；替换了 {len(superseded)} 条同类、依据相同的待批提案" if superseded else "")
     return {"edits": edits, "record": row, "message": message}
 
 
@@ -2068,7 +2107,7 @@ def fn_ai_suggestion_overview(ctx: OntologyContext, params: dict[str, Any]) -> d
         interventions[item["interventionId"]] = {
             "proposalId": note["proposal_id"], "strategyTitle": note["title"], "strategyStatus": note["status"],
             "basisHolds": active and bool(note["basis_holds"]),
-            "basisNote": note.get("basis_note") if active else f"所属策略已{ {'closed': '关闭', 'expired': '过期', 'superseded': '被取代'}.get(note['status'], note['status']) }"
+            "basisNote": note.get("basis_note") if active else f"所属策略已{ {'closed': '关闭', 'expired': '过期', 'superseded': '由新批准替换'}.get(note['status'], note['status']) }"
                          + (f"（{note['closed_reason']}）" if note.get("closed_reason") else ""),
         }
     flags = [f for f in ctx.objects("AiRiskFlag") if mine(f) and f["status"] == "active"]
@@ -2138,7 +2177,7 @@ def _ai_strategy_view(ctx: OntologyContext) -> dict[str, Any]:
 
 # ------------------------------------------------------------ history (8.8.0, D61-D63)
 INTERVENTION_STATUS_LABELS = {"open": "待处理", "in_progress": "处理中", "closed": "已关闭"}
-FINDING_STATUS_LABELS = {"active": "有效", "closed": "已关闭", "expired": "已过期", "superseded": "已被取代"}
+FINDING_STATUS_LABELS = {"active": "有效", "closed": "已关闭", "expired": "已过期", "superseded": "已由新批准替换"}
 ACTION_LABELS = {
     "openIntervention": "发起干预", "approveAiProposal": "批准 AI 提案，新建干预", "breakDownAiStrategyNote": "部门策略分解到本项目",
     "updateInterventionStatus": "更新状态",

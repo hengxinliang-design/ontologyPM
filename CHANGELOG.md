@@ -4,6 +4,7 @@
 
 | 产品版本 | 本体版本 | 日期 | 构建包 |
 | --- | --- | --- | --- |
+| v1.42.0 | 8.9.1 | 2026-11-10 | [2026-11-10-project-ai-attention](docs/ontology-builds/2026-11-10-project-ai-attention.yaml)、[2026-11-10-replaced-wording](docs/ontology-builds/2026-11-10-replaced-wording.yaml) |
 | v1.41.1 | 8.8.2 | 2026-11-10 | [2026-11-10-object-lists](docs/ontology-builds/2026-11-10-object-lists.yaml) |
 | v1.41.0 | 8.8.0 | 2026-11-10 | [2026-11-10-intervention-history](docs/ontology-builds/2026-11-10-intervention-history.yaml) |
 | v1.40.0 | 8.7.0 | 2026-11-10 | [2026-11-10-strategy-follow-through](docs/ontology-builds/2026-11-10-strategy-follow-through.yaml) |
@@ -37,6 +38,16 @@
 | v1.22.0 | 7.6.0 | 2026-10-30 | [2026-10-29-logical-delete](docs/ontology-builds/2026-10-29-logical-delete.yaml) |
 | v1.21.0 | 7.5.0 | 2026-10-29 | [2026-10-29-rule-homes-and-linkages](docs/ontology-builds/2026-10-29-rule-homes-and-linkages.yaml) |
 | v1.20.0 | 7.4.0 | 2026-10-29 | [2026-10-29-milestone-span-period](docs/ontology-builds/2026-10-29-milestone-span-period.yaml) |
+
+## v1.42.0 — 项目上的 AI 关注事项与可读的函数结果（需求基线 D65、D66，本体 8.9.1）
+
+- 项目详情（本体浏览器与对象接口）在「风险原因（规则）」旁新增「AI 关注事项」：有效的 AI 风险标记、待批准的 AI 提案、依据涉及本项目或已分解到本项目的部门策略（AI）及本项目落实干预的状态；此前只有「AI 风险标记 1」之类的计数，落在「其他」分组。
+- 风险原因与风险等级仍只由规则判定（D53），显示名改为「风险原因（规则）」以示区分；「里程碑与干预」分组改为「里程碑、干预与 AI」，含逾期干预、AI 风险标记与待批准 AI 提案的数量。
+- 本体 8.9.0：Project.aiAttention（派生，projectFacts），Project 的数据集加入 ai_strategy_notes。构建包 2026-11-10-project-ai-attention。
+- 本体浏览器的函数结果可读：「项目全景」改为风险等级、关键数字、预算使用率、规则提醒、AI 关注事项，以及可折叠的管理干预、里程碑与回款节点、人员投入、月度工时表（不再平铺全部原始字段）；「AI 提案与标记」按待批准、有效的 AI 风险标记（说明与依据可展开）、来自 AI 的管理干预（依据复核可展开）、近 30 天已处理分区。
+- 函数运行后可「收起结果 / 展开结果」，按钮改为「重新运行」。
+- AI 提案的「已被取代」改为「已由新提案替换」，处理说明写明「同一项目、同类、引用相同依据的提案再次提交……本条未经审批，与依据复核无关」，避免被理解为核验没通过（D66）；AI 风险标记、部门策略（AI）为「已由新批准替换」。已有记录的旧说明启动时改写一次。本体 8.9.1，构建包 2026-11-10-replaced-wording。
+- 项目对象的「维护清单」显示为清单：全部已维护时折成「N 项全部已维护」一行，有缺项时列出「待维护：…」；维护项归入新分组「人工维护」，CRM 待同步到账归入「合同与回款」，不再落在「其他」。
 
 ## v1.41.1 — AI 对象的名称、列表与详情布局（需求基线 D64，本体 8.8.2）
 

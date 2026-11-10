@@ -31,7 +31,7 @@ definition:
     - {apiName: parameters, displayName: 干预参数, type: json, sourceKind: manual, source: 管理干预的类型、负责人与截止日期，批准时用于新建干预}
     - {apiName: source, displayName: 来源, type: string, sourceKind: manual, source: assistant（PM Assistant）或 projectAnalysis（项目 AI 分析）}
     - {apiName: sourceRef, displayName: 来源记录, type: string, sourceKind: manual, source: PM Assistant 对话编号等，可为空}
-    - {apiName: status, displayName: 状态, type: enum, valueType: AiProposalStatus, sourceKind: manual, source: ai_proposals.status：批准、驳回由人执行；过期、被取代由系统执行（D54）}
+    - {apiName: status, displayName: 状态, type: enum, valueType: AiProposalStatus, sourceKind: manual, source: ai_proposals.status：批准、驳回由人执行；过期由系统执行（超过待批天数，或依据不再成立）；同一项目、同类、引用相同依据的提案再次提交时，旧的待批提案「已由新提案替换」，它未经审批、与依据复核无关（D54、D66）}
     - {apiName: submittedBy, displayName: 提交人, type: string, sourceKind: system, source: ai_proposals.submitted_by}
     - {apiName: submittedAt, displayName: 提交时间, type: datetime, sourceKind: system, source: ai_proposals.submitted_at}
     - {apiName: expiresOn, displayName: 待批截止, type: date, sourceKind: system, source: 提交日 + 运营口径「AI 提案待批天数」（D54）}
@@ -67,7 +67,7 @@ definition:
     - {apiName: detail, displayName: 说明, type: string, sourceKind: system, source: 来自所批准的 AI 提案}
     - {apiName: basis, displayName: 依据, type: json, sourceKind: system, source: 来自所批准的 AI 提案（D55）}
     - {apiName: proposalId, displayName: 来源提案, type: string, sourceKind: system, source: ai_risk_flags.proposal_id}
-    - {apiName: status, displayName: 状态, type: enum, valueType: AiFindingStatus, sourceKind: manual, source: 有效；人工或系统关闭；超过有效期为已过期；同一去重键新批准的取代旧的（D54）}
+    - {apiName: status, displayName: 状态, type: enum, valueType: AiFindingStatus, sourceKind: manual, source: 有效；人工或系统关闭；超过有效期为已过期；同一项目（或类别）、同类、引用相同依据的新结论批准后，旧的「已由新批准替换」（D54、D66）}
     - {apiName: approvedBy, displayName: 批准人, type: string, sourceKind: system, source: ai_risk_flags.approved_by}
     - {apiName: approvedAt, displayName: 批准时间, type: datetime, sourceKind: system, source: ai_risk_flags.approved_at}
     - {apiName: validUntil, displayName: 有效至, type: date, sourceKind: manual, source: 批准或续期当天 + 运营口径「AI 结论有效天数」}

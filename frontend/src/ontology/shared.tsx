@@ -68,13 +68,29 @@ export function PropertyValue({ property, value, redacted }: { property: Ontolog
     case "datetime": return <>{formatTime(String(value))}</>;
     case "json": {
       if (property.apiName.endsWith("rojectEffortShares") && Array.isArray(value)) return <EffortShares rows={value as EffortShare[]} />;
+      if (property.apiName === "maintenanceChecklist" && Array.isArray(value)) return <MaintenanceChecklist items={value as ChecklistItem[]} />;
       const lines = jsonLines(value);
       if (!lines.length) return <span className="muted">—</span>;
-      if (lines.length === 1 || lines.every(line => line.length <= 12)) return <>{lines.join("、")}</>;
+      if (property.apiName !== "aiAttention" && (lines.length === 1 || lines.every(line => line.length <= 12))) return <>{lines.join("、")}</>;
       return <ul className="value-list">{lines.map((line, index) => <li key={index}>{line}</li>)}</ul>;
     }
     default: return <>{String(value)}{unitSuffix(property)}</>;
   }
+}
+
+interface ChecklistItem { requirement: string; label: string; met: boolean }
+
+/** maintenanceChecklist: what still needs maintaining is listed; the maintained items fold into one line. */
+export function MaintenanceChecklist({ items }: { items: ChecklistItem[] }) {
+  if (!items.length) return <span className="muted">不适用</span>;
+  const pending = items.filter(item => !item.met);
+  const done = items.filter(item => item.met);
+  return <div className="checklist">
+    {pending.length > 0 && <ul className="value-list">{pending.map(item => <li key={item.requirement} className="pending">待维护：{item.label}</li>)}</ul>}
+    {done.length > 0 && <details><summary>{pending.length ? `已维护 ${done.length} 项` : `${done.length} 项全部已维护`}</summary>
+      <span>{done.map(item => item.label).join("、")}</span>
+    </details>}
+  </div>;
 }
 
 interface EffortShare { projectNumber: string; projectName: string | null; internal: boolean; hours: string; sharePercent: string | null }

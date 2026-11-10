@@ -194,3 +194,42 @@ describe("FunctionResultView", () => {
     expect(html).toContain("选择项目类型、制定里程碑计划");
   });
 });
+
+describe("readable overviews (user 2026-11-10: 项目全景 and AI 提案与标记 showed raw keys)", () => {
+  it("renders the project overview as a headline, numbers and folded lists instead of raw keys", () => {
+    const html = render("ProjectOverview", {
+      subject: "SEY103-质量管理系统实施", risk_level: "warning", lifecycle_status: "active", contract_type: "construction",
+      project_manager: "王经理", contract_value: "700000.00", received_amount: "490000.00", budget_utilization: 85,
+      planned_person_days: "1232.00", reported_person_days: "1047.45", milestone_total: 3, milestone_completed: 2,
+      anomaly_alerts: [{ code: "BUDGET_NEAR_LIMIT", severity: "warning", title: "工时预算接近上限", detail: "当前已使用 85.0%" }],
+      ai_attention: ["AI 风险标记：验收前预算耗尽（admin 批准，有效至 2026-12-09）"],
+      interventions: [{ intervention_id: "act_1", title: "落实部门策略", status: "in_progress", owner: "王经理", due_date: "2026-11-30" }],
+      milestones: [], payment_nodes: [], pmo_resource_rows: [], monthly_time_entries: []
+    });
+    expect(html).toContain("风险等级：关注");
+    expect(html).toContain("¥700,000.00");
+    expect(html).toContain("工时预算接近上限");
+    expect(html).toContain("AI 关注事项");
+    expect(html).toContain("1 项未关闭 / 共 1 项");
+    expect(html).toContain('<details class="fr-fold" open="">');  // open interventions are unfolded
+    expect(html).not.toContain("project_number");
+    expect(html).not.toContain("crm_records");
+  });
+
+  it("renders the AI overview by what waits, what is in force and what was decided", () => {
+    const html = render("AiSuggestionOverview", {
+      pending: [],
+      riskFlags: [{ flagId: "arf_1", projectNumber: "SEY103", title: "验收前预算耗尽", approvedBy: "admin", validUntil: "2026-12-09", basisHolds: true,
+        detail: "说明", basis: [{ type: "fact", text: "项目 SEY103 的预算使用率 ≥ 80（当前 85.0）" }] }],
+      interventionBasis: { act_1: { proposalId: "aip_1", strategyTitle: "集中推动验收回款", strategyStatus: "active", basisHolds: true, basisNote: "甲；乙" } },
+      recent: [{ proposalId: "aip_2", title: "验收前预算耗尽", kindLabel: "风险标记", statusLabel: "已批准", decidedBy: "admin", decidedAt: "2026-11-10T09:30:00" }]
+    });
+    expect(html).toContain("没有待批准的提案");
+    expect(html).toContain("SEY103 · 验收前预算耗尽");
+    expect(html).toContain("项目 SEY103 的预算使用率 ≥ 80（当前 85.0）");
+    expect(html).toContain("依据仍成立");
+    expect(html).toContain("2026-11-10 09:30");
+    expect(html).not.toContain("interventionBasis");
+    expect(html).not.toContain("flagId");
+  });
+});

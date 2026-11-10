@@ -105,3 +105,16 @@ describe("jsonLines (8.8.1)", () => {
   });
 });
 
+
+describe("maintenance checklist (user 2026-11-10: 维护清单 was raw key：value lines)", () => {
+  it("folds a fully maintained checklist into one line and lists what is pending", async () => {
+    const { renderToStaticMarkup } = await import("react-dom/server");
+    const { MaintenanceChecklist } = await import("./shared");
+    const done = renderToStaticMarkup(MaintenanceChecklist({ items: [{ requirement: "a", label: "选择项目类型", met: true }, { requirement: "b", label: "指定项目经理", met: true }] }));
+    expect(done).toContain("2 项全部已维护");
+    expect(done).not.toContain("requirement");
+    const pending = renderToStaticMarkup(MaintenanceChecklist({ items: [{ requirement: "a", label: "选择项目类型", met: false }, { requirement: "b", label: "指定项目经理", met: true }] }));
+    expect(pending).toContain("待维护：选择项目类型");
+    expect(pending).toContain("已维护 1 项");
+  });
+});

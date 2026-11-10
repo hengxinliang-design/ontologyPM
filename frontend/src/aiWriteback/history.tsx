@@ -51,7 +51,7 @@ export function StrategyHistory({ items }: { items: StrategyHistoryItem[] }) {
   if (!items.length) return null;
   const shown = query.trim() ? items.filter(item => item.title.includes(query.trim())) : items;
   return <details className="ai-gaps ai-history">
-    <summary><strong>历史策略 {items.length} 条</strong><span>已关闭、已过期或被取代的 部门策略（AI），及其落实干预与处理结论</span></summary>
+    <summary><strong>历史策略 {items.length} 条</strong><span>已关闭、已过期或由新批准替换的 部门策略（AI），及其落实干预与处理结论</span></summary>
     <input type="search" value={query} onChange={event => setQuery(event.target.value)} placeholder="按标题搜索" aria-label="搜索历史策略" />
     <ul className="ai-history-list">{shown.map(item => <li key={item.noteId}>
       <div><strong>{item.title}</strong><b>{item.statusLabel}</b></div>

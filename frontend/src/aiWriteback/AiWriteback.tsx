@@ -80,7 +80,7 @@ export function ProjectAiSection({ overview, saving, act }: { overview: AiOvervi
       </>}</div>
     </li>)}</ul>}
     {overview.recent.length > 0 && <details className="completed-todo-section collapsible panel-done">
-      <summary className="completed-todo-head"><div><h4>最近 30 天处理过 {overview.recent.length} 条</h4><small>批准、驳回、过期或被取代</small></div><span className="collapsible-toggle" /></summary>
+      <summary className="completed-todo-head"><div><h4>最近 30 天处理过 {overview.recent.length} 条</h4><small>批准、驳回、过期或由新提案替换</small></div><span className="collapsible-toggle" /></summary>
       <ul className="panel-rows">{overview.recent.map(item => <li key={item.proposalId} className="panel-row completed">
         <span className="panel-row-lead">{item.statusLabel}</span>
         <div className="panel-row-main"><strong>{item.title}</strong><small>{item.kindLabel} · {item.decidedBy === "system" ? "系统" : item.decidedBy} {item.decidedAt?.slice(0, 10)}{item.decisionNote ? ` · ${item.decisionNote}` : ""}</small></div>

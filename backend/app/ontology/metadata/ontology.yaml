@@ -6,7 +6,7 @@ version: v1
 definition:
   apiName: tsg-pm
   displayName: TSG PM 项目运营本体
-  version: 8.8.2
+  version: 8.9.1
   description: 把 CRM、工时与人工维护数据统一为项目运营语义模型：对象、关系、动作、函数与安全策略。
 ---
 kind: Marking
@@ -228,7 +228,7 @@ definition:
     - {value: approved, label: 已批准}
     - {value: rejected, label: 已驳回}
     - {value: expired, label: 已过期}
-    - {value: superseded, label: 已被取代}
+    - {value: superseded, label: 已由新提案替换}
 ---
 kind: ValueType
 version: v1
@@ -239,7 +239,7 @@ definition:
     - {value: active, label: 有效}
     - {value: closed, label: 已关闭}
     - {value: expired, label: 已过期}
-    - {value: superseded, label: 已被取代}
+    - {value: superseded, label: 已由新批准替换}
 ---
 kind: ValueType
 version: v1

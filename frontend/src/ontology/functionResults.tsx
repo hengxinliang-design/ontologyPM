@@ -423,6 +423,133 @@ function MaintenanceWorklistView({ result }: { result: Json }) {
   </div>;
 }
 
+// projectOverview (user 2026-11-10: 「项目全景」 showed every raw field in a grid): the headline, the numbers that
+// matter, and the lists behind them; lists that are done fold into one line (feedback: collapse finished content).
+const INTERVENTION_STATUS: Record<string, [string, Tone]> = { open: ["待处理", "warn"], in_progress: ["处理中", "warn"], closed: ["已关闭", "good"] };
+
+function Fold({ title, count, open = false, children }: { title: string; count?: ReactNode; open?: boolean; children: ReactNode }) {
+  return <details className="fr-fold" open={open}>
+    <summary><span>{title}</span>{count !== undefined && <em>{count}</em>}</summary>
+    <div>{children}</div>
+  </details>;
+}
+
+function ProjectOverviewView({ result, label }: { result: Json; label: Labeler }) {
+  // AI alerts (AI_RISK_FLAG, AI_PROPOSAL_PENDING) are listed under AI 关注事项, not beside the rules' reasons (D53).
+  const alerts = ((result.anomaly_alerts as Json[] | undefined) ?? []).filter(alert => !String(alert.code).startsWith("AI_"));
+  const reasons = (result.risk_reasons as string[] | undefined) ?? [];
+  const attention = (result.ai_attention as string[] | undefined) ?? [];
+  const milestones = (result.milestones as Json[] | undefined) ?? [];
+  const nodes = (result.payment_nodes as Json[] | undefined) ?? [];
+  const interventions = (result.interventions as Json[] | undefined) ?? [];
+  const people = (result.pmo_resource_rows as Json[] | undefined) ?? [];
+  const months = (result.monthly_time_entries as Json[] | undefined) ?? [];
+  const todos = ((result.todo_events as Json[] | undefined) ?? []).filter(todo => !todo.completed);
+  const maintenance = (result.maintenance_reasons as string[] | undefined) ?? [];
+  const resources = (result.pmo_resource_summary as Json | undefined) ?? {};
+  const openInterventions = interventions.filter(item => item.status !== "closed");
+  return <div className="fr">
+    <div className="fr-headline">
+      <Badge tone={RISK_TONE[String(result.risk_level)] ?? "neutral"}>风险等级：{label("RiskLevel", result.risk_level)}</Badge>
+      <span>{String(result.subject ?? "")} · {label("LifecycleStatus", result.lifecycle_status)} · {label("ContractType", result.contract_type)} · 项目经理 {String(result.project_manager ?? "未指定")} · {String(result.planned_start ?? "—")} ~ {String(result.planned_end ?? "—")}</span>
+    </div>
+    <div className="fr-stats">
+      <Stat label="合同金额" value={money(result.contract_value)} />
+      <Stat label="已回款" value={money(result.received_amount)} hint={`CRM 已回款 ${money(result.crm_received_amount)}`} />
+      <Stat label="待回款" value={money(result.outstanding_receivable_amount)} tone={Number(result.outstanding_receivable_amount) > 0 ? "warn" : "neutral"} />
+      <Stat label="里程碑" value={`${result.milestone_completed ?? 0} / ${result.milestone_total ?? 0}`} hint={Number(result.overdue_milestones) ? `${result.overdue_milestones} 个逾期` : "无逾期"} tone={Number(result.overdue_milestones) ? "bad" : "neutral"} />
+      <Stat label="管理干预" value={`${openInterventions.length} 项未关闭`} hint={Number(result.overdue_interventions) ? `${result.overdue_interventions} 项逾期` : undefined} tone={Number(result.overdue_interventions) ? "bad" : "neutral"} />
+      <Stat label="待办" value={`${result.pending_todos ?? 0} 项`} hint={result.next_todo ? `下一项：${(result.next_todo as Json).name}（${(result.next_todo as Json).label}）` : undefined} />
+    </div>
+    <Meter label="预算使用率" percent={percentOf(result.budget_utilization)} caption={result.planned_person_days ? `已填报 ${result.reported_person_days} / 预算 ${result.planned_person_days} 人天 · 客户确认 ${result.customer_confirmed_person_days} 人天` : "未设置预算人天"} />
+    {(reasons.length > 0 || alerts.length > 0) && <Section title="风险原因（规则）与提醒">
+      <ul className="fr-alerts">{alerts.map((alert, index) => <li key={`${alert.code}-${index}`} className={String(alert.severity)}>
+        <div><strong>{String(alert.title)}</strong><Badge tone={alert.severity === "critical" ? "bad" : "warn"}>{alert.severity === "critical" ? "严重" : "关注"}</Badge></div>
+        <p>{String(alert.detail)}</p>
+      </li>)}</ul>
+    </Section>}
+    {attention.length > 0 && <Section title="AI 关注事项"><ul className="fr-list">{attention.map(line => <li key={line}>{line}</li>)}</ul></Section>}
+    {maintenance.length > 0 && <Section title="待人工维护"><ul className="fr-list">{maintenance.map(item => <li key={item}>{item}</li>)}</ul></Section>}
+    <Fold title="管理干预" count={interventions.length ? `${openInterventions.length} 项未关闭 / 共 ${interventions.length} 项` : "无"} open={openInterventions.length > 0}>
+      {interventions.length ? <table className="fr-table"><thead><tr><th>事项</th><th>类型</th><th>状态</th><th>负责人</th><th>截止</th></tr></thead>
+        <tbody>{interventions.map(item => {
+          const [text, tone] = INTERVENTION_STATUS[String(item.status)] ?? [String(item.status), "neutral" as Tone];
+          return <tr key={String(item.intervention_id)}><td>{String(item.title)}{item.conclusion ? <small className="fr-sub">结论：{String(item.conclusion)}</small> : null}</td>
+            <td>{label("InterventionType", item.intervention_type)}</td><td><Badge tone={item.overdue ? "bad" : tone}>{item.overdue ? "已逾期" : text}</Badge></td>
+            <td>{String(item.owner ?? "—")}</td><td>{String(item.due_date ?? "—")}</td></tr>;
+        })}</tbody></table> : <Empty>没有管理干预</Empty>}
+    </Fold>
+    <Fold title="里程碑与回款节点" count={`里程碑 ${result.milestone_completed ?? 0}/${milestones.length} 完成 · 回款节点 ${(result.payment_summary as Json | undefined)?.paid_nodes ?? 0}/${nodes.length} 到账`} open={todos.length > 0 && Number(result.overdue_milestones) + Number(result.overdue_payment_nodes) > 0}>
+      <table className="fr-table"><thead><tr><th>里程碑</th><th>计划完成</th><th>状态</th><th>期限</th></tr></thead>
+        <tbody>{milestones.map(item => <tr key={String(item.milestone_id)}><td>{String(item.name)}</td><td>{String(item.planned_end ?? item.planned_date ?? "—")}</td>
+          <td>{label("MilestoneStatus", item.status)}</td><td><Deadline deadline={item.deadline as Json} /></td></tr>)}</tbody></table>
+      <table className="fr-table"><thead><tr><th>回款节点</th><th>计划日期</th><th>计划金额</th><th>状态</th><th>到账</th></tr></thead>
+        <tbody>{nodes.map(item => <tr key={String(item.payment_node_id)}><td>{String(item.name)}</td><td>{String(item.planned_date ?? "—")}</td><td>{money(item.planned_amount)}</td>
+          <td>{PAYMENT_STATUS[String(item.status)] ?? String(item.status)}</td><td>{item.actual_date ? `${item.actual_date} · ${money(item.actual_amount)}` : "—"}</td></tr>)}</tbody></table>
+    </Fold>
+    <Fold title="人员投入" count={`${resources.participant_count ?? people.length} 人 · ${resources.reported_person_days ?? "—"} 人天`}>
+      <table className="fr-table"><thead><tr><th>人员</th><th>填报人天</th><th>加班人天</th><th>占项目投入</th><th>活跃月数</th></tr></thead>
+        <tbody>{people.map(row => <tr key={String(row.employee_id ?? row.employee_name)}><td>{String(row.employee_name)}</td><td>{String(row.reported_person_days)}</td>
+          <td>{String(row.overtime_person_days)}</td><td>{pct(row.project_effort_share_percent)}</td><td>{String(row.active_month_count ?? "—")}</td></tr>)}</tbody></table>
+    </Fold>
+    <Fold title="月度工时" count={`${months.length} 个月`}>
+      <table className="fr-table"><thead><tr><th>月份</th><th>填报人天</th><th>确认人天</th><th>确认缺口</th><th>加班人天</th><th>记录数</th></tr></thead>
+        <tbody>{months.map(row => <tr key={String(row.month)}><td>{String(row.month)}</td><td>{String(row.reported_person_days)}</td><td>{String(row.approved_person_days)}</td>
+          <td>{String(row.confirmation_gap_person_days)}</td><td>{String(row.overtime_person_days)}</td><td>{String(row.entry_count)}</td></tr>)}</tbody></table>
+    </Fold>
+  </div>;
+}
+
+// aiSuggestionOverview (user 2026-11-10: 「AI 提案与标记」 was four raw columns of keys): what waits for approval, the
+// AI risk flags in force, the interventions that came from AI and whether their basis still holds, what was decided.
+function basisLines(basis: unknown): string[] {
+  return ((basis as Json[] | undefined) ?? []).map(fact => String(fact.text ?? "")).filter(Boolean);
+}
+
+function AiOverviewView({ result }: { result: Json }) {
+  const pending = (result.pending as Json[] | undefined) ?? [];
+  const flags = (result.riskFlags as Json[] | undefined) ?? [];
+  const basis = Object.entries((result.interventionBasis as Record<string, Json> | undefined) ?? {});
+  const recent = (result.recent as Json[] | undefined) ?? [];
+  return <div className="fr">
+    <div className="fr-headline">
+      <Badge tone={pending.length ? "warn" : "good"}>{pending.length ? `${pending.length} 条待批准` : "没有待批准的提案"}</Badge>
+      <span>有效 AI 风险标记 {flags.length} 条 · 来自 AI 的干预 {basis.length} 项 · 近 30 天处理 {recent.length} 条</span>
+    </div>
+    {pending.length > 0 && <Section title="待批准的 AI 提案">
+      <ul className="fr-alerts">{pending.map(item => <li key={String(item.proposalId)} className="warning">
+        <div><strong>{String(item.title)}</strong><Badge tone="warn">{String(item.kindLabel)}</Badge></div>
+        <p>{String(item.submittedBy)} 提交于 {String(item.submittedAt ?? "").slice(0, 16).replace("T", " ")} · {String(item.expiresOn)} 前处理{item.projectNumber ? ` · ${item.projectNumber}` : ""}{item.canApprove ? "" : " · 你无权批准"}</p>
+      </li>)}</ul>
+    </Section>}
+    {flags.length > 0 && <Section title="有效的 AI 风险标记">
+      <ul className="fr-alerts">{flags.map(flag => <li key={String(flag.flagId)} className={flag.basisHolds ? "warning" : ""}>
+        <div><strong>{String(flag.projectNumber)} · {String(flag.title)}</strong><Badge tone={flag.basisHolds ? "warn" : "neutral"}>{flag.basisHolds ? "依据成立" : "依据已不成立"}</Badge></div>
+        <p>{String(flag.approvedBy)} 批准 · 有效至 {String(flag.validUntil)}</p>
+        <details className="fr-more"><summary>说明与依据</summary>
+          <p>{String(flag.detail ?? "")}</p>
+          <ul className="fr-list">{basisLines(flag.basis).map(line => <li key={line}>{line}</li>)}</ul>
+        </details>
+      </li>)}</ul>
+    </Section>}
+    {basis.length > 0 && <Section title="来自 AI 的管理干预">
+      <ul className="fr-alerts">{basis.map(([interventionId, item]) => <li key={interventionId} className={item.basisHolds ? "" : "warning"}>
+        <div><strong>{String(item.strategyTitle ?? interventionId)}</strong><Badge tone={item.basisHolds ? "good" : "warn"}>{item.basisHolds ? "依据仍成立" : "依据已变化"}</Badge></div>
+        <p>{item.strategyTitle ? `部门策略（AI）· ${item.strategyStatus === "active" ? "有效" : String(item.strategyStatus)}` : "管理干预提案"} · 干预 {interventionId}</p>
+        {item.basisNote ? <details className="fr-more"><summary>依据复核</summary>
+          <ul className="fr-list">{String(item.basisNote).split("；").filter(Boolean).map(line => <li key={line}>{line}</li>)}</ul>
+        </details> : null}
+      </li>)}</ul>
+    </Section>}
+    <Fold title="近 30 天已处理" count={recent.length ? `${recent.length} 条` : "无"}>
+      {recent.length ? <table className="fr-table"><thead><tr><th>提案</th><th>类型</th><th>结果</th><th>处理人</th><th>处理时间</th></tr></thead>
+        <tbody>{recent.map(item => <tr key={String(item.proposalId)}><td>{String(item.title)}{item.projectNumber ? <small className="fr-sub">{String(item.projectNumber)}</small> : null}</td>
+          <td>{String(item.kindLabel)}</td><td>{String(item.statusLabel)}</td><td>{String(item.decidedBy ?? "—")}</td>
+          <td>{String(item.decidedAt ?? "").slice(0, 16).replace("T", " ") || "—"}</td></tr>)}</tbody></table> : <Empty>近 30 天没有处理过的提案</Empty>}
+    </Fold>
+  </div>;
+}
+
 function GenericValue({ value }: { value: unknown }): ReactNode {
   if (value === null || value === undefined || value === "") return <span className="muted">—</span>;
   if (Array.isArray(value)) {
@@ -461,6 +588,8 @@ export function FunctionResultView({ outputType, result, valueTypes }: { outputT
     case "ResourceForecast": return <ResourceForecastView result={data} />;
     case "MaintenanceWorklist": return <MaintenanceWorklistView result={data} />;
     case "DepartmentOperatingReview": return <DepartmentReviewView result={data} />;
+    case "ProjectOverview": return <ProjectOverviewView result={data} label={label} />;
+    case "AiSuggestionOverview": return <AiOverviewView result={data} />;
     default: return <div className="fr"><GenericObject value={data} /></div>;
   }
 }

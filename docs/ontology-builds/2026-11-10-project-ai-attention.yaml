@@ -1,0 +1,52 @@
+# 本体构建包（发布稿）：项目上的 AI 关注事项。本体 8.9.0（Project 新增派生属性 aiAttention，backingDatasets 加 ai_strategy_notes，
+# 风险原因显示名注明「规则」；非破坏性）。
+# 依据：用户 2026-11-10「检查一下本体中『项目』对象的详细信息，风险原因那块还是之前的内容，我们新添加回写的 AI 策略的信息没有展示」。
+# 核对：SEY103 有有效的 AI 风险标记、依据涉及它的部门策略（AI）及处理中的落实干预，但项目对象只有「AI 风险标记 1」这类计数（落在「其他」分组）。
+# D53 规定风险原因与风险等级只由规则判定，所以不并入风险原因，而是在旁边单列（D65，按 D53「单独显示在项目上」与 D59 补全，请确认）。
+kind: OntologyBuild
+stage: release
+supersededBy: 2026-11-10-replaced-wording.yaml
+topic: 项目对象在「风险原因（规则）」旁单列「AI 关注事项」：有效的 AI 风险标记、待批准的 AI 提案、涉及本项目的部门策略（AI）及本项目落实干预
+ontologyVersion: 8.9.0
+date: 2026-11-10
+scope:
+  - CQ-P1 这个项目上有哪些经批准、仍有效的 AI 风险判断？
+  - CQ-P2 这个项目有哪些等待批准的 AI 提案？
+  - CQ-P3 哪些部门策略（AI）涉及这个项目，本项目的落实干预处理到哪一步？
+  - CQ-P4 项目的风险原因里，哪些是规则判定、哪些是 AI 结论？
+
+rules:
+  - id: R1
+    statement: 派生属性 Project.aiAttention 按顺序列出：有效的 AI 风险标记（标题、批准人、有效期，依据已不成立时注明）、待批准的 AI 提案（标题、类型、提交人、待批截止）、有效且涉及本项目的部门策略（AI）（依据中的项目预警、信号所带项目、项目属性事实，或已分解到本项目）及本项目落实干预的状态与截止日期（已关闭时带处理结论）。没有时为空列表。
+    basis: D65；D53「AI 风险标记单独显示在项目上」；D59「策略显示落实进度」；原则 17（执行进度回到决定上，也回到执行对象上）。
+    acceptance: WDR101 批准一条风险标记、提交一条待批干预提案、采纳一条依据涉及 WDR101 并分解到 WDR101 的策略后，aiAttention 依次以「AI 风险标记：」「待批准的 AI 提案：」「部门策略（AI）：…（本项目落实干预待处理，截止」开头；TPL149 为空。
+    verifiedBy: [test_a_project_lists_its_ai_conclusions_beside_the_rule_reasons]
+    ontology: [Project.aiAttention, AiRiskFlag, AiProposal, AiStrategyNote]
+  - id: R2
+    statement: 风险原因与风险等级仍只由规则判定，显示名改为「风险原因（规则）」以与「AI 关注事项」区分；AI 关注事项不进入风险原因、不改风险等级。
+    basis: D53。
+    acceptance: 加入上述 AI 内容前后，WDR101 的 riskReasons 与 riskLevel 相同。
+    verifiedBy: [test_a_project_lists_its_ai_conclusions_beside_the_rule_reasons, test_an_ai_risk_flag_is_a_pending_item_but_leaves_the_risk_level_to_the_rules]
+    ontology: [Project.riskReasons, Project.riskLevel]
+
+exceptions:
+  - rule: R1
+    case: 部门策略（AI）的依据只引用其他对象（例如成本对象、里程碑）的属性，没有项目预警、带项目的信号或项目属性。
+    handling: 只有分解到本项目后才出现在本项目的 AI 关注事项中；派生计算不沿其他对象反查项目，避免项目推导依赖其他对象的推导。
+    basis: 推导规则不能互相依赖成环；分解是「落到本项目」的明确动作（D58）。
+  - rule: R1
+    case: 策略说明文字里点名了项目，但依据没有引用、也没有分解到该项目。
+    handling: 不列入；与 D58 只按依据推出项目相同。
+    basis: D58；AI 关注事项要能复核。
+  - rule: R1
+    case: 已关闭、已过期、被取代的风险标记与部门策略，已批准或驳回的提案。
+    handling: 不列入（只列当前有效与待处理的）；历史在干预时间线与部门经营「历史策略」中查看（D61）。
+    basis: D54 时效：项目上只显示还需要关注的内容。
+  - rule: R1
+    case: 依据已不成立、等待下次复核关闭的风险标记。
+    handling: 仍列出，并注明「依据已不成立」，复核后自动消失。
+    basis: D54 每小时复核；与待处理事项中的提示一致。
+  - rule: R2
+    case: 项目列表与风险徽标的「N 项提醒」。
+    handling: 照旧包含 AI 风险标记与待批提案两类提醒（关注级，D53），但不计入风险等级。
+    basis: D53；本构建包不改提醒逻辑。

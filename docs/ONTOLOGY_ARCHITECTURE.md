@@ -623,6 +623,17 @@ when: [{property: contractType, notIn: [sales]}, {property: lifecycleStatus, not
 
 规模：18 个对象类型、27 种关系、26 个动作、22 个函数、20 个值类型、2 个安全标记。构建包见 [2026-11-10-intervention-history.yaml](./ontology-builds/2026-11-10-intervention-history.yaml)。
 
+### 11.41 项目上的 AI 关注事项（v8.9.0）与替换的说法（v8.9.1）
+
+需求基线 D65。D53 规定风险原因与风险等级只由规则判定，AI 结论「单独显示在项目上」，此前只有计数。
+
+- **派生属性** `Project.aiAttention`（projectFacts）：有效的 AI 风险标记（批准人、有效期，依据不成立时注明）、待批准的 AI 提案（类型、提交人、待批截止）、有效且涉及本项目的部门策略（AI）及本项目落实干预的状态与截止（已关闭带结论）。「涉及」按依据推出：项目预警、带项目的信号、Project 属性事实，或已分解到本项目（D58）；不沿其他对象反查项目。
+- **风险原因** 显示名改为「风险原因（规则）」，内容与风险等级不变；Project 的数据集加入 ai_strategy_notes，策略变化时对象索引失效。
+- **替换的说法**（D66）：superseded 显示为「已由新提案替换」/「已由新批准替换」，处理说明写明是同类、引用相同依据的再次提交，未经审批；`Database._migrate` 改写旧说明一次。
+- 前端：函数结果可收起；`projectOverview`、`aiSuggestionOverview` 有专用视图，维护清单折叠（展示规则，不在元数据中）。
+
+规模：18 个对象类型、27 种关系、26 个动作、22 个函数、20 个值类型、2 个安全标记。构建包见 [2026-11-10-project-ai-attention.yaml](./ontology-builds/2026-11-10-project-ai-attention.yaml)、[2026-11-10-replaced-wording.yaml](./ontology-builds/2026-11-10-replaced-wording.yaml)。
+
 ## 12. 代码结构
 
 ```text

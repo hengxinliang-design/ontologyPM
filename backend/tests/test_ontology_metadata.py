@@ -33,7 +33,7 @@ def bump(metadata: Path, version: str) -> None:
 
 def test_metadata_compiles_with_derived_edits_and_stable_checksum():
     ontology = load_ontology()
-    assert ontology.version == "8.8.2"
+    assert ontology.version == "8.9.1"
     assert [t.api_name for t in ontology.object_types][:3] == ["Project", "CostObject", "Contract"]
     assert len(ontology.object_types) == 18  # 8.6.0: AiProposal, AiRiskFlag, AiStrategyNote (D51-D54)
     assert len(ontology.link_types) == 27  # 8.7.0: AiStrategyNote.followUpInterventions (D58)
@@ -64,7 +64,7 @@ def test_metadata_compiles_with_derived_edits_and_stable_checksum():
         ("object-types/project.yaml", "readPermissions: [projects, health, resource, department]", "readPermissions: [projects, finance]", "finance"),
         ("link-types.yaml", "resolver: {forward: projectTeam, reverse: employeeProjects}", "resolver: {forward: projectTeam, reverse: nope}", "nope"),
         ("action-types/project.yaml", "    - Project.notes\n", "    - Project.notez\n", "Project.notez"),
-        ("ontology.yaml", "  version: 8.8.2", "  version: v8.1", "语义化版本号"),
+        ("ontology.yaml", "  version: 8.9.1", "  version: v8.1", "语义化版本号"),
         ("object-types/project.yaml", "backingDatasets: [records,", "backingDatasets: [crm_cache, records,", "crm_cache"),
         ("object-types/project.yaml", ", unit: count}", "}", "数值属性必须声明量纲"),
         ("object-types/project.yaml", ", unit: hour}", ", unit: yuan}", "money 类型与量纲 yuan 必须同时使用"),
@@ -97,7 +97,7 @@ def test_version_registry_governs_metadata_changes(tmp_path):
 
     with TestClient(create_app(app_settings)) as client:
         versions = client.get("/api/v1/ontology/versions").json()["data"]
-        assert [(v["version"], v["active"]) for v in versions] == [("8.8.2", True)]
+        assert [(v["version"], v["active"]) for v in versions] == [("8.9.1", True)]
         schema = client.get("/api/v1/ontology/schema").json()["data"]
         assert schema["checksum"] == versions[0]["checksum"]
         assert {v["apiName"] for v in schema["valueTypes"]} >= {"ContractType", "RiskLevel"}
@@ -116,15 +116,15 @@ def test_version_registry_governs_metadata_changes(tmp_path):
     edit(metadata / "action-types/project.yaml", "    - Project.notes\n", "")
     with TestClient(create_app(app_settings)) as client:
         versions = client.get("/api/v1/ontology/versions").json()["data"]
-        assert [(v["version"], v["active"]) for v in versions] == [("8.10.0", True), ("8.8.2", False)]
-        diff = client.get("/api/v1/ontology/versions/diff", params={"from": "8.8.2", "to": "8.10.0"}).json()["data"]
+        assert [(v["version"], v["active"]) for v in versions] == [("8.10.0", True), ("8.9.1", False)]
+        diff = client.get("/api/v1/ontology/versions/diff", params={"from": "8.9.1", "to": "8.10.0"}).json()["data"]
         project_change = next(c for c in diff["changes"] if c["kind"] == "ObjectType" and c["apiName"] == "Project")
         paths = {d["path"]: d for d in project_change["details"]}
         assert paths["icon"]["after"] == "folder"
         assert paths["properties.notes"]["change"] == "removed"
         assert project_change["breaking"] is True
         assert diff["summary"]["breaking"] >= 1
-        documents = client.get("/api/v1/ontology/versions/8.8.2").json()["data"]
+        documents = client.get("/api/v1/ontology/versions/8.9.1").json()["data"]
         assert any(doc["kind"] == "ObjectType" and doc["source"] == "object-types/project.yaml" for doc in documents)
         assert client.get("/api/v1/ontology/versions/9.9.9").status_code == 404
 

@@ -1,0 +1,33 @@
+# 本体构建包（发布稿）：AI 提案「已被取代」的说法。本体 8.9.1（只改两个值类型的标签与属性说明，修订号；另改写系统写入的旧说明）。
+# 依据：用户 2026-11-10「核对一下，状态是：已被取代。这些是不是核验没通过的？如果是，我们描述要优化下，不然不太理解」。
+# 核对：SEY103 的三条「已被取代」风险标记提案依据都仍成立，是同一判断 10:35、10:47、10:47、10:48 四次提交，每次新提交替换上一条待批提案（D54 去重），
+# 最后一条被批准。依据不成立的提案状态是「已过期」。所以不是核验没通过，问题在说法。
+kind: OntologyBuild
+stage: release
+topic: AI 提案被同类再次提交替换时，状态与处理说明写明原因（再次提交、未经审批、与依据复核无关）
+ontologyVersion: 8.9.1
+date: 2026-11-10
+scope:
+  - CQ-P5 一条 AI 提案不是被批准或驳回，而是被替换，是因为依据没通过复核吗？
+
+rules:
+  - id: R1
+    statement: 同一项目（部门策略为同一类别）、同类、引用相同依据（不比较当前值）的提案再次提交时，旧的待批提案状态显示「已由新提案替换」，处理说明写明「同一项目、同类、引用相同依据的提案再次提交，已由新提案 X 替换；本条未经审批，与依据复核无关」；AI 风险标记与部门策略（AI）被同类新结论批准替换时显示「已由新批准替换」。8.9.1 以前写入的旧说明在启动时改写一次。
+    basis: D66（用户 2026-11-10「状态是已被取代，这些是不是核验没通过的？描述要优化」）；D54 去重。依据不成立的提案是「已过期」，不是替换。
+    acceptance: 对 WDR101 提交同一风险标记两次，第一条状态为 superseded、依据仍成立，处理说明为上述文字，AiProposalStatus 的 superseded 标签为「已由新提案替换」；旧格式说明在初始化后改写，重复初始化不再变化。
+    verifiedBy: [test_a_replaced_proposal_says_it_was_resubmitted_not_rejected, test_old_replacement_notes_are_reworded_once, test_one_item_per_subject_kind_and_facts]
+    ontology: [AiProposalStatus, AiFindingStatus, AiProposal.status, AiProposal.decisionNote]
+
+exceptions:
+  - rule: R1
+    case: 被替换的提案的「处理人」「处理时间」。
+    handling: 仍为再次提交的人和新提案的提交时间（构建包 2026-11-10-object-lists 的例外）；处理说明写明这不是审批。
+    basis: 替换发生在提交时，记录在同一组字段上（D54）。
+  - rule: R1
+    case: 已发布版本的 CHANGELOG、构建包与测试报告中写「已被取代」「被取代」。
+    handling: 不改，它们记录当时的名字。
+    basis: 历史文档不追改（与 D64 同理）。
+  - rule: R1
+    case: 用户手工写过的处理说明，或不是系统替换格式的说明。
+    handling: 启动改写只匹配系统写入的「被新提交的建议 X 取代」「被新批准的 X 取代」，其他说明不动。
+    basis: 只改系统自己写的文字，不改人写的记录。

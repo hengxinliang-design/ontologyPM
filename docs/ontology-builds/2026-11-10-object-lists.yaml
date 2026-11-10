@@ -4,6 +4,7 @@
 # 动作审计有提交与批准；问题在展示：列表重复「标题」列、看不到提交人与审批人，管理干预列表看不到处理结论。
 kind: OntologyBuild
 stage: release
+supersededBy: 2026-11-10-project-ai-attention.yaml
 topic: AI 提案、AI 风险标记、部门策略（AI）与管理干预的列表列显示谁、何时、处理到哪一步，标题不再重复；AI 提案与采纳后的部门策略不再同名
 ontologyVersion: 8.8.2
 date: 2026-11-10

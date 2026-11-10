@@ -49,7 +49,7 @@ class AiFindingRepository:
             connection.execute(
                 "UPDATE ai_proposals SET status = 'superseded', decided_by = ?, decided_at = ?, "
                 "decision_note = ? WHERE status = 'pending' AND dedupe_key = ?",
-                (actor, now, f"被新提交的建议 {proposal_id} 取代", fields["dedupe_key"]))
+                (actor, now, f"同一项目、同类、引用相同依据的提案再次提交，已由新提案 {proposal_id} 替换；本条未经审批，与依据复核无关", fields["dedupe_key"]))
             connection.execute(
                 """INSERT INTO ai_proposals(proposal_id, kind, project_number, category, proposed_category, title, detail,
                        basis_json, parameters_json, dedupe_key, source, source_ref, status, submitted_by, submitted_at,
@@ -83,7 +83,7 @@ class AiFindingRepository:
             connection.execute(
                 f"UPDATE {table} SET status = 'superseded', closed_by = ?, closed_at = ?, closed_reason = ? "
                 "WHERE status = 'active' AND dedupe_key = ?",
-                (actor, now, f"被新批准的 {finding_id} 取代", proposal["dedupe_key"]))
+                (actor, now, f"同类、引用相同依据的新结论 {finding_id} 已批准，替换本条", proposal["dedupe_key"]))
             if kind == "riskFlag":
                 connection.execute(
                     """INSERT INTO ai_risk_flags(flag_id, project_number, title, detail, basis_json, dedupe_key, proposal_id,

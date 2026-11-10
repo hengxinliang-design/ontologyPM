@@ -717,6 +717,18 @@ class Database:
             # 8.7.0 (D56): the category the model proposed when no existing one fits (submitted as 其他).
             if "proposed_category" not in {row["name"] for row in connection.execute(f"PRAGMA table_info({table})").fetchall()}:
                 connection.execute(f"ALTER TABLE {table} ADD COLUMN proposed_category TEXT")
+        # 8.9.1 (D66): 「被新提交的建议 X 取代」 read like a failed check; it was a resubmission of the same proposal.
+        connection.execute(
+            "UPDATE ai_proposals SET decision_note = '同一项目、同类、引用相同依据的提案再次提交，已由新提案 ' || "
+            "substr(decision_note, 9, length(decision_note) - 11) || ' 替换；本条未经审批，与依据复核无关' "
+            "WHERE status = 'superseded' AND decision_note LIKE '被新提交的建议 % 取代'"
+        )
+        for table in ("ai_risk_flags", "ai_strategy_notes"):
+            connection.execute(
+                f"UPDATE {table} SET closed_reason = '同类、引用相同依据的新结论 ' || "
+                "substr(closed_reason, 7, length(closed_reason) - 9) || ' 已批准，替换本条' "
+                "WHERE status = 'superseded' AND closed_reason LIKE '被新批准的 % 取代'"
+            )
         if "conclusion" not in intervention_columns:
             # 8.8.0 (D63): what was done, written when the intervention is closed.
             connection.execute("ALTER TABLE interventions ADD COLUMN conclusion TEXT")

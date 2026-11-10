@@ -615,9 +615,10 @@ function FunctionRunner({ fn, objectType, primaryKey, valueTypes, month }: { fn:
   const [result, setResult] = useState<unknown>(undefined);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [folded, setFolded] = useState(false);
 
   async function run() {
-    setBusy(true); setError(null);
+    setBusy(true); setError(null); setFolded(false);
     try {
       const params: Record<string, unknown> = objectParam ? { [objectParam.apiName]: primaryKey } : {};
       for (const [key, value] of Object.entries(values)) if (value) params[key] = value;
@@ -635,11 +636,12 @@ function FunctionRunner({ fn, objectType, primaryKey, valueTypes, month }: { fn:
       <div className="function-controls">
         {extra.map(p => <input key={p.apiName} value={values[p.apiName] ?? ""} maxLength={p.maxLength ?? undefined} placeholder={`${p.displayName}${parameterHint(p) ? `（${parameterHint(p)}）` : ""}`}
           onChange={e => setValues(v => ({ ...v, [p.apiName]: e.target.value }))} />)}
-        <button className="button secondary" disabled={busy || !fn.permitted} title={fn.permitted ? fn.description : "当前用户无权调用"} onClick={() => void run()}>{busy ? "计算中…" : "运行"}</button>
+        {result !== undefined && <button className="button ghost" aria-expanded={!folded} onClick={() => setFolded(value => !value)}>{folded ? "展开结果" : "收起结果"}</button>}
+        <button className="button secondary" disabled={busy || !fn.permitted} title={fn.permitted ? fn.description : "当前用户无权调用"} onClick={() => void run()}>{busy ? "计算中…" : result === undefined ? "运行" : "重新运行"}</button>
       </div>
     </div>
     {error && <p className="action-message error">{error}</p>}
-    {result !== undefined && <div className="function-output">
+    {result !== undefined && !folded && <div className="function-output">
       <FunctionResultView outputType={fn.outputType} result={result} valueTypes={valueTypes} />
       <RawJson value={result} />
     </div>}

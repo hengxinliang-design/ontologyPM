@@ -262,6 +262,7 @@
 | 比较符写法 | eq / ne / gt / gte / lt / lte 等读作 = / != / > / >= / < / <= | `ai_basis.OPERATOR_ALIASES` |
 | 关闭干预（8.8.0，D63） | 必须填写处理结论（最多 500 字），记在「处理结论」上，备注保留；只约束关闭 | `updateInterventionStatus`、校验 `closingConclusion`（`maintenance_rules.closing_conclusion`） |
 | 干预时间线（D61、D62） | 来源、新建、状态更新（备注与结论）、所属策略失效、依据复核不成立；取自动作审计与记录 | 函数 `interventionHistory` |
+| 项目上的 AI 关注事项（8.9.0，D65） | 有效的 AI 风险标记、待批准的 AI 提案、依据涉及本项目或已分解到本项目的部门策略（AI）及本项目落实干预状态；与「风险原因（规则）」分开，不改风险等级 | `Project.aiAttention`（projectFacts） |
 | 历史策略（D61） | 已关闭、已过期、被取代的策略，最近 50 条，带各项目干预的状态与结论 | `departmentOperatingReview.aiStrategyHistory` |
 
 ## 9. 里程碑与回款节点
