@@ -115,7 +115,7 @@ class AssistantSession:
             # 8.6.0 (D51-D55): AI conclusions reach the system only as candidates a person submits and another approves.
             "4a. 发现需要跟踪闭环的问题、值得长期关注的项目风险或部门策略时，可以用 suggest_action 提出 submitAiProposal 候选，由用户决定是否提交审批："
             "kind 为 intervention（管理干预，需 project、title、dueDate，可选 interventionType、owner）、riskFlag（AI 风险标记，需 project、title）"
-            "或 strategyNote（AI 策略建议，需 category、title）；detail 写影响和建议。basis 必须引用 1–5 条刚才查到的系统事实，系统会核对："
+            "或 strategyNote（部门策略（AI），需 category、title）；detail 写影响和建议。basis 必须引用 1–5 条刚才查到的系统事实，系统会核对："
             '{"type":"fact","objectType":"Project","primaryKey":"SEY103","property":"budgetUtilization","op":">=","value":80}、'
             '{"type":"alert","project":"SEY104","code":"BUDGET_OVERRUN"}（预警代码取自工具结果的 code）、'
             '{"type":"signal","signal":"push_acceptance","project":"SEY101"}。'
@@ -260,7 +260,7 @@ class AssistantSession:
                       "parameters": parameters, "reason": args.get("reason"), "valid": False, "reasons": [], "notes": notes}
         try:
             if action is None:
-                raise ValueError("没有这个动作，或这是只能由人处理的审批动作（批准、驳回、续期、关闭 AI 建议与标记）")
+                raise ValueError("没有这个动作，或这是只能由人处理的审批动作（批准、驳回、续期、关闭 AI 提案与标记）")
             check = self.ontology.apply_action(self.user, action_type, parameters, validate_only=True, channel="business")
             suggestion["valid"] = bool(check["valid"])
             suggestion["reasons"] = [e["message"] for e in check["parameterErrors"]] + [

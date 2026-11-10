@@ -6,9 +6,9 @@ kind: ObjectType
 version: v1
 definition:
   apiName: AiProposal
-  displayName: AI 建议
-  pluralDisplayName: AI 建议
-  description: PM Assistant 或项目 AI 分析给出、由用户提交审批的候选（D52）。待批准的建议在项目待处理事项中提醒；批准后生成管理干预、AI 风险标记或 AI 策略建议（D51）；超过待批天数或依据不再成立时自动过期，同一去重键的新建议取代旧建议（D54）。
+  displayName: AI 提案
+  pluralDisplayName: AI 提案
+  description: PM Assistant 或项目 AI 分析给出、由用户提交审批的候选（D52）。待批准的建议在项目待处理事项中提醒；批准后生成管理干预、AI 风险标记或 部门策略（AI）（D51）；超过待批天数或依据不再成立时自动过期，同一去重键的新建议取代旧建议（D54）。
   primaryKey: proposalId
   titleProperty: title
   datasource: aiProposals
@@ -18,12 +18,12 @@ definition:
   icon: sparkles
   displayOrder: 16
   defaultOrder: -submittedAt
-  listProperties: [title, kind, status, projectNumber]
+  listProperties: [kind, status, projectNumber, submittedBy, submittedAt, decidedBy, decidedAt]
   properties:
-    - {apiName: proposalId, displayName: 建议 ID, type: string, sourceKind: system, source: ai_proposals.proposal_id}
-    - {apiName: kind, displayName: 类型, type: enum, valueType: AiProposalKind, sourceKind: manual, source: 提交时选择：管理干预、AI 风险标记或 AI 策略建议}
-    - {apiName: projectNumber, displayName: 项目编号, type: string, sourceKind: manual, source: ai_proposals.project_number（AI 策略建议可以为空）, searchable: true}
-    - {apiName: category, displayName: 策略类别, type: enum, valueType: StrategyCategory, sourceKind: manual, source: ai_proposals.category（仅 AI 策略建议）}
+    - {apiName: proposalId, displayName: 提案 ID, type: string, sourceKind: system, source: ai_proposals.proposal_id}
+    - {apiName: kind, displayName: 类型, type: enum, valueType: AiProposalKind, sourceKind: manual, source: 提交时选择：管理干预、AI 风险标记或 部门策略（AI）}
+    - {apiName: projectNumber, displayName: 项目编号, type: string, sourceKind: manual, source: ai_proposals.project_number（部门策略（AI）可以为空）, searchable: true}
+    - {apiName: category, displayName: 策略类别, type: enum, valueType: StrategyCategory, sourceKind: manual, source: ai_proposals.category（仅 部门策略（AI））}
     - {apiName: proposedCategory, displayName: AI 提出的类别, type: string, sourceKind: manual, source: ai_proposals.proposed_category：现有类别都不适用时 AI 自己给的类别名，此时类别为「其他」；汇总为部门经营的「规则未覆盖的策略」（D56）, searchable: true}
     - {apiName: title, displayName: 标题, type: string, sourceKind: manual, source: ai_proposals.title（候选卡片的标题，用户可在提交前修改）, searchable: true}
     - {apiName: detail, displayName: 说明, type: string, sourceKind: manual, source: ai_proposals.detail}
@@ -34,11 +34,11 @@ definition:
     - {apiName: status, displayName: 状态, type: enum, valueType: AiProposalStatus, sourceKind: manual, source: ai_proposals.status：批准、驳回由人执行；过期、被取代由系统执行（D54）}
     - {apiName: submittedBy, displayName: 提交人, type: string, sourceKind: system, source: ai_proposals.submitted_by}
     - {apiName: submittedAt, displayName: 提交时间, type: datetime, sourceKind: system, source: ai_proposals.submitted_at}
-    - {apiName: expiresOn, displayName: 待批截止, type: date, sourceKind: system, source: 提交日 + 运营口径「AI 建议待批天数」（D54）}
+    - {apiName: expiresOn, displayName: 待批截止, type: date, sourceKind: system, source: 提交日 + 运营口径「AI 提案待批天数」（D54）}
     - {apiName: decidedBy, displayName: 处理人, type: string, sourceKind: system, source: 批准或驳回的人；系统过期时为 system}
     - {apiName: decidedAt, displayName: 处理时间, type: datetime, sourceKind: system, source: ai_proposals.decided_at}
     - {apiName: decisionNote, displayName: 处理说明, type: string, sourceKind: manual, source: 批准或驳回时填写；系统过期时写明原因}
-    - {apiName: resultId, displayName: 生成的记录, type: string, sourceKind: system, source: 批准后生成的管理干预、AI 风险标记或 AI 策略建议的编号}
+    - {apiName: resultId, displayName: 生成的记录, type: string, sourceKind: system, source: 批准后生成的管理干预、AI 风险标记或 部门策略（AI）的编号}
     - {apiName: basisHolds, displayName: 依据仍成立, type: boolean, sourceKind: system, source: 最近一次复核的结果：每条依据都成立为是（D54，每小时复核）}
     - {apiName: basisNote, displayName: 依据复核, type: string, sourceKind: system, source: 最近一次复核时每条依据的读法；不成立时列出不成立的依据}
     - {apiName: checkedAt, displayName: 复核时间, type: datetime, sourceKind: system, source: 复核结果最近一次变化的时间}
@@ -59,14 +59,14 @@ definition:
   icon: flag
   displayOrder: 17
   defaultOrder: -approvedAt
-  listProperties: [title, projectNumber, status, validUntil]
+  listProperties: [projectNumber, status, validUntil, approvedBy, closedReason]
   properties:
     - {apiName: flagId, displayName: 标记 ID, type: string, sourceKind: system, source: ai_risk_flags.flag_id}
-    - {apiName: projectNumber, displayName: 项目编号, type: string, sourceKind: system, source: 来自所批准的 AI 建议, searchable: true}
-    - {apiName: title, displayName: 风险, type: string, sourceKind: system, source: 来自所批准的 AI 建议, searchable: true}
-    - {apiName: detail, displayName: 说明, type: string, sourceKind: system, source: 来自所批准的 AI 建议}
-    - {apiName: basis, displayName: 依据, type: json, sourceKind: system, source: 来自所批准的 AI 建议（D55）}
-    - {apiName: proposalId, displayName: 来源建议, type: string, sourceKind: system, source: ai_risk_flags.proposal_id}
+    - {apiName: projectNumber, displayName: 项目编号, type: string, sourceKind: system, source: 来自所批准的 AI 提案, searchable: true}
+    - {apiName: title, displayName: 风险, type: string, sourceKind: system, source: 来自所批准的 AI 提案, searchable: true}
+    - {apiName: detail, displayName: 说明, type: string, sourceKind: system, source: 来自所批准的 AI 提案}
+    - {apiName: basis, displayName: 依据, type: json, sourceKind: system, source: 来自所批准的 AI 提案（D55）}
+    - {apiName: proposalId, displayName: 来源提案, type: string, sourceKind: system, source: ai_risk_flags.proposal_id}
     - {apiName: status, displayName: 状态, type: enum, valueType: AiFindingStatus, sourceKind: manual, source: 有效；人工或系统关闭；超过有效期为已过期；同一去重键新批准的取代旧的（D54）}
     - {apiName: approvedBy, displayName: 批准人, type: string, sourceKind: system, source: ai_risk_flags.approved_by}
     - {apiName: approvedAt, displayName: 批准时间, type: datetime, sourceKind: system, source: ai_risk_flags.approved_at}
@@ -82,9 +82,9 @@ kind: ObjectType
 version: v1
 definition:
   apiName: AiStrategyNote
-  displayName: AI 策略建议
-  pluralDisplayName: AI 策略建议
-  description: 批准后的部门级 AI 策略建议，显示在部门经营「策略信号」中规则信号的下方，标明是 AI 建议并由谁批准；只能由管理员或部门负责人批准和维护（D51）。有效期、续期与自动关闭同 AI 风险标记（D54）。
+  displayName: 部门策略（AI）
+  pluralDisplayName: 部门策略（AI）
+  description: 批准后的部门级 部门策略（AI），显示在部门经营「策略信号」中规则信号的下方，标明是 AI 提案并由谁批准；只能由管理员或部门负责人批准和维护（D51）。有效期、续期与自动关闭同 AI 风险标记（D54）。
   primaryKey: noteId
   titleProperty: title
   datasource: aiStrategyNotes
@@ -93,15 +93,15 @@ definition:
   icon: compass
   displayOrder: 18
   defaultOrder: -approvedAt
-  listProperties: [title, category, status, validUntil]
+  listProperties: [category, proposedCategory, status, validUntil, approvedBy]
   properties:
-    - {apiName: noteId, displayName: 建议 ID, type: string, sourceKind: system, source: ai_strategy_notes.note_id}
-    - {apiName: category, displayName: 策略类别, type: enum, valueType: StrategyCategory, sourceKind: system, source: 来自所批准的 AI 建议}
-    - {apiName: proposedCategory, displayName: AI 提出的类别, type: string, sourceKind: system, source: 来自所批准的 AI 建议；类别为「其他」时 AI 给的类别名（D56）}
-    - {apiName: title, displayName: 策略, type: string, sourceKind: system, source: 来自所批准的 AI 建议, searchable: true}
-    - {apiName: detail, displayName: 说明, type: string, sourceKind: system, source: 来自所批准的 AI 建议}
-    - {apiName: basis, displayName: 依据, type: json, sourceKind: system, source: 来自所批准的 AI 建议（D55）}
-    - {apiName: proposalId, displayName: 来源建议, type: string, sourceKind: system, source: ai_strategy_notes.proposal_id}
+    - {apiName: noteId, displayName: 策略 ID, type: string, sourceKind: system, source: ai_strategy_notes.note_id}
+    - {apiName: category, displayName: 策略类别, type: enum, valueType: StrategyCategory, sourceKind: system, source: 来自所批准的 AI 提案}
+    - {apiName: proposedCategory, displayName: AI 提出的类别, type: string, sourceKind: system, source: 来自所批准的 AI 提案；类别为「其他」时 AI 给的类别名（D56）}
+    - {apiName: title, displayName: 策略, type: string, sourceKind: system, source: 来自所批准的 AI 提案, searchable: true}
+    - {apiName: detail, displayName: 说明, type: string, sourceKind: system, source: 来自所批准的 AI 提案}
+    - {apiName: basis, displayName: 依据, type: json, sourceKind: system, source: 来自所批准的 AI 提案（D55）}
+    - {apiName: proposalId, displayName: 来源提案, type: string, sourceKind: system, source: ai_strategy_notes.proposal_id}
     - {apiName: status, displayName: 状态, type: enum, valueType: AiFindingStatus, sourceKind: manual, source: 同 AI 风险标记（D54）}
     - {apiName: approvedBy, displayName: 批准人, type: string, sourceKind: system, source: ai_strategy_notes.approved_by}
     - {apiName: approvedAt, displayName: 批准时间, type: datetime, sourceKind: system, source: ai_strategy_notes.approved_at}

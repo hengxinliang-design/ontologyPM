@@ -73,7 +73,7 @@ def test_an_intervention_from_a_strategy_traces_back_to_it(app):
     assert (result["origin"]["type"], result["origin"]["title"], result["origin"]["statusLabel"]) == ("strategy", "集中推动验收回款", "已关闭")
     assert result["origin"]["basis"] == ["项目 WDR101 的预算人天 ≥ 100（当前 120.00）"]
     titles = [e["title"] for e in result["events"]]
-    assert titles[:3] == ["提交 AI 策略「集中推动验收回款」", "采纳部门策略", "部门策略分解到本项目"] and titles[-1] == "所属策略已关闭"
+    assert titles[:3] == ["提交 AI 提案「集中推动验收回款」", "采纳部门策略", "部门策略分解到本项目"] and titles[-1] == "所属策略已关闭"
     assert result["events"][0]["actor"] == "pmo.a" and result["events"][1]["actor"] == "head.a"
     assert result["events"][-1]["detail"] == "本月已安排"
 
@@ -86,7 +86,7 @@ def test_an_intervention_from_a_suggestion_shows_when_its_facts_stopped_holding(
     app.state.ai_findings.refresh()
     result = history(app, intervention)
     assert result["origin"]["type"] == "suggestion"
-    assert [e["title"] for e in result["events"]] == ["提交 AI 建议「追加预算」", "批准 AI 建议", "批准 AI 建议，新建干预", "复核：依据已不成立"]
+    assert [e["title"] for e in result["events"]] == ["提交 AI 提案「追加预算」", "批准 AI 提案", "批准 AI 提案，新建干预", "复核：依据已不成立"]
     assert "当前 80.00" in result["events"][-1]["detail"] and result["events"][-1]["actor"] == "系统"
 
 

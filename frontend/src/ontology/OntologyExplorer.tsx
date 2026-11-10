@@ -387,7 +387,7 @@ function ObjectDetail({ schema, focus, openObject, changed, month }: {
         const periodic = section.properties.every(prop => prop.periodic);
         return <details key={section.title} className="property-section" open>
           <summary>{section.title}{periodic && statMonth && <em className="period-tag">{month ? statMonth : `${statMonth}（最近有工时的月份）`}</em>}<small>{rows.length}</small></summary>
-          <dl className="property-rows">{rows.map(prop => <div key={prop.apiName} className={isWideProperty(prop) ? "wide" : undefined}>
+          <dl className="property-rows">{rows.map(prop => <div key={prop.apiName} className={isWideProperty(prop, object.properties[prop.apiName]) ? "wide" : undefined}>
             <dt title={`${SOURCE_KIND_LABEL[prop.sourceKind]} · ${prop.apiName}${prop.source ? `\n${prop.source}` : ""}`}><span className={`source-dot ${prop.sourceKind}`} />{prop.displayName}</dt>
             <dd>{object.references?.[prop.apiName] && !object.redactedProperties.includes(prop.apiName)
               ? <ReferenceValue reference={object.references[prop.apiName]} openObject={openObject} />

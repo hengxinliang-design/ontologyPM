@@ -375,7 +375,7 @@ def test_breaking_down_needs_projects_from_the_facts_and_a_due_date(app):
     assert reason(projects=[], dueDate=due) == "", "approving without breaking down is allowed"
     flag = submit(app)
     flag_check = check(app, PMO, "approveAiProposal", proposal=flag, projects=["WDR101"], dueDate=due)
-    assert any("只有 AI 策略建议可以分解" in (c["reason"] or "") for c in flag_check["criteria"])
+    assert any("只有 部门策略（AI）可以分解" in (c["reason"] or "") for c in flag_check["criteria"])
 
 
 def test_an_adopted_strategy_can_be_broken_down_later_without_repeats(app):
@@ -392,4 +392,35 @@ def test_an_adopted_strategy_can_be_broken_down_later_without_repeats(app):
     act(app, HEAD, "breakDownAiStrategyNote", note=note["noteId"], projects=["TPL149"], dueDate=due)
     [note] = app.state.ontology_service.execute_function(HEAD, "departmentOperatingReview", {})["result"]["aiStrategyNotes"]
     assert sorted(f["projectNumber"] for f in note["followUps"]) == ["TPL149", "WDR101"]
+
+
+def test_object_lists_show_who_decided_and_never_repeat_the_title():
+    """8.8.1 (user 2026-11-10): the AI 提案 list showed 标题 twice and no submitter or decision; 管理干预 had no 处理结论."""
+    from app.ontology import load_ontology
+
+    ontology = load_ontology()
+    for name, wanted in {"AiProposal": {"submittedBy", "submittedAt", "decidedBy", "decidedAt", "status"},
+                         "AiRiskFlag": {"approvedBy", "validUntil", "closedReason"},
+                         "AiStrategyNote": {"approvedBy", "validUntil", "proposedCategory"},
+                         "Intervention": {"status", "conclusion", "owner"}}.items():
+        definition = ontology.object_type(name)
+        columns = definition.list_properties
+        assert definition.title_property not in columns, f"{name}: the title is already the first column"
+        assert wanted <= set(columns), (name, columns)
+
+
+def test_one_name_per_concept_for_ai_objects():
+    """D64 (8.8.2): 「AI 建议」 and 「AI 策略建议」 named two different things; now the record and the strategy differ."""
+    from pathlib import Path
+
+    from app.ontology import load_ontology
+
+    ontology = load_ontology()
+    assert ontology.object_type("AiProposal").display_name == "AI 提案"
+    assert ontology.object_type("AiStrategyNote").display_name == "部门策略（AI）"
+    kinds = {v.api_name: dict(v.values) for v in ontology.value_types}["AiProposalKind"]
+    assert kinds == {"intervention": "管理干预", "riskFlag": "风险标记", "strategyNote": "部门策略"}
+    root = Path(__file__).resolve().parents[1] / "app"
+    stale = [str(p) for p in root.rglob("*") if p.suffix in {".py", ".yaml"} and ("AI 建议" in p.read_text(encoding="utf-8") or "AI 策略建议" in p.read_text(encoding="utf-8"))]
+    assert stale == []
 

@@ -94,7 +94,8 @@ export interface ProposalDraft {
   sourceRef?: string;
 }
 
-export const KIND_LABELS: Record<AiKind, string> = { intervention: "管理干预", riskFlag: "AI 风险标记", strategyNote: "AI 策略建议" };
+// D64: the kinds of an AI 提案 (ontology value type AiProposalKind).
+export const KIND_LABELS: Record<AiKind, string> = { intervention: "管理干预", riskFlag: "风险标记", strategyNote: "部门策略" };
 
 // Labels of the ontology value type InterventionType (ontology.yaml, D34); App.tsx and the AI drafts share them.
 export const INTERVENTION_TYPE_LABELS: Record<string, string> = { schedule: "进度", resource: "资源", payment: "回款", customer: "客户", quality: "质量", management: "其他" };

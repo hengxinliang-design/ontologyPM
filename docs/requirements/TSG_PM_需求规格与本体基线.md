@@ -301,6 +301,7 @@
 | D61（G12，2026-11-10） | 之前生成的干预和策略在哪里查历史 | 就近查：项目详情中每条管理干预可展开时间线（来源——哪条 AI 建议或部门策略、谁提交谁批准、依据；发起、开始处理、关闭及处理结论；所属策略被关闭或过期）；部门经营的 AI 策略建议下折叠「历史策略」，列出已关闭、已过期、被取代的策略及其落实干预与结论，可按标题搜索。历史取自已有的动作审计与记录本身，不另存一份 | 新函数 interventionHistory；部门复盘返回 aiStrategyHistory |
 | D62（G12，2026-11-10） | 哪些干预有时间线 | 全部管理干预（人工发起的与 AI 生成的）；AI 生成的另显示到来源建议或策略的链条 | — |
 | D63（G12，2026-11-10，补充 D31） | 关闭干预时是否必须写处理结论 | 必须：关闭时填写处理结论（最多 500 字），记在干预上并进入时间线；已关闭的旧干预不受影响。项目详情、本体浏览器与接口同一条规则 | Intervention 新增「处理结论」；更新干预状态动作新增参数与校验 |
+| D64（G11 补充，2026-11-10，原则 5） | 「AI 建议」与「AI 策略建议」怎样区分 | 改名：审批记录 AiProposal 叫「AI 提案」（类型：管理干预、风险标记、部门策略）；采纳后有效的部门策略 AiStrategyNote 叫「部门策略（AI）」；AiRiskFlag 仍叫「AI 风险标记」。此前「AI 策略建议」既是提案的一种类型，又是采纳后对象的名字，一个名字两个概念 | 只改显示名与界面文字，apiName、数据与关系不变 |
 
 ## 10. 基线差距与后续构建包
 
@@ -326,4 +327,4 @@
 
 ## 附录 A：构建包索引
 
-`docs/ontology-builds/` 中共 39 个构建包，从 2.0.2 到 8.8.0；只有最新的 `2026-11-10-intervention-history.yaml` 是当前版本，其余已标注被取代（`supersededBy`）。最近几个包：8.0.0 intervention-loop（D31–D34）、8.1.0 input-guards（D40）、8.2.0 parameter-constraints（D41）、8.3.0 resource-range（D42）、8.4.0 ontology-audit（D43–D45）、8.5.0 load-forecast（D46–D49）。各包的规则卡和例外表是每条口径的依据。
+`docs/ontology-builds/` 中共 40 个构建包，从 2.0.2 到 8.8.2；只有最新的 `2026-11-10-object-lists.yaml` 是当前版本，其余已标注被取代（`supersededBy`）。最近几个包：8.0.0 intervention-loop（D31–D34）、8.1.0 input-guards（D40）、8.2.0 parameter-constraints（D41）、8.3.0 resource-range（D42）、8.4.0 ontology-audit（D43–D45）、8.5.0 load-forecast（D46–D49）。各包的规则卡和例外表是每条口径的依据。

@@ -1437,7 +1437,7 @@ POLICY_RANGES: dict[str, tuple[Decimal, Decimal, str, bool]] = {
     "forecast_min_auc": (Decimal("0.5"), Decimal("1"), "负荷预测最低 AUC", False),
     "forecast_max_calibration_error": (Decimal("0.01"), Decimal("0.5"), "负荷预测最大校准误差", False),
     # AI suggestions written back (D54): days a suggestion may wait for approval; days an approved flag or note lasts.
-    "ai_proposal_pending_days": (Decimal("1"), Decimal("90"), "AI 建议待批天数", True),
+    "ai_proposal_pending_days": (Decimal("1"), Decimal("90"), "AI 提案待批天数", True),
     "ai_finding_valid_days": (Decimal("1"), Decimal("365"), "AI 结论有效天数", True),
 }
 

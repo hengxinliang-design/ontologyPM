@@ -27,6 +27,26 @@ const SECTIONS: Record<string, Array<[string, string[]]>> = {
     ["CRM 汇总", ["contractCount", "opportunityCount", "projectCount", "totalContractValue", "totalReceivedAmount", "totalInvoicedAmount", "latestSignedAt", "crmOwners"]],
     ["本年度（按签约年度）", ["currentYearContractValue", "currentYearReceivedAmount", "currentYearInvoicedAmount"]],
   ],
+  // 8.6.0-8.8.0 AI write-back: what it says and rests on, where it stands, who decided (user 2026-11-10: 再优化布局).
+  AiProposal: [
+    ["建议内容", ["kind", "projectNumber", "category", "proposedCategory", "detail", "parameters", "basis"]],
+    ["状态与依据复核", ["status", "expiresOn", "basisHolds", "basisNote", "checkedAt"]],
+    ["提交与审批", ["submittedBy", "submittedAt", "source", "sourceRef", "decidedBy", "decidedAt", "decisionNote", "resultId"]],
+  ],
+  AiRiskFlag: [
+    ["风险内容", ["projectNumber", "detail", "basis"]],
+    ["状态与依据复核", ["status", "validUntil", "basisHolds", "basisNote", "checkedAt"]],
+    ["批准与关闭", ["proposalId", "approvedBy", "approvedAt", "closedBy", "closedAt", "closedReason"]],
+  ],
+  AiStrategyNote: [
+    ["策略内容", ["category", "proposedCategory", "detail", "basis"]],
+    ["状态与依据复核", ["status", "validUntil", "basisHolds", "basisNote", "checkedAt"]],
+    ["批准与关闭", ["proposalId", "approvedBy", "approvedAt", "closedBy", "closedAt", "closedReason"]],
+  ],
+  Intervention: [
+    ["干预", ["projectNumber", "interventionType", "status", "overdue", "owner", "dueDate", "notes"]],
+    ["结果与来源", ["conclusion", "sourceProposalId", "updatedAt"]],
+  ],
   OperatingPolicy: [
     ["工时与利用率", ["standardHoursPerDay", "standardWorkDaysPerYear", "attentionUtilizationPercent", "minimumUtilizationPercent", "excellentUtilizationPercent", "overloadUtilizationPercent"]],
     ["预算与商机", ["budgetAttentionPercent", "budgetHighRiskPercent", "stallDays", "lostStatuses", "internalCodes"]],
@@ -67,9 +87,15 @@ export function propertySections(type: OntologyObjectType): PropertySection[] {
   return rest.length ? [...sections, { title: "其他", properties: rest }] : sections;
 }
 
-/** Long values (reason lists, JSON) take a full row instead of a half-width cell. */
-export function isWideProperty(property: OntologyProperty): boolean {
-  return property.dataType === "json" || property.apiName === "notes" || property.apiName.endsWith("Reason");
+// Free-text properties that usually run to sentences; they take a full row whatever their length.
+const LONG_TEXT = new Set(["notes", "detail", "basisNote", "decisionNote", "conclusion", "description"]);
+const WIDE_TEXT_CHARS = 40;
+
+/** Long values (reason lists, JSON, sentences) take a full row instead of a half-width cell, which squeezed a
+ * 300-character 说明 into a tall narrow column (user 2026-11-10). */
+export function isWideProperty(property: OntologyProperty, value?: unknown): boolean {
+  if (property.dataType === "json" || LONG_TEXT.has(property.apiName) || property.apiName.endsWith("Reason")) return true;
+  return typeof value === "string" && value.length > WIDE_TEXT_CHARS;
 }
 
 export function isEmptyValue(value: unknown): boolean {

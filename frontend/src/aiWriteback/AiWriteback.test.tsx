@@ -23,7 +23,7 @@ const overview = (over: Partial<AiOverview> = {}): AiOverview => ({
 });
 const text = (html: string) => html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
 
-describe("project drawer: AI 建议与风险标记", () => {
+describe("project drawer: AI 提案与风险标记", () => {
   it("is not shown when there is nothing to approve, hold or review", () => {
     expect(renderToStaticMarkup(<ui.ProjectAiSection overview={overview()} saving={false} act={act} />)).toBe("");
     expect(renderToStaticMarkup(<ui.ProjectAiSection overview={null} saving={false} act={act} />)).toBe("");
@@ -57,7 +57,7 @@ describe("project drawer: AI 建议与风险标记", () => {
   });
 });
 
-describe("部门经营: AI 策略建议", () => {
+describe("部门经营: 部门策略（AI）", () => {
   const note: AiStrategyNote = {
     noteId: "asn_1", category: "win_contracts", categoryLabel: "争取新合同", title: "争取 WDR101 二期", detail: null,
     basis: [{ type: "signal", text: "策略信号「争取新合同」" }], proposalId: "aip_9", status: "active", approvedBy: "head.a",
@@ -79,7 +79,7 @@ describe("部门经营: AI 策略建议", () => {
 
 describe("PM Assistant: drafted AI suggestion card", () => {
   const card = (valid: boolean, reasons: string[] = []): PmAssistantSuggestion => ({
-    actionType: "submitAiProposal", displayName: "提交 AI 建议", valid, reasons,
+    actionType: "submitAiProposal", displayName: "提交 AI 提案", valid, reasons,
     parameters: { kind: "intervention", project: "WDR101", title: "追加预算", dueDate: "2026-11-30",
       basis: [{ type: "alert", project: "WDR101", code: "MILESTONE_DUE" }] }
   });
@@ -108,7 +108,7 @@ describe("PM Assistant: drafted AI suggestion card", () => {
 describe("8.7.0: strategies the categories do not cover (D56)", () => {
   it("says on the card that the category is not covered and will go in as 其他", () => {
     const html = renderToStaticMarkup(<ui.ProposalDraftCard item={{
-      actionType: "submitAiProposal", displayName: "提交 AI 建议", valid: true, reasons: [],
+      actionType: "submitAiProposal", displayName: "提交 AI 提案", valid: true, reasons: [],
       notes: ["AI 提出的类别「售前与商机管理」不在现有策略类别中，将按「其他」提交"],
       parameters: { kind: "strategyNote", category: "other", proposedCategory: "售前与商机管理", title: "清理停滞商机", basis: [] }
     }} />);
@@ -160,7 +160,7 @@ describe("8.7.0: strategies carried out on projects (D58, D59)", () => {
 
 describe("8.8.0: a submitted card says who, when and what happened (user 2026-11-10)", () => {
   const card = (submission?: object) => ({
-    actionType: "submitAiProposal", displayName: "提交 AI 建议", valid: true, reasons: [],
+    actionType: "submitAiProposal", displayName: "提交 AI 提案", valid: true, reasons: [],
     parameters: { kind: "riskFlag", project: "SEY103", title: "验收前预算耗尽", basis: [] },
     ...(submission ? { submission } : {})
   }) as never;

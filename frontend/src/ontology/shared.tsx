@@ -36,10 +36,19 @@ export function unitSuffix(property: OntologyProperty): string {
   return ` ${property.unitLabel}`;
 }
 
-/** JSON values (reason lists, {reasons, dataFlags}) read as a list of lines, not raw JSON. */
-function jsonLines(value: unknown): string[] {
+/** JSON values (reason lists, {reasons, dataFlags}, cited facts) read as a list of lines, not raw JSON. An object with
+ * a readable ``text`` (an AI fact: 「项目 SEY103 的预算使用率 ≥ 80（当前 85.0）」) is that text; an object of plain values
+ * reads as 「key：value」; nested lists and objects are flattened. Flat objects used to be dropped, so 依据 showed 「—」. */
+export function jsonLines(value: unknown): string[] {
   if (Array.isArray(value)) return value.flatMap(jsonLines);
-  if (value && typeof value === "object") return Object.values(value as Record<string, unknown>).flatMap(item => typeof item === "object" ? jsonLines(item) : []);
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    if (typeof record.text === "string" && record.text) return [record.text];
+    const nested = Object.values(record).filter(item => item && typeof item === "object");
+    if (nested.length) return nested.flatMap(jsonLines);
+    const plain = Object.entries(record).filter(([, item]) => item !== null && item !== undefined && item !== "");
+    return plain.length ? [plain.map(([key, item]) => `${key}：${String(item)}`).join("，")] : [];
+  }
   return value === null || value === undefined || value === "" ? [] : [String(value)];
 }
 

@@ -1420,7 +1420,7 @@ function ProjectDrawer({ project, close, refresh }: { project: ProjectDetail; cl
     <p className="eyebrow">{project.project_number}</p><h2>{displayProjectName(project.project_number, project.subject)}</h2>
     <div className="drawer-badges"><span>{contractTypeLabel(project.contract_type)}</span><span>{lifecycleLabel(project.lifecycle_status)}</span><span className={`risk ${project.risk_level}`}>{riskLabel(project.risk_level)}</span>{project.redacted_markings?.length ? <RedactionNote markings={project.redacted_markings} /> : null}</div>
     {actionAlerts.length > 0 && <section className="alert-stack" aria-label="项目待处理事项"><div className="alert-stack-head"><div className="alert-stack-icon" aria-hidden="true">!</div><div><h3>项目待处理事项</h3><small>按优先级处理风险和人工维护事项</small></div><span className="alert-stack-count">{actionAlerts.length} 项</span><button type="button" className="ai-analysis-button" disabled={analyzing} onClick={() => void requestAiAnalysis()}>{analyzing ? "正在分析…" : aiAnalysis ? "重新分析" : "AI 分析"}</button></div><div className="alert-stack-list">{actionAlerts.map((alert, index) => <article className={`anomaly-alert ${alert.severity}`} key={`${alert.code}-${index}`}><span className="anomaly-alert-icon" aria-hidden="true">{alert.severity === "critical" ? "!" : "◷"}</span><div className="anomaly-alert-content"><div><strong>{alert.title}</strong><span>{alert.severity === "critical" ? "严重" : "关注"}</span></div><p>{alert.detail}</p>{(() => { const action = aiActionFor(aiAnalysis?.review, alert); return action ? <>
-              <p className="anomaly-alert-action"><span>AI 建议</span>{action}</p>
+              <p className="anomaly-alert-action"><span>AI 提案</span>{action}</p>
               {aiOverview && alert.code && !alert.code.startsWith("AI_") && <InterventionDraft project={project.project_number} code={alert.code} alertTitle={alert.title}
                 action={action} owner={project.project_manager ?? ""} act={aiAct} saving={saving} />}
             </> : null; })()}</div></article>)}</div>{aiAnalysis && <ProjectReviewCard analysis={aiAnalysis} />}{analysisError && <p className="ai-analysis-error">{analysisError}</p>}</section>}
@@ -1554,7 +1554,7 @@ function ProjectDrawer({ project, close, refresh }: { project: ProjectDetail; cl
             {(() => { const source = aiOverview?.interventionBasis[item.intervention_id]; return source ? <small className={source.basisHolds ? "ai-muted" : "ai-basis-stale"}>
               {source.strategyTitle
                 ? `来自部门策略「${source.strategyTitle}」${source.basisHolds ? "" : `；${source.basisNote ?? "所属策略已不成立"}，可考虑关闭`}`
-                : source.basisHolds ? "来自 AI 建议，依据仍成立" : `来自 AI 建议；${source.basisNote ?? "依据已不成立"}，可考虑关闭`}</small> : null; })()}
+                : source.basisHolds ? "来自 AI 提案，依据仍成立" : `来自 AI 提案；${source.basisNote ?? "依据已不成立"}，可考虑关闭`}</small> : null; })()}
             {item.conclusion && <small className="ai-conclusion">处理结论：{item.conclusion}</small>}
             {closing?.id === item.intervention_id && <form className="ai-inline-reason" onSubmit={event => { event.preventDefault(); if (closing.conclusion.trim()) moveIntervention(item, "closed", closing.conclusion.trim()); }}>
               <input autoFocus required maxLength={500} value={closing.conclusion} placeholder="处理结论（必填）：做了什么、结果如何" aria-label="处理结论"

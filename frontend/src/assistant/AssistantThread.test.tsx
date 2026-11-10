@@ -19,7 +19,7 @@ describe("an answer in the thread", () => {
     role: "assistant", content: "**结论** WDR101 预算偏紧。",
     sources: ["函数 项目预算消耗（projectBudgetStatus）", "对象 项目"],
     suggestions: [
-      { actionType: "submitAiProposal", displayName: "提交 AI 建议", valid: true, reasons: [],
+      { actionType: "submitAiProposal", displayName: "提交 AI 提案", valid: true, reasons: [],
         parameters: { kind: "riskFlag", project: "WDR101", title: "预算可能不够", basis: [{ type: "fact", objectType: "Project", primaryKey: "WDR101", property: "plannedPersonDays", op: ">=", value: 100 }] } },
       { actionType: "editMilestone", displayName: "编辑里程碑", valid: true, reasons: [], parameters: { milestone: "ms_1", plannedEnd: "2026-12-31" } }
     ]
@@ -27,7 +27,7 @@ describe("an answer in the thread", () => {
 
   it("shows the AI suggestion as a card, other actions as suggestions, and folds the sources", () => {
     const html = renderToStaticMarkup(<ui.AssistantThread thread={thread([{ role: "user", content: "WDR101 有什么风险？" }, answer])} />);
-    expect(text(html)).toContain("AI 风险标记候选");
+    expect(text(html)).toContain("风险标记候选");
     expect(html).toMatch(/>提交审批</);
     expect(text(html)).toContain("建议动作（未执行）");
     expect(text(html)).toContain("编辑里程碑");

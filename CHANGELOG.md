@@ -4,6 +4,7 @@
 
 | 产品版本 | 本体版本 | 日期 | 构建包 |
 | --- | --- | --- | --- |
+| v1.41.1 | 8.8.2 | 2026-11-10 | [2026-11-10-object-lists](docs/ontology-builds/2026-11-10-object-lists.yaml) |
 | v1.41.0 | 8.8.0 | 2026-11-10 | [2026-11-10-intervention-history](docs/ontology-builds/2026-11-10-intervention-history.yaml) |
 | v1.40.0 | 8.7.0 | 2026-11-10 | [2026-11-10-strategy-follow-through](docs/ontology-builds/2026-11-10-strategy-follow-through.yaml) |
 | v1.39.0 | 8.6.0 | 2026-11-10 | [2026-11-09-ai-writeback](docs/ontology-builds/2026-11-09-ai-writeback.yaml) |
@@ -36,6 +37,14 @@
 | v1.22.0 | 7.6.0 | 2026-10-30 | [2026-10-29-logical-delete](docs/ontology-builds/2026-10-29-logical-delete.yaml) |
 | v1.21.0 | 7.5.0 | 2026-10-29 | [2026-10-29-rule-homes-and-linkages](docs/ontology-builds/2026-10-29-rule-homes-and-linkages.yaml) |
 | v1.20.0 | 7.4.0 | 2026-10-29 | [2026-10-29-milestone-span-period](docs/ontology-builds/2026-10-29-milestone-span-period.yaml) |
+
+## v1.41.1 — AI 对象的名称、列表与详情布局（需求基线 D64，本体 8.8.2）
+
+- 名称（D64）：审批记录 AiProposal 改称「AI 提案」，类型为管理干预、风险标记、部门策略；采纳后有效的 AiStrategyNote 改称「部门策略（AI）」；动作、关系、页面与提示中的说法随之统一。此前「AI 策略建议」既是提案的一种类型、又是采纳后对象的名字。只改显示名，数据与关系不变。
+
+- 核对（2026-11-10 用户要求）：对象浏览中的「AI 建议」与数据库一致（5 条，状态、处理人、生成的记录都相同）；批准的策略可沿关系看到 AI 策略建议与 2 项落实干预，动作审计有提交与批准。SEY103 的 3 条「已被取代」是 v1.41 修复前刷新后重复提交、被去重取代的结果。
+- 列表列：AI 建议、AI 风险标记、AI 策略建议不再重复「标题」列；AI 建议显示类型、状态、项目、提交人、提交时间、处理人、处理时间；风险标记与策略建议显示有效至、批准人（及关闭原因、AI 提出的类别）；管理干预列表显示类型、状态、截止日期、负责人与处理结论。
+- 详情布局：AI 建议、风险标记、策略建议与管理干预的属性按「内容 / 状态与依据复核 / 提交与审批（批准与关闭）」分组；说明、依据复核、处理结论等长文本与超过 40 字的值占整行；「依据」显示每条事实的读法（此前显示为「—」）。
 
 ## v1.41.0 — 干预与 AI 策略的历史回溯；助手卡片记得自己的结果（本体 8.8.0）
 

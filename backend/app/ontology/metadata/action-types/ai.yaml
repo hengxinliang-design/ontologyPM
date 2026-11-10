@@ -3,22 +3,22 @@ kind: ActionType
 version: v1
 definition:
   apiName: submitAiProposal
-  displayName: 提交 AI 建议
+  displayName: 提交 AI 提案
   description: 把 PM Assistant 或项目 AI 分析给出的候选提交审批（D52）。系统先核对引用的事实；同一项目（策略建议为同一类别）、同一类型、同一依据已有待批准的建议时，新的取代旧的（D54）。
   objectType: Project
   targetParameter: project
   createsObject: true
   parameters:
     - {apiName: kind, displayName: 类型, type: enum, valueType: AiProposalKind, required: true}
-    - {apiName: project, displayName: 项目, type: object_ref, objectType: Project, description: 管理干预和 AI 风险标记必填；AI 策略建议可不填}
+    - {apiName: project, displayName: 项目, type: object_ref, objectType: Project, description: 管理干预和 AI 风险标记必填；部门策略（AI）可不填}
     - {apiName: title, displayName: 标题, type: string, required: true, maxLength: 120}
     - {apiName: detail, displayName: 说明, type: string, maxLength: 2000}
     - {apiName: basis, displayName: 依据, type: json, required: true, description: "1–5 条可核对的系统事实（D55）：对象属性比较 type=fact（objectType、primaryKey、property、op、value）；项目预警 type=alert（project、code）；策略信号 type=signal（signal，可带 project）"}
     - {apiName: interventionType, displayName: 干预类型, type: enum, valueType: InterventionType, description: 仅管理干预，缺省为其他}
     - {apiName: owner, displayName: 负责人, type: string, description: 仅管理干预，不填时取项目经理}
     - {apiName: dueDate, displayName: 截止日期, type: date, description: 管理干预必填，不能早于今天}
-    - {apiName: category, displayName: 策略类别, type: enum, valueType: StrategyCategory, description: AI 策略建议必填}
-    - {apiName: proposedCategory, displayName: AI 提出的类别, type: string, maxLength: 40, description: 仅类别为「其他」的 AI 策略建议：现有类别都不适用时 AI 给的类别名（D56）}
+    - {apiName: category, displayName: 策略类别, type: enum, valueType: StrategyCategory, description: 部门策略（AI）必填}
+    - {apiName: proposedCategory, displayName: AI 提出的类别, type: string, maxLength: 40, description: 仅类别为「其他」的 部门策略（AI）：现有类别都不适用时 AI 给的类别名（D56）}
     - {apiName: source, displayName: 来源, type: string, maxLength: 20, description: assistant（PM Assistant，缺省）或 projectAnalysis（项目 AI 分析）}
     - {apiName: sourceRef, displayName: 来源记录, type: string, maxLength: 80}
   permissions: [projects]
@@ -33,14 +33,14 @@ kind: ActionType
 version: v1
 definition:
   apiName: approveAiProposal
-  displayName: 批准 AI 建议
-  description: 批准一条待批准的 AI 建议（D51）：管理干预新建为干预并记下来源；AI 风险标记、AI 策略建议新建为有效记录，有效期为运营口径天数，同一去重键的旧记录被取代（D54）。批准前再核对一次依据。
+  displayName: 批准 AI 提案
+  description: 批准一条待批准的 AI 提案（D51）：管理干预新建为干预并记下来源；AI 风险标记、部门策略（AI）新建为有效记录，有效期为运营口径天数，同一去重键的旧记录被取代（D54）。批准前再核对一次依据。
   objectType: AiProposal
   targetParameter: proposal
   parameters:
-    - {apiName: proposal, displayName: AI 建议, type: object_ref, objectType: AiProposal, required: true}
+    - {apiName: proposal, displayName: AI 提案, type: object_ref, objectType: AiProposal, required: true}
     - {apiName: note, displayName: 批准说明, type: string, maxLength: 500}
-    - {apiName: projects, displayName: 分解到的项目, type: json, description: 仅 AI 策略建议：从依据涉及的项目中选，每个项目新建一条管理干预（D58）}
+    - {apiName: projects, displayName: 分解到的项目, type: json, description: 仅 部门策略（AI）：从依据涉及的项目中选，每个项目新建一条管理干预（D58）}
     - {apiName: dueDate, displayName: 干预截止日期, type: date, description: 分解到项目时必填，不能早于今天}
   permissions: [projects, department]
   edits: [AiProposal.status, AiProposal.decidedBy, AiProposal.decidedAt, AiProposal.decisionNote, AiProposal.resultId, Intervention.*, AiRiskFlag.*, AiStrategyNote.*]
@@ -56,13 +56,13 @@ kind: ActionType
 version: v1
 definition:
   apiName: rejectAiProposal
-  displayName: 驳回 AI 建议
-  description: 驳回一条待批准的 AI 建议，可写明原因；不生成任何记录（D51）。
+  displayName: 驳回 AI 提案
+  description: 驳回一条待批准的 AI 提案，可写明原因；不生成任何记录（D51）。
   objectType: AiProposal
   targetParameter: proposal
   tone: danger
   parameters:
-    - {apiName: proposal, displayName: AI 建议, type: object_ref, objectType: AiProposal, required: true}
+    - {apiName: proposal, displayName: AI 提案, type: object_ref, objectType: AiProposal, required: true}
     - {apiName: note, displayName: 驳回原因, type: string, maxLength: 500}
   permissions: [projects, department]
   edits: [AiProposal.status, AiProposal.decidedBy, AiProposal.decidedAt, AiProposal.decisionNote]
@@ -115,12 +115,12 @@ kind: ActionType
 version: v1
 definition:
   apiName: renewAiStrategyNote
-  displayName: 续期 AI 策略建议
+  displayName: 续期 部门策略（AI）
   description: 依据仍成立时，把有效期从今天起再延长「AI 结论有效天数」（D54）。
   objectType: AiStrategyNote
   targetParameter: note
   parameters:
-    - {apiName: note, displayName: AI 策略建议, type: object_ref, objectType: AiStrategyNote, required: true}
+    - {apiName: note, displayName: 部门策略（AI）, type: object_ref, objectType: AiStrategyNote, required: true}
   permissions: [department, projects]
   edits: [AiStrategyNote.validUntil, AiStrategyNote.basisHolds, AiStrategyNote.basisNote, AiStrategyNote.checkedAt]
   writeback: [ai_strategy_notes]
@@ -135,11 +135,11 @@ version: v1
 definition:
   apiName: breakDownAiStrategyNote
   displayName: 策略分解到项目
-  description: 把已采纳的 AI 策略建议分解到项目（D58）：采纳时没有分解，或之后要补上项目时使用。项目只能从策略依据涉及的项目中选，已有这条策略未关闭落实干预的项目不能重复；每个项目新建一条管理干预，负责人为项目经理。
+  description: 把已采纳的 部门策略（AI）分解到项目（D58）：采纳时没有分解，或之后要补上项目时使用。项目只能从策略依据涉及的项目中选，已有这条策略未关闭落实干预的项目不能重复；每个项目新建一条管理干预，负责人为项目经理。
   objectType: AiStrategyNote
   targetParameter: note
   parameters:
-    - {apiName: note, displayName: AI 策略建议, type: object_ref, objectType: AiStrategyNote, required: true}
+    - {apiName: note, displayName: 部门策略（AI）, type: object_ref, objectType: AiStrategyNote, required: true}
     - {apiName: projects, displayName: 分解到的项目, type: json, required: true, description: 从策略依据涉及的项目中选}
     - {apiName: dueDate, displayName: 干预截止日期, type: date, required: true}
   permissions: [department, projects]
@@ -155,13 +155,13 @@ kind: ActionType
 version: v1
 definition:
   apiName: closeAiStrategyNote
-  displayName: 关闭 AI 策略建议
+  displayName: 关闭 部门策略（AI）
   description: 策略已执行或不再适用时人工关闭，写明原因（D54）。
   objectType: AiStrategyNote
   targetParameter: note
   tone: danger
   parameters:
-    - {apiName: note, displayName: AI 策略建议, type: object_ref, objectType: AiStrategyNote, required: true}
+    - {apiName: note, displayName: 部门策略（AI）, type: object_ref, objectType: AiStrategyNote, required: true}
     - {apiName: reason, displayName: 关闭原因, type: string, maxLength: 500}
   permissions: [department, projects]
   edits: [AiStrategyNote.status, AiStrategyNote.closedBy, AiStrategyNote.closedAt, AiStrategyNote.closedReason]

@@ -289,8 +289,8 @@ kind: Function
 version: v1
 definition:
   apiName: aiSuggestionOverview
-  displayName: AI 建议与标记
-  description: 一个项目（不填则为能看到的全部项目）待批准的 AI 建议、有效的 AI 风险标记、由 AI 建议生成的管理干预的依据是否仍成立，以及最近 30 天处理过的建议（D51–D54）。每条都带依据的复核结果；能否批准按当前账号的角色给出。
+  displayName: AI 提案与标记
+  description: 一个项目（不填则为能看到的全部项目）待批准的 AI 提案、有效的 AI 风险标记、由 AI 提案生成的管理干预的依据是否仍成立，以及最近 30 天处理过的建议（D51–D54）。每条都带依据的复核结果；能否批准按当前账号的角色给出。
   parameters:
     - {apiName: project, displayName: 项目, type: object_ref, objectType: Project}
   outputType: AiSuggestionOverview
@@ -303,7 +303,7 @@ version: v1
 definition:
   apiName: interventionHistory
   displayName: 干预时间线
-  description: 一条管理干预的来龙去脉（D61、D62）：来源（哪条 AI 建议或部门策略、谁提交谁批准、依据），发起、开始处理、关闭及处理结论，所属策略被关闭或过期、依据复核不成立。按时间排列，取自动作审计与记录本身；早于动作审计的干预只显示登记时间。
+  description: 一条管理干预的来龙去脉（D61、D62）：来源（哪条 AI 提案或部门策略、谁提交谁批准、依据），发起、开始处理、关闭及处理结论，所属策略被关闭或过期、依据复核不成立。按时间排列，取自动作审计与记录本身；早于动作审计的干预只显示登记时间。
   parameters:
     - {apiName: intervention, displayName: 管理干预, type: object_ref, objectType: Intervention, required: true}
   outputType: InterventionHistory

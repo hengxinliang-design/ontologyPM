@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isEmptyValue, propertySections } from "./objectSections";
+import { isEmptyValue, isWideProperty, propertySections } from "./objectSections";
 import type { OntologyObjectType, OntologyProperty, SourceKind } from "./types";
 
 function prop(apiName: string, sourceKind: SourceKind = "system"): OntologyProperty {
@@ -32,3 +32,19 @@ describe("propertySections", () => {
     expect(isEmptyValue(0) || isEmptyValue("0.00")).toBe(false);
   });
 });
+
+describe("8.8.1 detail layout (user 2026-11-10: 再优化布局)", () => {
+  it("groups AI items into content, status and decision sections", () => {
+    const sections = propertySections(type("AiStrategyNote", ["noteId", "title", "category", "detail", "basis", "status", "basisNote", "approvedBy", "closedReason"]));
+    expect(sections.map(s => s.title)).toEqual(["策略内容", "状态与依据复核", "批准与关闭"]);
+  });
+
+  it("gives sentences and JSON a full row, short values half a row", () => {
+    expect(isWideProperty(prop("detail"))).toBe(true);
+    expect(isWideProperty(prop("basisNote"))).toBe(true);
+    expect(isWideProperty(prop("approvedBy"), "test")).toBe(false);
+    expect(isWideProperty(prop("title"), "长".repeat(41))).toBe(true);
+    expect(isWideProperty({ ...prop("basis"), dataType: "json" })).toBe(true);
+  });
+});
+

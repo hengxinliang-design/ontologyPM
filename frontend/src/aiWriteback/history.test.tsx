@@ -15,13 +15,13 @@ describe("8.8.0 history (D61-D63)", () => {
       interventionId: "act_1", projectNumber: "SEY101", title: "落实部门策略：集中推动验收回款", status: "closed", conclusion: "客户已签验收单",
       origin: { type: "strategy", title: "集中推动验收回款", status: "closed", statusLabel: "已关闭", basis: ["SEY101 预警「上线款 · 已延期 2 天」"] },
       events: [
-        { at: "2026-11-10T01:52:51Z", actor: "test", title: "提交 AI 策略「集中推动验收回款」", detail: null, kind: "origin" },
+        { at: "2026-11-10T01:52:51Z", actor: "test", title: "提交 AI 提案「集中推动验收回款」", detail: null, kind: "origin" },
         { at: "2026-11-10T02:38:28Z", actor: "head.a", title: "部门策略分解到本项目", detail: "截止 2026-11-24，负责人 李经理", kind: "created" },
         { at: "2026-11-12T08:00:00Z", actor: "pm.a", title: "状态改为「已关闭」", detail: "处理结论：客户已签验收单", kind: "status" }]
     }} />);
     expect(text(html)).toContain("来自部门策略「集中推动验收回款」（已关闭）");
     expect(text(html)).toContain("依据：SEY101 预警「上线款 · 已延期 2 天」");
-    expect(text(html).indexOf("提交 AI 策略")).toBeLessThan(text(html).indexOf("状态改为「已关闭」"));
+    expect(text(html).indexOf("提交 AI 提案")).toBeLessThan(text(html).indexOf("状态改为「已关闭」"));
     expect(text(html)).toContain("处理结论：客户已签验收单");
   });
 

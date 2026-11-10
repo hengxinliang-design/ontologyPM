@@ -80,6 +80,7 @@ definition:
   icon: alert
   displayOrder: 10
   defaultOrder: -updatedAt
+  listProperties: [projectNumber, interventionType, status, dueDate, owner, conclusion]
   properties:
     - {apiName: interventionId, displayName: 干预 ID, type: string, sourceKind: manual, source: interventions.intervention_id}
     - {apiName: projectNumber, displayName: 项目编号, type: string, sourceKind: manual, source: interventions.project_number, searchable: true}
@@ -91,7 +92,7 @@ definition:
     - {apiName: overdue, displayName: 已逾期, type: boolean, sourceKind: derived, source: 状态不是已关闭，且截止日期早于今天（没有截止日期的存量干预不算逾期）}
     - {apiName: notes, displayName: 备注, type: string, sourceKind: manual, source: interventions.notes}
     - {apiName: conclusion, displayName: 处理结论, type: string, sourceKind: manual, source: interventions.conclusion：关闭时必须填写（D63），进入干预时间线；8.8.0 以前关闭的干预为空}
-    - {apiName: sourceProposalId, displayName: 来源 AI 建议, type: string, sourceKind: system, source: interventions.source_proposal_id：批准 AI 建议时新建的干预记下来源建议；来源建议的依据不再成立时提示由人关闭（D54）}
+    - {apiName: sourceProposalId, displayName: 来源 AI 提案, type: string, sourceKind: system, source: interventions.source_proposal_id：批准 AI 提案时新建的干预记下来源建议；来源建议的依据不再成立时提示由人关闭（D54）}
     - {apiName: updatedAt, displayName: 更新时间, type: datetime, sourceKind: manual, source: interventions.updated_at}
 ---
 kind: ObjectType
@@ -168,8 +169,8 @@ definition:
     - {apiName: forecastMaeImprovementPercent, displayName: 负荷预测误差改进门槛, type: percent, sourceKind: manual, source: 默认 20%；回测平均误差须比「照抄上月」低这么多，利用率估计才启用（D47、D48）, unit: percent}
     - {apiName: forecastMinAuc, displayName: 负荷预测最低 AUC, type: decimal, sourceKind: manual, source: 默认 0.75；过载、闲置概率的回测判别能力不低于此值才启用（0.5 等于瞎猜，1 等于完美）, unit: none}
     - {apiName: forecastMaxCalibrationError, displayName: 负荷预测最大校准误差, type: decimal, sourceKind: manual, source: 默认 0.05；概率的回测校准误差不超过此值才启用（说七成的人实际约七成过载）, unit: none}
-    - {apiName: aiProposalPendingDays, displayName: AI 建议待批天数, type: integer, sourceKind: manual, source: 默认 7；提交后超过这么多天仍未批准的 AI 建议自动过期（D54）, unit: day}
-    - {apiName: aiFindingValidDays, displayName: AI 结论有效天数, type: integer, sourceKind: manual, source: 默认 30；AI 风险标记与 AI 策略建议批准或续期后的有效天数（D54）, unit: day}
+    - {apiName: aiProposalPendingDays, displayName: AI 提案待批天数, type: integer, sourceKind: manual, source: 默认 7；提交后超过这么多天仍未批准的 AI 提案自动过期（D54）, unit: day}
+    - {apiName: aiFindingValidDays, displayName: AI 结论有效天数, type: integer, sourceKind: manual, source: 默认 30；AI 风险标记与 部门策略（AI）批准或续期后的有效天数（D54）, unit: day}
     - {apiName: notes, displayName: 备注, type: string, sourceKind: manual, source: worktime_baseline_config.notes}
     - {apiName: updatedAt, displayName: 更新时间, type: datetime, sourceKind: manual, source: worktime_baseline_config.updated_at}
 ---

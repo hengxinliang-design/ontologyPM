@@ -6,7 +6,7 @@ version: v1
 definition:
   apiName: tsg-pm
   displayName: TSG PM 项目运营本体
-  version: 8.8.0
+  version: 8.8.2
   description: 把 CRM、工时与人工维护数据统一为项目运营语义模型：对象、关系、动作、函数与安全策略。
 ---
 kind: Marking
@@ -212,17 +212,17 @@ kind: ValueType
 version: v1
 definition:
   apiName: AiProposalKind
-  displayName: AI 建议类型
+  displayName: AI 提案类型
   values:
     - {value: intervention, label: 管理干预}
-    - {value: riskFlag, label: AI 风险标记}
-    - {value: strategyNote, label: AI 策略建议}
+    - {value: riskFlag, label: 风险标记}
+    - {value: strategyNote, label: 部门策略}
 ---
 kind: ValueType
 version: v1
 definition:
   apiName: AiProposalStatus
-  displayName: AI 建议状态
+  displayName: AI 提案状态
   values:
     - {value: pending, label: 待批准}
     - {value: approved, label: 已批准}

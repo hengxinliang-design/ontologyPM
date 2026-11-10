@@ -1,0 +1,55 @@
+# 本体构建包（发布稿）：对象浏览中 AI 对象与管理干预的列表列与名称。本体 8.8.2（只改 listProperties 与显示名，修订号）。
+# 依据：用户 2026-11-10「请检查，我们以上的修改和批准操作需要在本体中的对象查询『AI 建议』这块同步」与「再优化布局」。
+# 核对结果：对象浏览中的 AI 建议与数据库一致（5 条，状态、处理人、生成的记录相同），批准的策略能沿关系看到 AI 策略建议与 2 项落实干预，
+# 动作审计有提交与批准；问题在展示：列表重复「标题」列、看不到提交人与审批人，管理干预列表看不到处理结论。
+kind: OntologyBuild
+stage: release
+topic: AI 提案、AI 风险标记、部门策略（AI）与管理干预的列表列显示谁、何时、处理到哪一步，标题不再重复；AI 提案与采纳后的部门策略不再同名
+ontologyVersion: 8.8.2
+date: 2026-11-10
+scope:
+  - CQ-L1 在对象浏览的「AI 提案」列表里，不打开详情能否看到每条是谁提交、何时提交、谁处理、何时处理、现在什么状态？
+  - CQ-L2 AI 风险标记、部门策略（AI）列表能否直接看到有效期、批准人与关闭原因？
+  - CQ-L3 管理干预列表能否直接看到状态、负责人、截止日期与处理结论？
+  - CQ-L4 哪些是等待批准的 AI 提案，哪些是采纳后有效的部门策略？
+
+rules:
+  - id: R1
+    statement: 对象列表的第一列已是标题（titleProperty）与主键，listProperties 不再包含标题。AI 提案列为类型、状态、项目、提交人、提交时间、处理人、处理时间；AI 风险标记为项目、状态、有效至、批准人、关闭原因；部门策略（AI）为类别、AI 提出的类别、状态、有效至、批准人；管理干预为项目、类型、状态、截止日期、负责人、处理结论。
+    basis: 用户 2026-11-10 截图：AI 提案列表两列都是「标题」，看不到提交与审批；repo-map 陷阱 17（列表列用 listProperties 声明）。
+    acceptance: 四个对象类型的 listProperties 都不含其标题属性，并分别包含 submittedBy、submittedAt、decidedBy、decidedAt、status；approvedBy、validUntil、closedReason；approvedBy、validUntil、proposedCategory；status、conclusion、owner。
+    verifiedBy: [test_object_lists_show_who_decided_and_never_repeat_the_title]
+    ontology: [AiProposal, AiRiskFlag, AiStrategyNote, Intervention, AiProposal.submittedBy, AiProposal.decidedBy, Intervention.conclusion]
+  - id: R2
+    statement: 一个概念一个名字：审批记录 AiProposal 显示为「AI 提案」，其类型为管理干预、风险标记、部门策略；采纳后有效的 AiStrategyNote 显示为「部门策略（AI）」；动作、函数、关系与提示中的说法随之统一（提交 / 批准 / 驳回 AI 提案，续期 / 关闭部门策略（AI），来源提案）。只改显示名，apiName、数据与关系不变。
+    basis: D64（用户 2026-11-10「哪些对象是 AI 建议、哪些对象是 AI 策略建议，这块是否有界定？」，选择「AI 提案」「部门策略（AI）」）；原则 5。
+    acceptance: AiProposal 显示名为「AI 提案」，AiStrategyNote 为「部门策略（AI）」，AiProposalKind 的标签为管理干预、风险标记、部门策略；代码与元数据中不再出现「AI 提案」「部门策略（AI）」。
+    verifiedBy: [test_one_name_per_concept_for_ai_objects]
+    ontology: [AiProposal, AiStrategyNote, AiProposalKind, submitAiProposal, approveAiProposal, renewAiStrategyNote, closeAiStrategyNote]
+
+exceptions:
+  - rule: R1
+    case: 被取代的建议也显示处理人与处理时间。
+    handling: 处理人为提交新建议的人、时间为新建议的提交时间，处理说明写明被哪一条取代；与批准、驳回同一列，状态列区分。
+    basis: 取代发生在提交新建议时（D54），记录在同一组字段上。
+  - rule: R1
+    case: 由系统过期或关闭的记录。
+    handling: 处理人 / 关闭原因列显示 system 与系统写明的原因（例如「依据不再成立」「超过待批天数」）。
+    basis: D54；复核以系统身份执行。
+  - rule: R1
+    case: 8.8.0 以前关闭的管理干预。
+    handling: 处理结论列为空（当时不要求填写），旧结论若写在备注里仍可在详情中看到。
+    basis: D63 不追溯（构建包 2026-11-10-intervention-history 例外）。
+  - rule: R1
+    case: 详情页的布局（分组、长文本占整行、依据显示为读法）。
+    handling: 属于前端展示（frontend/src/ontology/objectSections.ts、shared.tsx），不在本体元数据中；由前端测试覆盖，不另列规则。
+    basis: 原则：本体是口径，展示规则留在界面代码；objectSections.ts 注明「Presentation only」。
+  - rule: R2
+    case: 已发布版本的 CHANGELOG、构建包、需求基线 D51–D63 与测试报告中仍写「AI 建议」「AI 策略建议」。
+    handling: 不改：它们记录当时的名字；需求基线 D64 与本构建包写明对应关系（AI 建议 = AI 提案，采纳后的 AI 策略建议 = 部门策略（AI））。
+    basis: 历史文档不追改（与经验库 L45 不用全局替换改历史版本号同理）。
+  - rule: R2
+    case: PM Assistant 已保存的历史对话中，候选卡片的显示名仍是当时的「提交 AI 建议」。
+    handling: 卡片标题按类型重新渲染为「风险标记候选」等新名字；对话正文是模型当时的原话，不改。
+    basis: 对话记录是历史，界面标签按当前本体显示。
+

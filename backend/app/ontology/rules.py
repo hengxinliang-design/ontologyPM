@@ -1710,7 +1710,7 @@ def fn_maintenance_worklist(ctx: OntologyContext, params: dict[str, Any]) -> dic
 
 
 # ------------------------------------------------------------ AI suggestions written back (8.6.0, D51-D55)
-AI_KIND_LABELS = {"intervention": "管理干预", "riskFlag": "AI 风险标记", "strategyNote": "AI 策略建议"}
+AI_KIND_LABELS = {"intervention": "管理干预", "riskFlag": "风险标记", "strategyNote": "部门策略"}
 AI_PROPOSAL_STATUS_LABELS = {"pending": "待批准", "approved": "已批准", "rejected": "已驳回", "expired": "已过期",
                              "superseded": "已被取代"}
 
@@ -1777,7 +1777,7 @@ def _add_ai_alerts(p: dict[str, Any], items: dict[str, list[dict[str, Any]]]) ->
         })
     for row in pending:
         p["anomaly_alerts"].append({
-            "code": "AI_PROPOSAL_PENDING", "severity": "warning", "title": f"AI 建议待批准 · {row['title']}",
+            "code": "AI_PROPOSAL_PENDING", "severity": "warning", "title": f"AI 提案待批准 · {row['title']}",
             "detail": f"{AI_KIND_LABELS[row['kind']]}，{row['submitted_by']} 提交，{row['expires_on']} 后未处理将过期",
         })
     p["anomaly_count"] = len(p["anomaly_alerts"])
@@ -1839,9 +1839,9 @@ def ai_proposal_fields(ctx, values, target) -> str | None:
         if values["dueDate"] < ctx.projects.today().isoformat():
             return "截止日期不能早于今天"
     if kind == "strategyNote" and not values.get("category"):
-        return "AI 策略建议必须选择类别"
+        return "部门策略（AI）必须选择类别"
     if values.get("proposedCategory") and (kind != "strategyNote" or values.get("category") != "other"):
-        return "只有类别为「其他」的 AI 策略建议可以写 AI 提出的类别"
+        return "只有类别为「其他」的 部门策略（AI）可以写 AI 提出的类别"
     return None
 
 
@@ -1883,7 +1883,7 @@ def ai_strategy_breakdown(ctx, values, target) -> str | None:
     if not isinstance(projects, list) or not all(isinstance(p, str) for p in projects):
         return "分解到的项目必须是项目编号列表"
     if (target or {}).get("kind") != "strategyNote" and not (target or {}).get("noteId"):
-        return "只有 AI 策略建议可以分解到项目"
+        return "只有 部门策略（AI）可以分解到项目"
     if (target or {}).get("noteId"):
         if target["status"] != "active":
             return "只有有效的策略可以分解到项目"
@@ -1906,7 +1906,7 @@ def ai_strategy_breakdown(ctx, values, target) -> str | None:
 @RULES.criterion("aiProposalPending")
 def ai_proposal_pending(ctx, values, target) -> str | None:
     if target is None:
-        return "未找到这条 AI 建议"
+        return "未找到这条 AI 提案"
     if target["status"] != "pending":
         return f"这条建议{AI_PROPOSAL_STATUS_LABELS.get(target['status'], target['status'])}，不能再批准或驳回"
     if target["expiresOn"] < ctx.projects.today().isoformat():
@@ -1923,7 +1923,7 @@ def ai_approver_role(ctx, values, target) -> str | None:
     if kind == "strategyNote":
         if principal.is_admin or principal.role == "department_head":
             return None
-        return "AI 策略建议只能由管理员或部门负责人批准和维护"
+        return "部门策略（AI）只能由管理员或部门负责人批准和维护"
     if principal.holds_any(("projects",)):
         return None
     return "管理干预和 AI 风险标记只能由能维护该项目的人批准（管理员、PMO、本项目的项目经理）"
@@ -1964,7 +1964,7 @@ def approve_ai_proposal(ctx, values, target, actor):
     repo = _ai_repo(ctx)
     proposal = repo.proposal(target["proposalId"])
     if proposal is None:
-        raise ValueError("未找到这条 AI 建议")
+        raise ValueError("未找到这条 AI 提案")
     _facts, _holds, basis_note = _ai_check(ctx, _loads(proposal["basis_json"], []))
     edits = [_edit("AiProposal", proposal["proposal_id"], "update")]
     kind = proposal["kind"]
@@ -2140,7 +2140,7 @@ def _ai_strategy_view(ctx: OntologyContext) -> dict[str, Any]:
 INTERVENTION_STATUS_LABELS = {"open": "待处理", "in_progress": "处理中", "closed": "已关闭"}
 FINDING_STATUS_LABELS = {"active": "有效", "closed": "已关闭", "expired": "已过期", "superseded": "已被取代"}
 ACTION_LABELS = {
-    "openIntervention": "发起干预", "approveAiProposal": "批准 AI 建议，新建干预", "breakDownAiStrategyNote": "部门策略分解到本项目",
+    "openIntervention": "发起干预", "approveAiProposal": "批准 AI 提案，新建干预", "breakDownAiStrategyNote": "部门策略分解到本项目",
     "updateInterventionStatus": "更新状态",
 }
 
@@ -2180,11 +2180,11 @@ def fn_intervention_history(ctx: OntologyContext, params: dict[str, Any]) -> dic
             origin = {"type": "suggestion", "title": proposal["title"], "basis": basis, "status": proposal["status"],
                       "statusLabel": AI_PROPOSAL_STATUS_LABELS.get(proposal["status"])}
         events.append(_event(proposal["submitted_at"], proposal["submitted_by"],
-                             f"提交 AI {'策略' if proposal['kind'] == 'strategyNote' else '建议'}「{proposal['title']}」",
+                             f"提交 AI 提案「{proposal['title']}」",
                              "依据：" + "；".join(basis) if basis else None, "origin"))
         if proposal.get("decided_at") and proposal["status"] == "approved":
             events.append(_event(proposal["decided_at"], proposal["decided_by"],
-                                 "采纳部门策略" if proposal["kind"] == "strategyNote" else "批准 AI 建议",
+                                 "采纳部门策略" if proposal["kind"] == "strategyNote" else "批准 AI 提案",
                                  proposal.get("decision_note"), "origin"))
     for row in _action_entries(ctx, item["interventionId"]):
         values = _loads(row["parameters_json"], {})

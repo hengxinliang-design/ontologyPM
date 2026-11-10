@@ -44,7 +44,7 @@ export function ProjectAiSection({ overview, saving, act }: { overview: AiOvervi
     ? act(() => approveAiProposal(item.proposalId), `已批准，生成 ${item.kindLabel ?? KIND_LABELS[item.kind]}`)
     : act(() => rejectAiProposal(item.proposalId, reason.trim()), "已驳回").then(ok => { if (ok) { setRejecting(null); setReason(""); } return ok; });
   return <section className="detail-section ai-section">
-    <div className="section-title"><div><h3>AI 建议与风险标记 <span className="ai-tag">需批准</span></h3>
+    <div className="section-title"><div><h3>AI 提案与风险标记 <span className="ai-tag">需批准</span></h3>
       <small>AI 只给候选，批准后才写进系统；每条都引用系统事实，系统每小时复核，依据不成立或到期会自动关闭。风险标记不改变风险等级。</small></div></div>
     {overview.pending.length > 0 && <ul className="panel-rows">{overview.pending.map(item => <li key={item.proposalId} className={`panel-row ai-row ${item.basisHolds ? "" : "stale"}`}>
       <span className="panel-row-lead">待批准</span>
@@ -139,7 +139,7 @@ export function StrategyAiPanel({ notes, proposals, canApprove, onChanged, gaps 
     }
   }
   return <div className="ai-strategy">
-    <h3>AI 策略建议 <span className="ai-tag">经批准</span></h3>
+    <h3>部门策略（AI） <span className="ai-tag">经批准</span></h3>
     <p className="ai-muted">AI 提出、由管理员或部门负责人批准；依据不再成立或到期时系统自动关闭。上面的规则信号不受影响。</p>
     {message && <p className={`ai-message ${message.tone}`} role="status">{message.text}</p>}
     <ul className="panel-rows">
@@ -265,7 +265,7 @@ export function SubmissionStatus({ submission }: { submission: CardSubmission })
     <span>{submission.submittedBy} 于 {stamp(submission.submittedAt)} 提交审批</span>
     {submission.status === "pending" && <span>{submission.expiresOn} 前未处理将过期</span>}
     {decided && <span>{submission.decidedBy === "system" ? "系统" : submission.decidedBy} 于 {stamp(submission.decidedAt)} {submission.statusLabel}{submission.decisionNote ? `：${submission.decisionNote}` : ""}</span>}
-    {submission.status === "pending" && <span>可在项目详情「AI 建议与风险标记」或部门经营「AI 策略建议」中查看与批准</span>}
+    {submission.status === "pending" && <span>可在项目详情「AI 提案与风险标记」或部门经营「部门策略（AI）」中查看与批准</span>}
   </p>;
 }
 

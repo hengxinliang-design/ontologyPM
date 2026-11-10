@@ -98,7 +98,7 @@ definition:
     - {apiName: forecastMaeImprovementPercent, displayName: 负荷预测误差改进门槛（%）, type: decimal, minimum: 0, maximum: 90}
     - {apiName: forecastMinAuc, displayName: 负荷预测最低 AUC, type: decimal, minimum: 0.5, maximum: 1}
     - {apiName: forecastMaxCalibrationError, displayName: 负荷预测最大校准误差, type: decimal, minimum: 0.01, maximum: 0.5}
-    - {apiName: aiProposalPendingDays, displayName: AI 建议待批天数, type: integer, minimum: 1, maximum: 90}
+    - {apiName: aiProposalPendingDays, displayName: AI 提案待批天数, type: integer, minimum: 1, maximum: 90}
     - {apiName: aiFindingValidDays, displayName: AI 结论有效天数, type: integer, minimum: 1, maximum: 365}
     - {apiName: notes, displayName: 备注, type: string, maxLength: 2000}
   permissions: [settings, employeeWorktime]

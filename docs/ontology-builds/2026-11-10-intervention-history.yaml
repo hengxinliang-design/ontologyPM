@@ -3,6 +3,7 @@
 # 依据：用户 2026-11-10「针对之前生成的干预内容，需要有一个历史可以查询回溯」；用户选择全部推荐项，记为需求基线 D61–D63。
 kind: OntologyBuild
 stage: release
+supersededBy: 2026-11-10-object-lists.yaml
 topic: 每条管理干预可以查看时间线（来源、经过、处理结论），已失效的 AI 策略留在部门经营可查；关闭干预必须写处理结论
 ontologyVersion: 8.8.0
 date: 2026-11-10

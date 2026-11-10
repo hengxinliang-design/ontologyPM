@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { displayColumns, errorMessage, formatTime, periodParams, unitSuffix } from "./shared";
+import { displayColumns, errorMessage, formatTime, jsonLines, periodParams, unitSuffix } from "./shared";
 import type { OntologyObjectType, OntologyProperty } from "./types";
 
 function prop(apiName: string, dataType: OntologyProperty["dataType"]): OntologyProperty {
@@ -94,3 +94,14 @@ describe("api client", () => {
     expect(unitSuffix(prop("costAheadPoints", "decimal"))).toBe(""); // a name alone no longer implies a unit
   });
 });
+
+describe("jsonLines (8.8.1)", () => {
+  it("reads AI facts by their text, flat objects as key：value, nested ones flattened", () => {
+    expect(jsonLines([{ type: "fact", objectType: "Project", op: ">=", value: 80, text: "项目 SEY103 的预算使用率 ≥ 80（当前 85.0）" }]))
+      .toEqual(["项目 SEY103 的预算使用率 ≥ 80（当前 85.0）"]);
+    expect(jsonLines({ interventionType: "payment", dueDate: "2026-11-30" })).toEqual(["interventionType：payment，dueDate：2026-11-30"]);
+    expect(jsonLines({ reasons: ["预算超过关注线"], dataFlags: [] })).toEqual(["预算超过关注线"]);
+    expect(jsonLines({})).toEqual([]);
+  });
+});
+
