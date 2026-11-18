@@ -8,6 +8,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from .config import Settings
+from .crm_receipts import record_contract_receipts
 from .db import Database
 from .normalizer import _record_id, normalize_records, normalize_snapshot
 from .repository import SnapshotRepository
@@ -125,11 +126,17 @@ class SyncService:
             unchanged_records=imported_changes["unchanged_records"],
             imported_at=snapshot["imported_at"],
         )
+        receipts = None
+        if data_type == "contract_order":
+            # D68: how each uploaded contract's 回款金额 moved since it was last seen, dated today.
+            receipts = record_contract_receipts(
+                self.database, prepared_records, datetime.now(ZoneInfo(self.settings.timezone)).date(), import_log.get("log_id"))
         return {
             "mode": mode,
             "imported_at": snapshot["imported_at"],
             "validation": snapshot["validation"],
             "import_log": import_log,
+            "receipt_changes": receipts,
         }
 
     def _build_snapshot(self, payload: dict[str, Any]) -> tuple[dict[str, Any], str]:

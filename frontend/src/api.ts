@@ -441,6 +441,8 @@ export interface CrmImportResult {
   unreadable_date_examples?: string[];
   mode: "full" | "incremental";
   imported_at: string;
+  /** D68: contract uploads record how each contract's CRM 回款金额 changed since it was last seen. */
+  receipt_changes?: { opening_estimates: number; baselines: number; changes: number; opening_estimate_amount: string; change_amount: string } | null;
   validation: {
     inserted_records?: number;
     updated_records?: number;

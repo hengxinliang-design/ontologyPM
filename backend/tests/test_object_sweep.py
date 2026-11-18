@@ -4,6 +4,9 @@ Criteria run for the action list with only the target parameter; a criterion tha
 运营口径参数 detail with a 500 (annualPlanValuesValid read values["year"], fixed in v1.27.1). This sweep keeps any
 object type's detail from failing that way again.
 """
+import base64
+import json
+
 from fastapi.testclient import TestClient
 
 from app.main import create_app
@@ -22,7 +25,7 @@ def test_every_object_type_opens_with_links_and_actions(tmp_path):
     ontology = load_ontology()
     with TestClient(create_app(settings(tmp_path))) as client:
         # Objects the example data does not have: maintain one of each through its action.
-        apply(client, "setAnnualOperatingPlan", {"policy": "default", "year": 2026, "collectionTarget": "1000000"})
+        apply(client, "setAnnualOperatingPlan", {"policy": "default", "year": 2026, "revenueTarget": "1000000"})
         apply(client, "recordOperatingCost", {"policy": "default", "month": "2026-01", "laborCost": "1000"})
         apply(client, "openIntervention", {"project": "WDR101", "title": "补充资源", "dueDate": "2026-12-31"})
         apply(client, "createPaymentTerm", {"project": "WDR101", "name": "首付款", "plannedAmount": "1000"})
@@ -36,6 +39,10 @@ def test_every_object_type_opens_with_links_and_actions(tmp_path):
             proposal = next(e["primaryKey"] for e in submitted["edits"] if e["operation"] == "create")
             apply(client, "approveAiProposal", {"proposal": proposal})
         apply(client, "submitAiProposal", {"kind": "intervention", "project": "WDR101", "title": "待批", "dueDate": "2999-12-31", "basis": fact})
+        # 8.11.0 (D68): a contract upload records its CRM 回款金额 (CrmReceiptChange).
+        rows = [{"ID": "S-9001", "主题": "WDR101-合同", "所有者": "Sales A", "签约时间": "2026-01-15", "回款金额": "1000"}]
+        client.post("/api/v1/crm-imports", json={"data_type": "contract_order", "filename": "c.json",
+                                                  "content_base64": base64.b64encode(json.dumps(rows, ensure_ascii=False).encode()).decode()})
 
         opened = set()
         for definition in ontology.object_types:

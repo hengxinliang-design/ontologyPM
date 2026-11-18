@@ -1,0 +1,91 @@
+# 本体构建包（发布稿）：CRM 回款变动计入经营收入，经营收入按不含税对照目标。本体 9.0.0（D68 新增对象类型 CrmReceiptChange、值类型
+# CrmReceiptChangeKind 与 3 种关系；D69 把年度计划的 collectionTarget（税前）改为 revenueTarget（不含税）并删除派生的 revenueTargetAfterTax，
+# 属破坏性变更，升主版本）。
+# 依据：用户 2026-11-18 发现部门经营「经营收入（税前 / 税后）」为 ¥0。核对：D22 只统计系统中确认到账的回款节点，清理测试数据后为 0；
+# XToolsCRM 合同列表只有累计「回款金额」、没有到账日期，也导不出回款明细。用户选择「Track CRM changes」，并确认：本年签约合同首次导入时
+# 已有的回款按签约月份计入（估算）；项目有已确认回款节点时用回款节点；CRM 回款减少记负数；税后 = 税前 ÷ 1.06（沿用增值税率参数）。
+kind: OntologyBuild
+stage: release
+topic: 每次上传合同列表时记录合同 CRM 累计回款的变化，没有确认回款节点的项目据此计算经营收入（本年签约合同的期初回款按签约月份估算）；经营收入按不含税对照年度目标
+ontologyVersion: 9.0.0
+date: 2026-11-18
+scope:
+  - CQ-R1 没有在系统中确认回款节点的项目，本年经营收入从哪里来、各月多少？
+  - CQ-R2 某份合同的 CRM 回款每次上传变了多少，哪些计入了经营收入、计入哪一天？
+  - CQ-R3 本年经营收入中，系统确认到账、CRM 回款变动、期初估算各占多少？
+  - CQ-R4 CRM 回款被冲减或退款时，经营收入怎样反映？
+  - CQ-R5 本年经营收入·不含税完成了目标的多少？对应的回款（含税）是多少？
+  - CQ-R6 毛利润、毛利率目标怎样由不含税收入目标与成本目标得出？
+
+rules:
+  - id: R1
+    statement: 每次上传合同/订单列表，按合同（记录 ID）比较本次 CRM 累计回款与该合同上一次记录的金额：首次出现的合同，若签约年份等于上传年份且回款不为 0，记「期初估算」，计入收入日期为签订日期；其他首次出现的合同记「起点」，不计收入；之后金额变化记「变动」，变动金额 = 本次 − 上次（可为负），计入收入日期为上传当天（业务时区）；金额不变不记。
+    basis: D68（用户 2026-11-18「Track CRM changes」、期初选择「2026-signed contracts」、减少选择「Negative in that month」）；CRM 没有到账日期。
+    acceptance: 上传本年签约、回款 100,000 的 RCP101 与上年签约、回款 50,000 的 RCP102 后，分别记期初估算与起点；再次上传 130,000 与 40,000 后记 +30,000 与 −10,000 两条变动；同一文件再上传不再新增。
+    verifiedBy: [test_crm_receipt_changes_become_revenue]
+    ontology: [CrmReceiptChange, CrmReceiptChangeKind, CrmReceiptChange.changeAmount, CrmReceiptChange.revenueDate, Contract.receiptChanges]
+  - id: R2
+    statement: 回款（含税）= 系统中确认到账的回款节点（D22，到账日期在当年且不晚于统计月份末）＋ 没有任何已确认回款节点的项目的 CRM 回款变动与期初估算（计入收入日期在当年且不晚于统计月份末）；部门经营复盘同时给出三者金额（collections.sources）。
+    basis: D68（用户选择「Confirmed nodes win」）；D22。
+    acceptance: 上例中回款（含税）比上传前多 100,000（全部为期初估算），第二次上传后多 120,000，其中 CRM 回款变动 20,000；TPL149 已确认回款节点时，它的合同 CRM 回款不计入。
+    verifiedBy: [test_crm_receipt_changes_become_revenue, test_confirmed_payment_nodes_win_over_crm_changes, test_revenue_contract_value_and_tax]
+    ontology: [CrmReceiptChange, Project.crmReceiptChanges, AnnualOperatingPlan.crmReceiptChanges, PaymentNode]
+  - id: R3
+    statement: 年度经营计划的收入目标为「经营收入目标（不含税）」revenueTarget（数据列 annual_operating_plans.revenue_target，由 collection_target 原地改名，已录数值不变、含义改为不含税）；毛利润目标 = 经营收入目标（不含税）− 经营成本目标，毛利率目标 = 毛利润目标 ÷ 经营收入目标（不含税）；不再推算「经营收入目标（税后）」。
+    basis: D69（用户 2026-11-18：「经营收入·税前（元）」改为「经营收入·不含税（元）」；毛利润、毛利率按不含税收入；已录目标选择「Keep 20,300,000 as 不含税」）。
+    acceptance: revenueTarget 1,000,000、成本目标 600,000 时毛利润目标 400,000、毛利率目标 40%；对象上没有 revenueTargetAfterTax；显示名为「经营收入目标（不含税）」。
+    verifiedBy: [test_plan_targets_are_derived, test_annual_plan_completion_against_time_progress]
+    ontology: [AnnualOperatingPlan.revenueTarget, AnnualOperatingPlan.grossProfitTarget, AnnualOperatingPlan.grossMarginTargetPercent, setAnnualOperatingPlan]
+  - id: R4
+    statement: 部门经营指标表的收入两行：「经营收入·不含税」= 回款（含税）÷ (1 + 增值税率)，与 revenueTarget 对照、按时间进度判断；「回款（含税）」为参考行，不设目标、不判断进度，并显示来源拆分。毛利润 = 经营收入·不含税 − 经营成本，毛利率 = 毛利润 ÷ 经营收入·不含税，二者截至最近已录成本的月份（D25）。
+    basis: D69（用户选择「不含税 + 回款含税 for reference」）；D22、D25。
+    acceptance: 确认到账 106,000 时回款（含税）106,000、经营收入·不含税 100,000；增值税率改为 9% 时为 97,247.71；收入目标 1,000,000 在 9 月时间进度 75% 时与经营收入·不含税对照。
+    verifiedBy: [test_revenue_contract_value_and_tax, test_the_department_review_says_which_kind_each_kpi_is, test_annual_plan_completion_against_time_progress]
+    ontology: [OperatingPolicy.defaultTaxRatePercent, AnnualOperatingPlan.revenueTarget]
+
+exceptions:
+  - rule: R1
+    case: 8.11.0 以前已经上传过的合同（2026-11-18 用户导入的 585 份）。
+    handling: 启动时若记录为空且有合同上传日志，按当前合同快照补记首次出现，上传日期取最早一次合同上传的日期；只补一次。
+    basis: 让已导入的数据立即有经营收入，不需要重新上传。
+  - rule: R1
+    case: 示例快照或自动同步进来的合同（没有合同上传日志）。
+    handling: 不补记；只有经「项目/商机数据维护」上传的合同列表才记录回款变动。
+    basis: 示例数据不是用户的经营数据；测试库保持原有口径。
+  - rule: R1
+    case: 期初估算的签订日期晚于上传日期（CRM 中的预计或错误日期）。
+    handling: 计入收入日期取上传日期，不记到未来。
+    basis: 已收到的钱不可能在未来到账。
+  - rule: R1
+    case: 本年签约合同首次出现前，往年签约的合同在本年已收到的回款。
+    handling: 无法得知，记为起点、不计收入；之后的变化按上传日计入。经营收入因此偏低，页面以「估算」与来源拆分提示。
+    basis: D68 期初只估算本年签约合同（用户选择）。
+  - rule: R1
+    case: 一次上传中没有出现的合同（筛选后的列表）。
+    handling: 不记变化，等它再次出现时与上次记录比较；合同从 CRM 删除不视为退款。
+    basis: 增量导入不删除合同（与合同快照规则一致）。
+  - rule: R2
+    case: 项目同时有已确认回款节点和 CRM 回款变动。
+    handling: 只用回款节点（任一节点已到账即视为该项目在系统中确认回款），CRM 变动不计入，避免重复。
+    basis: 用户选择「Confirmed nodes win」。
+  - rule: R2
+    case: 回款变动的日期精度。
+    handling: 只到上传当天；两次上传之间的回款都记在后一次上传的那天、那个月。建议每月至少上传一次合同列表。
+    basis: CRM 没有到账日期（D68）。
+  - rule: R3
+    case: 9.0.0 以前录入的收入目标（2026 年计划 20,300,000，当时录在「经营收入·税前」）。
+    handling: 数值不变，改按不含税目标对照（毛利润目标随之变为 2,030 万 − 1,408 万 = 622 万）。
+    basis: 用户选择「Keep 20,300,000 as 不含税」。
+  - rule: R3
+    case: 仍按旧参数名 collectionTarget / collection_target 调用的接口或脚本。
+    handling: 动作参数校验报未知参数；本次为破坏性变更、升主版本 9.0.0，调用方改用 revenueTarget / revenue_target。
+    basis: 原则 8（改名属破坏性变更）；一个概念一个名字（原则 5），旧名「回款目标」已不准确。
+  - rule: R4
+    case: 财务口径的最终营业收入（再扣项目固定成本、销售费用等）。
+    handling: 暂不建模；毛利润仍为经营收入·不含税 − 经营成本，扣减项以后确定科目与来源后再加。
+    basis: 用户选择「Later」。
+  - rule: R4
+    case: 合同额。
+    handling: 仍为 CRM「总金额」（含税），不换算不含税。
+    basis: D69：用户说明「总金额」就是合同额。
+

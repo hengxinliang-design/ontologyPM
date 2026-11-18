@@ -3,6 +3,7 @@
 # 单个对象类型的菜单（预览 / 开始探索）。用户选择：在本体中声明对象类型组；其他组的对象类型灰色、虚线链接；点击对象类型弹出菜单（D67）。
 kind: OntologyBuild
 stage: release
+supersededBy: 2026-11-18-crm-receipt-changes.yaml
 topic: 对象类型组（项目与合同、交付与回款、工时与资源、经营口径、AI 写回）与按组浏览的本体关系图
 ontologyVersion: 8.10.0
 date: 2026-11-16

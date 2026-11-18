@@ -280,20 +280,20 @@ def test_annual_plan_completion_against_time_progress(tmp_path):
 
     with TestClient(create_app(settings(tmp_path))) as client:
         review = client.get("/api/v1/department/review", params={"year": 2026, "month": "2026-09"}).json()["data"]
-        assert review["plan"] is None and review["kpis"]["collections"]["status"] in {"no_target", "no_data"}
+        assert review["plan"] is None and review["kpis"]["revenue_excl_tax"]["status"] in {"no_target", "no_data"}
         saved = apply(client, "setAnnualOperatingPlan", {
-            "policy": "default", "year": 2026, "collectionTarget": "1000000", "newContractTarget": "2000000", "headcountTarget": "12",
+            "policy": "default", "year": 2026, "revenueTarget": "1000000", "newContractTarget": "2000000", "headcountTarget": "12",
         })
         assert saved.status_code == 200, saved.text
         assert apply(client, "setAnnualOperatingPlan", {"policy": "default", "year": 2026, "utilizationTargetPercent": "120"}).status_code == 422
         assert apply(client, "setAnnualOperatingPlan", {"policy": "default", "year": 1999}).status_code == 422
         plan = client.get("/api/v1/ontology/objects/AnnualOperatingPlan/2026-实施交付部").json()["data"]["properties"]
-        assert plan["collectionTarget"] == "1000000.00" and plan["headcountTarget"] == "12.00"
+        assert plan["revenueTarget"] == "1000000.00" and plan["headcountTarget"] == "12.00"
         review = client.get("/api/v1/department/review", params={"year": 2026, "month": "2026-09"}).json()["data"]
-        assert review["kpis"]["collections"]["target"] == "1000000.00"
-        assert review["kpis"]["collections"]["time_progress_percent"] == 75.0
+        assert review["kpis"]["revenue_excl_tax"]["target"] == "1000000.00"
+        assert review["kpis"]["revenue_excl_tax"]["time_progress_percent"] == 75.0
         rest = client.put("/api/v1/department/annual-plans/2026", json={"new_contract_target": "2500000"})
-        assert rest.status_code == 200 and rest.json()["data"]["collection_target"] == "1000000.00", "unchanged fields are kept"
+        assert rest.status_code == 200 and rest.json()["data"]["revenue_target"] == "1000000.00", "unchanged fields are kept"
 
 
 def facts(**overrides):
@@ -360,7 +360,7 @@ def test_person_day_economics_is_paused(tmp_path):
         assert "economics" not in row
         review = client.get("/api/v1/department/review", params={"year": 2026, "month": "2026-09"}).json()["data"]
         # 7.10.0 adds the annual-plan operating metrics (finance-entered costs, D22–D25); person-day economics stays paused.
-        assert set(review["kpis"]) == {"new_contracts", "collections", "revenue_after_tax", "operating_cost", "gross_profit",
+        assert set(review["kpis"]) == {"new_contracts", "revenue_excl_tax", "collections", "operating_cost", "gross_profit",
                                        "gross_margin", "capacity_used", "utilization", "headcount"}
         assert not {"portfolio", "backlog", "demand", "forecast_gross_margin_percent"} & set(review)
         assert not {"control_cost", "staffing_support"} & {s["signal"] for s in review["signals"]}

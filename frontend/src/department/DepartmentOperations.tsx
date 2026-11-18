@@ -8,16 +8,16 @@ import { COST_FIELDS, COST_LABEL, PLAN_FIELDS, PLAN_STATUS_LABEL } from "./types
 import type { CostField, DepartmentReview, KpiKey, PlanCompletion, PlanField } from "./types";
 
 // Annual plan metrics (requirements baseline D22–D29): operating metrics first, then the resource metrics that stay.
-const KPI_ORDER: KpiKey[] = ["new_contracts", "collections", "revenue_after_tax", "operating_cost", "gross_profit", "gross_margin",
+const KPI_ORDER: KpiKey[] = ["new_contracts", "revenue_excl_tax", "collections", "operating_cost", "gross_profit", "gross_margin",
   "capacity_used", "utilization", "headcount"];
 const KPI_UNIT: Record<KpiKey, "money" | "days" | "percent" | "people"> = {
-  new_contracts: "money", collections: "money", revenue_after_tax: "money", operating_cost: "money", gross_profit: "money",
+  new_contracts: "money", revenue_excl_tax: "money", collections: "money", operating_cost: "money", gross_profit: "money",
   gross_margin: "percent", capacity_used: "days", utilization: "percent", headcount: "people",
 };
 // Cost, gross profit and margin run up to the latest month with costs entered (D25).
 const COST_BASED = new Set<KpiKey>(["operating_cost", "gross_profit", "gross_margin"]);
 const PLAN_LABEL: Record<PlanField, string> = {
-  new_contract_target: "合同额（元）", collection_target: "经营收入·税前（元）", operating_cost_target: "经营成本（元）",
+  new_contract_target: "合同额（元）", revenue_target: "经营收入·不含税（元）", operating_cost_target: "经营成本（元）",
   capacity_person_days_target: "项目投入人天", headcount_target: "人员编制（人）", utilization_target_percent: "利用率（%）",
 };
 
@@ -76,7 +76,7 @@ export function DepartmentOperationsPage({ canEditPlan }: { canEditPlan: boolean
       <div className="panel-head">
         <div>
           <h2>部门年度经营</h2>
-          <p>按年度经营计划和时间进度对照合同额（当年签约，含税）、经营收入（当年到账回款，税前与税后）、经营成本（财务按月录入）、毛利润与毛利率（按税后收入，截至最近已录成本的月份），以及项目投入人天、产能利用率和在岗人数，并给出带依据的策略信号（只作建议）。</p>
+          <p>按年度经营计划和时间进度对照合同额（当年签约，含税）、经营收入·不含税（当年到账回款 ÷ (1 + 增值税率)，另列回款含税作参考）、经营成本（财务按月录入）、毛利润与毛利率（按不含税收入，截至最近已录成本的月份），以及项目投入人天、产能利用率和在岗人数，并给出带依据的策略信号（只作建议）。</p>
         </div>
         <div className="department-period">
           <select value={year} aria-label="选择年度" onChange={e => { setYear(Number(e.target.value)); setMonth(""); }}>
@@ -125,7 +125,7 @@ function AnnualPlanForm({ year, review, onSaved, reportError }: { year: number; 
       <input type="number" min="0" max={field.endsWith("_percent") ? 100 : undefined} step="0.01" value={values[field]}
         onChange={e => setValues({ ...values, [field]: e.target.value })} placeholder="未设定" />
     </label>)}
-    {review.plan && <p className="span-all plan-derived">推算目标（增值税率 {Number(review.operating.tax_rate_percent)}%）：经营收入·税后 {money(review.plan.revenueTargetAfterTax ?? null)}　毛利润 {money(review.plan.grossProfitTarget ?? null)}　毛利率 {review.plan.grossMarginTargetPercent != null ? `${Number(review.plan.grossMarginTargetPercent)}%` : "—"}</p>}
+    {review.plan && <p className="span-all plan-derived">推算目标：毛利润 {money(review.plan.grossProfitTarget ?? null)}　毛利率 {review.plan.grossMarginTargetPercent != null ? `${Number(review.plan.grossMarginTargetPercent)}%` : "—"}</p>}
     <label className="span-2">备注<input value={notes} onChange={e => setNotes(e.target.value)} placeholder="例如：年初经营会确定" /></label>
     <div className="form-actions"><button className="button primary" disabled={saving}>保存 {year} 年计划</button>
       {review.plan && <small>上次由 {review.plan.updated_by ?? "—"} 于 {review.plan.updated_at.slice(0, 10)} 更新</small>}</div>
@@ -135,7 +135,7 @@ function AnnualPlanForm({ year, review, onSaved, reportError }: { year: number; 
 // Annual indicators as one compact table: a row per indicator (actual, target, progress against time, status), grouped
 // into 经营 and 资源; the cost caveat (D25) is said once for the group instead of on every cost-based tile.
 const KPI_GROUPS: { title: string; keys: KpiKey[] }[] = [
-  { title: "经营", keys: ["new_contracts", "collections", "revenue_after_tax", "operating_cost", "gross_profit", "gross_margin"] },
+  { title: "经营", keys: ["new_contracts", "revenue_excl_tax", "collections", "operating_cost", "gross_profit", "gross_margin"] },
   { title: "资源", keys: ["capacity_used", "utilization", "headcount"] },
 ];
 
@@ -161,6 +161,20 @@ function KpiGrid({ review }: { review: DepartmentReview }) {
   </section>;
 }
 
+/** Where 经营收入 comes from (D68): confirmed 回款节点, CRM 回款 changes between uploads, and the 「估算」 opening amount. */
+export function RevenueSources({ sources }: { sources?: PlanCompletion["sources"] }) {
+  if (!sources) return null;
+  const parts = ([["confirmed", "系统确认到账"], ["crm_changes", "CRM 回款变动"], ["opening_estimate", "估算"]] as const)
+    .filter(([key]) => Number(sources[key]) !== 0)
+    .map(([key, label]) => `${label} ${wan(sources[key])}`);
+  return parts.length ? <small title="没有在系统中确认回款节点的项目，按每次上传合同列表时 CRM 累计回款的变化计入；本年签约合同首次导入时已有的回款按签约月份估算（需求基线 D68）">{parts.join(" · ")}</small>
+    : <small>本年尚无回款：系统中没有确认到账的回款节点，也没有 CRM 回款变动</small>;
+}
+
+function wan(value: string): string {
+  return `¥${(Number(value) / 10000).toLocaleString("zh-CN", { maximumFractionDigits: 1 })} 万`;
+}
+
 function KpiRow({ kpiKey, kpi }: { kpiKey: KpiKey; kpi: PlanCompletion }) {
   // The ratio and the gap come from the ontology (D43); the page only formats them.
   const cumulative = kpi.measure === "cumulative";
@@ -168,7 +182,7 @@ function KpiRow({ kpiKey, kpi }: { kpiKey: KpiKey; kpi: PlanCompletion }) {
   const [gapValue, gapUnit] = kpi.measure === "count" ? [kpi.shortfall, " 人"] : [kpi.lag_points, " 个百分点"];
   const gap = gapValue != null && gapValue > 0 ? `${gapValue.toLocaleString("zh-CN", { maximumFractionDigits: 1 })}${gapUnit}` : null;
   return <tr className={`kpi-row ${kpi.status}`}>
-    <td className="kpi-name">{kpi.label}</td>
+    <td className="kpi-name">{kpi.label}{kpiKey === "collections" && <RevenueSources sources={kpi.sources} />}</td>
     <td className="kpi-actual">{formatKpi(kpiKey, kpi.actual)}</td>
     <td className="kpi-target">{formatKpi(kpiKey, kpi.target)}</td>
     <td className="kpi-progress">{ratio == null ? <span className="muted">—</span> : <div title={cumulative ? "条为完成比例，竖线为时间进度" : "条为实际 ÷ 目标"}>
@@ -178,7 +192,8 @@ function KpiRow({ kpiKey, kpi }: { kpiKey: KpiKey; kpi: PlanCompletion }) {
       </div>
       <small>{cumulative ? <>{percentText(ratio)}<span> / 时间 {percentText(kpi.time_progress_percent)}</span></> : percentText(ratio)}</small>
     </div>}</td>
-    <td className="kpi-status"><em className={`plan-status ${kpi.status}`}>{PLAN_STATUS_LABEL[kpi.status]}</em>{gap && <small>{gap}</small>}</td>
+    <td className="kpi-status">{kpi.reference ? <em className="plan-status reference">参考</em>
+      : <><em className={`plan-status ${kpi.status}`}>{PLAN_STATUS_LABEL[kpi.status]}</em>{gap && <small>{gap}</small>}</>}</td>
   </tr>;
 }
 
@@ -211,7 +226,7 @@ function OperatingCostPanel({ review, canEdit, onSaved, reportError }: { review:
 
   return <section className="panel department-costs">
     <div className="panel-head"><div><h2>经营成本（财务录入）</h2>
-      <p>财务线下提供，按月录入人工成本、绩效奖金、差旅费、外包成本、培训成本、其他。毛利润 = 经营收入（税后）− 经营成本，与收入同样截至最近已录成本的月份。{operating.cost_cutoff_month ? `当前截至 ${operating.cost_cutoff_month}。` : "本年度还没有录入。"}</p>
+      <p>财务线下提供，按月录入人工成本、绩效奖金、差旅费、外包成本、培训成本、其他。毛利润 = 经营收入·不含税 − 经营成本，毛利率 = 毛利润 ÷ 经营收入·不含税，与收入同样截至最近已录成本的月份。{operating.cost_cutoff_month ? `当前截至 ${operating.cost_cutoff_month}。` : "本年度还没有录入。"}</p>
       {operating.missing_cost_months.length > 0 && <p className="cost-missing">未录入的月份：{operating.missing_cost_months.join("、")}（毛利计算中按缺失处理，不按 0 计）</p>}
     </div></div>
     {operating.cost_entries.length > 0 && <div className="table-wrap"><table>

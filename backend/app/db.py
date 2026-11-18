@@ -132,13 +132,33 @@ CREATE TABLE IF NOT EXISTS operating_costs (
     UNIQUE(month, department)
 );
 
+-- D68 (8.11.0): how each contract's cumulative CRM 回款金额 changed between uploads, dated the upload day;
+-- operating revenue for projects without confirmed 回款节点 (app/crm_receipts.py).
+CREATE TABLE IF NOT EXISTS crm_receipt_changes (
+    change_id TEXT PRIMARY KEY,
+    record_id TEXT NOT NULL,
+    project_number TEXT,
+    subject TEXT,
+    signed_at TEXT,
+    observed_on TEXT NOT NULL,
+    previous_amount TEXT,
+    received_amount TEXT NOT NULL,
+    change_amount TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('opening_estimate', 'baseline', 'change')),
+    revenue_date TEXT,
+    import_log_id INTEGER,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_crm_receipt_changes_record ON crm_receipt_changes(record_id);
+CREATE INDEX IF NOT EXISTS idx_crm_receipt_changes_revenue ON crm_receipt_changes(revenue_date);
+
 CREATE TABLE IF NOT EXISTS annual_operating_plans (
     plan_id TEXT PRIMARY KEY,
     year INTEGER NOT NULL,
     department TEXT NOT NULL,
     new_contract_target TEXT,
     confirmed_revenue_target TEXT,
-    collection_target TEXT,
+    revenue_target TEXT,
     gross_margin_target_percent TEXT,
     capacity_person_days_target TEXT,
     headcount_target TEXT,
@@ -581,6 +601,7 @@ OBJECT_DATASETS = (
     "worktime_baseline_config",
     "annual_operating_plans",
     "operating_costs",
+    "crm_receipt_changes",
     "load_forecast_models",
     "ai_proposals",
     "ai_risk_flags",
@@ -710,6 +731,10 @@ class Database:
                 connection.execute(
                     f"ALTER TABLE worktime_baseline_config ADD COLUMN {name} TEXT NOT NULL DEFAULT '{default}'"
                 )
+        plan_columns = {row["name"] for row in connection.execute("PRAGMA table_info(annual_operating_plans)").fetchall()}
+        if "collection_target" in plan_columns and "revenue_target" not in plan_columns:
+            # 9.0.0 (D69): the revenue target is entered 不含税 (回款 ÷ (1 + VAT)); the number entered is kept as is.
+            connection.execute("ALTER TABLE annual_operating_plans RENAME COLUMN collection_target TO revenue_target")
         intervention_columns = {
             row["name"] for row in connection.execute("PRAGMA table_info(interventions)").fetchall()
         }

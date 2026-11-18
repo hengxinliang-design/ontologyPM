@@ -31,8 +31,9 @@ class AnnualPlanRepository:
 
     # Confirmed-revenue and gross-margin targets are paused with person-day economics (ontology 4.0.0);
     # their columns stay in annual_operating_plans so they can be re-enabled.
-    # collection_target is the operating revenue target before tax (D29); operating_cost_target was added in 7.10.0.
-    PLAN_FIELDS = ("new_contract_target", "collection_target", "operating_cost_target", "capacity_person_days_target",
+    # revenue_target is the operating revenue target 不含税 (D69, 9.0.0; before: collection_target 税前, D29);
+    # operating_cost_target was added in 7.10.0.
+    PLAN_FIELDS = ("new_contract_target", "revenue_target", "operating_cost_target", "capacity_person_days_target",
                    "headcount_target", "utilization_target_percent")
 
     def list_plans(self) -> list[dict[str, Any]]:

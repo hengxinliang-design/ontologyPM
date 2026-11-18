@@ -87,3 +87,34 @@ definition:
     - {apiName: currentYearInvoicedAmount, displayName: 本年签订合同的累计开票, type: money, sourceKind: derived, source: 本年度签订的合同/订单至今的 Σ records.invoiced_amount（CRM 开票金额，按签约年度归集）, marking: FINANCE, unit: yuan}
     - {apiName: latestSignedAt, displayName: 最近签订, type: date, sourceKind: derived, source: 该客户合同/订单签订日期的最大值（不含商机的预计签单日期）；没有合同时为空}
     - {apiName: crmOwners, displayName: CRM 负责人, type: json, sourceKind: derived, source: distinct(records.owner)}
+---
+kind: ObjectType
+version: v1
+definition:
+  apiName: CrmReceiptChange
+  displayName: CRM 回款变动
+  pluralDisplayName: CRM 回款变动
+  description: 每次上传合同/订单列表时，合同的 CRM 累计回款金额相对上次上传的变化，按上传当天记录（需求基线 D68）。XToolsCRM 只有累计回款、没有到账日期，没有在系统中确认回款节点的项目据此计算经营收入。首次出现的本年签约合同按签约月份记期初估算，其余首次出现的合同只记起点。
+  primaryKey: changeId
+  titleProperty: subject
+  datasource: crmReceiptChanges
+  backingDatasets: [crm_receipt_changes]
+  readPermissions: [crm, projects, department]
+  icon: trending-up
+  displayOrder: 19
+  defaultOrder: -observedOn
+  listProperties: [projectNumber, kind, changeAmount, receivedAmount, revenueDate, observedOn]
+  properties:
+    - {apiName: changeId, displayName: 变动编号, type: string, sourceKind: system, source: crm_receipt_changes.change_id}
+    - {apiName: recordId, displayName: 合同记录 ID, type: string, sourceKind: system, source: crm_receipt_changes.record_id（合同/订单的记录 ID）}
+    - {apiName: projectNumber, displayName: 项目编号, type: string, sourceKind: system, source: 上传时合同所属的项目编号, searchable: true}
+    - {apiName: subject, displayName: 合同主题, type: string, sourceKind: system, source: 上传时的合同主题, searchable: true}
+    - {apiName: signedAt, displayName: 签订日期, type: date, sourceKind: system, source: 上传时合同的签约时间}
+    - {apiName: observedOn, displayName: 上传日期, type: date, sourceKind: system, source: 合同列表上传当天（业务时区）}
+    - {apiName: kind, displayName: 类型, type: enum, valueType: CrmReceiptChangeKind, sourceKind: derived, source: 合同首次出现且为本年签约、有回款时为期初估算，首次出现的其他合同为起点，之后回款金额变化时为变动}
+    - {apiName: previousAmount, displayName: 上次回款金额, type: money, sourceKind: system, source: 该合同上一次记录的 CRM 累计回款, marking: FINANCE, unit: yuan}
+    - {apiName: receivedAmount, displayName: 本次回款金额, type: money, sourceKind: system, source: 本次上传的 CRM 累计回款, marking: FINANCE, unit: yuan}
+    - {apiName: changeAmount, displayName: 变动金额, type: money, sourceKind: derived, source: 本次回款金额 − 上次回款金额（期初估算与起点为本次回款金额）；可为负（CRM 冲减或退款）, marking: FINANCE, unit: yuan}
+    - {apiName: revenueDate, displayName: 计入收入日期, type: date, sourceKind: derived, source: 期初估算为签订日期，变动为上传日期，起点为空（不计收入）}
+    - {apiName: revenueYear, displayName: 计入年度, type: integer, sourceKind: derived, source: 计入收入日期的年份；年度计划按它归集（D30、D68）, unit: none}
+

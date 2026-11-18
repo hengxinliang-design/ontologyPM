@@ -38,8 +38,8 @@ def test_revenue_contract_value_and_tax(tmp_path):
     with TestClient(create_app(settings(tmp_path))) as client:
         receive(client, "首期款", "106000", "2026-03-10")
         kpis = review(client)["kpis"]
-        assert kpis["collections"]["label"] == "经营收入（税前）" and kpis["collections"]["actual"] == "106000.00"
-        assert kpis["revenue_after_tax"]["actual"] == "100000.00", "106,000 ÷ 1.06"
+        assert kpis["collections"]["label"] == "回款（含税）" and kpis["collections"]["actual"] == "106000.00"
+        assert kpis["revenue_excl_tax"]["label"] == "经营收入·不含税" and kpis["revenue_excl_tax"]["actual"] == "100000.00", "106,000 ÷ 1.06"
 
         snapshot = client.app.state.repository.export_records()["records"]
         signed_2026 = sum((Decimal((r["total_amount"] or {}).get("amount") or "0") for r in snapshot
@@ -49,7 +49,7 @@ def test_revenue_contract_value_and_tax(tmp_path):
         assert Decimal(kpis["new_contracts"]["actual"]) == signed_2026, "contracts signed in the year; opportunities do not count"
 
         assert apply(client, "updateOperatingPolicy", {"policy": "default", "defaultTaxRatePercent": "9"}).status_code == 200
-        assert review(client)["kpis"]["revenue_after_tax"]["actual"] == "97247.71", "the VAT rate is a parameter"
+        assert review(client)["kpis"]["revenue_excl_tax"]["actual"] == "97247.71", "the VAT rate is a parameter"
         policy = client.get("/api/v1/ontology/objects/OperatingPolicy/default").json()["data"]["properties"]
         assert Decimal(policy["defaultTaxRatePercent"]) == Decimal("9")
 
@@ -89,24 +89,26 @@ def test_gross_profit_uses_the_cost_cutoff(tmp_path):
         result = review(client)
         operating = result["operating"]
         assert (operating["cost_cutoff_month"], operating["missing_cost_months"]) == ("2026-03", ["2026-02"])
-        assert operating["revenue_after_tax_to_cutoff"] == "100000.00", "May's receipt is after the cost cut-off"
+        assert operating["revenue_excl_tax_to_cutoff"] == "100000.00", "May's receipt is after the cost cut-off"
         assert (operating["operating_cost"], operating["gross_profit"], operating["gross_margin_percent"]) == ("80000.00", "20000.00", "20.00")
         assert result["kpis"]["gross_profit"]["as_of"] == "2026-03"
-        assert result["kpis"]["revenue_after_tax"]["actual"] == "150000.00", "revenue itself runs to the review month"
+        assert result["kpis"]["revenue_excl_tax"]["actual"] == "150000.00", "revenue itself runs to the review month"
 
 
 def test_plan_targets_are_derived(tmp_path):
     with TestClient(create_app(settings(tmp_path))) as client:
-        assert apply(client, "setAnnualOperatingPlan", {"policy": "default", "year": 2026, "collectionTarget": "1060000",
+        assert apply(client, "setAnnualOperatingPlan", {"policy": "default", "year": 2026, "revenueTarget": "1000000",
                                                         "operatingCostTarget": "600000", "newContractTarget": "3000000"}).status_code == 200
         plan = client.get("/api/v1/ontology/objects/AnnualOperatingPlan/2026-实施交付部").json()["data"]["properties"]
-        assert (plan["revenueTargetAfterTax"], plan["grossProfitTarget"], plan["grossMarginTargetPercent"]) == ("1000000.00", "400000.00", "40.00")
-        assert apply(client, "setAnnualOperatingPlan", {"policy": "default", "year": 2027, "collectionTarget": "1060000"}).status_code == 200
+        # D69: the revenue target is entered 不含税, so gross profit = target − cost and margin = profit ÷ target, with no ÷ 1.06.
+        assert (plan["revenueTarget"], plan["grossProfitTarget"], plan["grossMarginTargetPercent"]) == ("1000000.00", "400000.00", "40.00")
+        assert "revenueTargetAfterTax" not in plan
+        assert apply(client, "setAnnualOperatingPlan", {"policy": "default", "year": 2027, "revenueTarget": "1000000"}).status_code == 200
         only_revenue = client.get("/api/v1/ontology/objects/AnnualOperatingPlan/2027-实施交付部").json()["data"]["properties"]
-        assert only_revenue["revenueTargetAfterTax"] == "1000000.00" and only_revenue["grossProfitTarget"] is None
+        assert only_revenue["revenueTarget"] == "1000000.00" and only_revenue["grossProfitTarget"] is None
         schema = {t["apiName"]: t for t in client.get("/api/v1/ontology/schema").json()["data"]["objectTypes"]}
         labels = {p["apiName"]: p["displayName"] for p in schema["AnnualOperatingPlan"]["properties"]}
-        assert labels["collectionTarget"] == "经营收入目标（税前）" and labels["newContractTarget"] == "合同额目标"
+        assert labels["revenueTarget"] == "经营收入目标（不含税）" and labels["newContractTarget"] == "合同额目标"
         assert {"capacityPersonDaysTarget", "headcountTarget", "utilizationTargetPercent"} <= set(labels), "resource targets stay (D29)"
 
 
@@ -124,7 +126,7 @@ def test_annual_plan_links_to_its_sources(tmp_path):
     with TestClient(create_app(settings(tmp_path))) as client:
         receive(client, "首期款", "106000", "2026-03-10")
         assert cost(client, "2026-09", laborCost="1000").status_code == 200
-        assert apply(client, "setAnnualOperatingPlan", {"policy": "default", "year": 2026, "collectionTarget": "1"}).status_code == 200
+        assert apply(client, "setAnnualOperatingPlan", {"policy": "default", "year": 2026, "revenueTarget": "1"}).status_code == 200
         plan = "/api/v1/ontology/objects/AnnualOperatingPlan/2026-实施交付部"
 
         def linked(link):

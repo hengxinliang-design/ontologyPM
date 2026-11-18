@@ -36,10 +36,10 @@ def test_a_count_kpi_is_a_ratio_of_people_not_a_rate():
 def test_the_department_review_says_which_kind_each_kpi_is(tmp_path):
     with TestClient(create_app(settings(tmp_path))) as client:
         assert apply(client, "setAnnualOperatingPlan", {"policy": "default", "year": 2026, "headcountTarget": "40",
-                                                        "utilizationTargetPercent": "80", "collectionTarget": "1060000"}).status_code == 200
+                                                        "utilizationTargetPercent": "80", "revenueTarget": "1000000"}).status_code == 200
         kpis = review(client)["kpis"]
         assert {key: kpi["measure"] for key, kpi in kpis.items()} == {
-            "new_contracts": "cumulative", "collections": "cumulative", "revenue_after_tax": "cumulative", "operating_cost": "cumulative",
+            "new_contracts": "cumulative", "revenue_excl_tax": "cumulative", "collections": "cumulative", "operating_cost": "cumulative",
             "gross_profit": "cumulative", "gross_margin": "rate", "capacity_used": "cumulative", "utilization": "rate", "headcount": "count"}
         headcount = kpis["headcount"]
         actual = Decimal(headcount["actual"])

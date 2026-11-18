@@ -13,7 +13,7 @@ export async function fetchResourceHealth(month?: string): Promise<ResourceHealt
 export async function saveAnnualPlan(year: number, payload: Partial<Record<PlanField, string | null>> & { notes?: string | null }): Promise<void> {
   // Annual targets are maintained through the ontology action setAnnualOperatingPlan.
   await ontologyAction("setAnnualOperatingPlan", {
-    policy: "default", year, newContractTarget: payload.new_contract_target, collectionTarget: payload.collection_target,
+    policy: "default", year, newContractTarget: payload.new_contract_target, revenueTarget: payload.revenue_target,
     operatingCostTarget: payload.operating_cost_target,
     capacityPersonDaysTarget: payload.capacity_person_days_target, headcountTarget: payload.headcount_target,
     utilizationTargetPercent: payload.utilization_target_percent, notes: payload.notes

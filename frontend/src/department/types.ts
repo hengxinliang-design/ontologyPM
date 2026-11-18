@@ -38,10 +38,14 @@ export interface PlanCompletion {
   status: PlanStatus;
   // Cost, gross profit and margin run up to the latest month with costs entered (requirements baseline D25).
   as_of?: string | null;
+  /** 经营收入 (D68): receipts confirmed in the system, CRM 回款 changes between uploads, and the opening estimate. */
+  sources?: { confirmed: string; crm_changes: string; opening_estimate: string };
+  /** 回款（含税） is shown for reference, without a target (D69). */
+  reference?: boolean;
 }
 
 export const PLAN_FIELDS = [
-  "new_contract_target", "collection_target", "operating_cost_target", "capacity_person_days_target", "headcount_target", "utilization_target_percent",
+  "new_contract_target", "revenue_target", "operating_cost_target", "capacity_person_days_target", "headcount_target", "utilization_target_percent",
 ] as const;
 export type PlanField = typeof PLAN_FIELDS[number];
 
@@ -52,8 +56,7 @@ export type AnnualPlan = Record<PlanField, string | null> & {
   notes: string | null;
   updated_by: string | null;
   updated_at: string;
-  // Derived targets (D26): after-tax revenue, gross profit and margin follow from the entered ones.
-  revenueTargetAfterTax?: string | null;
+  // Derived targets (D26, D69): gross profit and margin follow from the entered ones (the revenue target is 不含税).
   grossProfitTarget?: string | null;
   grossMarginTargetPercent?: string | null;
 };
@@ -70,7 +73,7 @@ export interface OperatingResult {
   cost_entries: CostEntry[];
   cost_cutoff_month: string | null;
   missing_cost_months: string[];
-  revenue_after_tax_to_cutoff: string | null;
+  revenue_excl_tax_to_cutoff: string | null;
   operating_cost: string | null;
   gross_profit: string | null;
   gross_margin_percent: string | null;
@@ -83,7 +86,7 @@ export interface StrategySignal {
   evidence: string[];
 }
 
-export type KpiKey = "new_contracts" | "collections" | "revenue_after_tax" | "operating_cost" | "gross_profit" | "gross_margin"
+export type KpiKey = "new_contracts" | "revenue_excl_tax" | "collections" | "operating_cost" | "gross_profit" | "gross_margin"
   | "capacity_used" | "utilization" | "headcount";
 
 export interface DepartmentReview {

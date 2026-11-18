@@ -642,6 +642,14 @@ when: [{property: contractType, notIn: [sales]}, {property: lifecycleStatus, not
 
 规模：18 个对象类型、5 个对象类型组、27 种关系、26 个动作、22 个函数、20 个值类型、2 个安全标记。构建包见 [2026-11-16-object-type-groups.yaml](./ontology-builds/2026-11-16-object-type-groups.yaml)。
 
+### 11.43 CRM 回款变动与不含税收入（v9.0.0）
+
+需求基线 D68。`app/crm_receipts.py` 维护表 `crm_receipt_changes`：合同上传（`SyncService.import_manual_records`，仅合同/订单）后按记录 ID 比较本次与上次记录的 CRM 累计回款，写期初估算 / 起点 / 变动；启动时对 8.11.0 以前上传的合同补记一次。`DepartmentAnalysis.department_review` 的经营收入 = 已确认回款节点（D22）＋ 没有已确认回款节点的项目的期初估算与变动，并输出 `collections.sources`。对象类型 `CrmReceiptChange`（数据源 crmReceiptChanges）与 Contract、Project、AnnualOperatingPlan 相连。
+
+需求基线 D69：年度计划 `collectionTarget`（税前）改名 `revenueTarget`（不含税），`db._migrate` 把 annual_operating_plans.collection_target 原地改名 revenue_target（数值不变）；删除派生的 `revenueTargetAfterTax`，`plan_targets` 直接用不含税目标推算毛利润、毛利率目标。复盘指标 `revenue_excl_tax`（经营收入·不含税，对照目标）与 `collections`（回款（含税），`reference: true`，无目标，带 `sources`）。改名属破坏性变更，主版本升为 9.0.0。
+
+规模：19 个对象类型、5 个对象类型组、30 种关系、26 个动作、22 个函数、21 个值类型、2 个安全标记。构建包见 [2026-11-18-crm-receipt-changes.yaml](./ontology-builds/2026-11-18-crm-receipt-changes.yaml)。
+
 ## 12. 代码结构
 
 ```text

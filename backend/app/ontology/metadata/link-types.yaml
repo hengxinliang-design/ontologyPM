@@ -186,4 +186,25 @@ definition:
   {apiName: followUpInterventions, reverseApiName: sourceStrategy, displayName: 落实干预, reverseDisplayName: 来源部门策略,
    source: AiStrategyNote, target: Intervention, cardinality: many_to_many, description: 批准 部门策略（AI）时分解到项目的管理干预（D58）；按来源建议编号连接（不是主键，按 L42 声明为多对多）。允许悬空：没有分解到项目的策略没有干预,
    join: {sourceKey: proposalId, targetKey: sourceProposalId}}
+---
+kind: LinkType
+version: v1
+definition:
+  {apiName: receiptChanges, reverseApiName: contract, displayName: CRM 回款变动, reverseDisplayName: 所属合同,
+   source: Contract, target: CrmReceiptChange, cardinality: one_to_many, description: 合同每次上传时 CRM 累计回款的变化（D68）。允许悬空：合同从后来的 CRM 列表中消失后，它的变动记录仍保留,
+   join: {sourceKey: recordId, targetKey: recordId}}
+---
+kind: LinkType
+version: v1
+definition:
+  {apiName: crmReceiptChanges, reverseApiName: project, displayName: CRM 回款变动, reverseDisplayName: 所属项目,
+   source: Project, target: CrmReceiptChange, cardinality: one_to_many, description: 项目下合同的 CRM 回款变动（D68）；项目有已确认到账的回款节点时，经营收入用回款节点，不用这些变动,
+   join: {sourceKey: projectNumber, targetKey: projectNumber}}
+---
+kind: LinkType
+version: v1
+definition:
+  {apiName: crmReceiptChanges, reverseApiName: annualPlan, displayName: 本年 CRM 回款变动, reverseDisplayName: 计入年度计划,
+   source: AnnualOperatingPlan, target: CrmReceiptChange, cardinality: many_to_many, description: 计入年度计划所属年度经营收入的 CRM 回款变动（期初估算与变动，D68）。允许悬空：起点不计收入，没有年度计划的年份也会有变动,
+   join: {sourceKey: year, targetKey: revenueYear}}
 

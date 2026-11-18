@@ -716,7 +716,7 @@ def load_operating_policy(ctx: OntologyContext) -> list[dict[str, Any]]:
 ANNUAL_PLAN_FIELDS = {
     "department": "department",
     "newContractTarget": "new_contract_target",
-    "collectionTarget": "collection_target",
+    "revenueTarget": "revenue_target",
     "operatingCostTarget": "operating_cost_target",
     "capacityPersonDaysTarget": "capacity_person_days_target",
     "headcountTarget": "headcount_target",
@@ -727,13 +727,12 @@ ANNUAL_PLAN_FIELDS = {
 
 @RULES.datasource("annualOperatingPlans")
 def load_annual_operating_plans(ctx: OntologyContext) -> list[dict[str, Any]]:
-    tax_rate = Decimal(ctx.projects.get_worktime_baseline()["default_tax_rate_percent"])
     return [
         {
             "planId": row["plan_id"],
             "year": row["year"],
             **{api: row.get(column) for api, column in ANNUAL_PLAN_FIELDS.items()},
-            **plan_targets(row.get("collection_target"), row.get("operating_cost_target"), tax_rate),
+            **plan_targets(row.get("revenue_target"), row.get("operating_cost_target")),
             "updatedAt": row["updated_at"],
         }
         for row in ctx.table("annual_operating_plans", "year DESC, department")
@@ -754,6 +753,21 @@ def load_operating_costs(ctx: OntologyContext) -> list[dict[str, Any]]:
             "notes": row["notes"], "updatedBy": row["updated_by"], "updatedAt": row["updated_at"],
         }
         for row in ctx.table("operating_costs", "month DESC, department")
+    ]
+
+
+@RULES.datasource("crmReceiptChanges")
+def load_crm_receipt_changes(ctx: OntologyContext) -> list[dict[str, Any]]:
+    """D68: the CRM 回款金额 ledger (app/crm_receipts.py)."""
+    return [
+        {
+            "changeId": row["change_id"], "recordId": row["record_id"], "projectNumber": row.get("project_number"),
+            "subject": row.get("subject") or row["record_id"], "signedAt": row.get("signed_at"), "observedOn": row["observed_on"],
+            "kind": row["kind"], "previousAmount": row.get("previous_amount"), "receivedAmount": row["received_amount"],
+            "changeAmount": row["change_amount"], "revenueDate": row.get("revenue_date"),
+            "revenueYear": int(row["revenue_date"][:4]) if row.get("revenue_date") else None,
+        }
+        for row in ctx.table("crm_receipt_changes", "observed_on DESC, created_at DESC")
     ]
 
 
@@ -1570,8 +1584,8 @@ def fn_department_review(ctx: OntologyContext, params: dict[str, Any]) -> dict[s
     review = {**_department(ctx).department_review(int(year) if year else None, month), **_ai_strategy_view(ctx)}
     if _finance_visible(ctx):
         return review
-    money_kpis = {"new_contracts", "collections"}
-    plan_money = {"new_contract_target", "collection_target"}
+    money_kpis = {"new_contracts", "revenue_excl_tax", "collections"}
+    plan_money = {"new_contract_target", "revenue_target"}
     return {
         **review,
         "plan": {k: (None if k in plan_money else v) for k, v in review["plan"].items()} if review["plan"] else None,

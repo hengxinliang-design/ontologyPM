@@ -28,6 +28,7 @@ from fastapi.responses import JSONResponse, Response
 from .config import Settings
 from .auth import ALL_MENU_PERMISSIONS, AuthService, AuthenticationError, AuthorizationError
 from .crm_import import CrmImportValidationError, parse_crm_import_base64, template_fields
+from .crm_receipts import backfill_from_active_contracts
 from .db import Database
 from .plans import AnnualPlanRepository
 from .investment import InvestmentService
@@ -121,6 +122,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if settings.auto_import_on_empty and database.active_snapshot_id() is None:
             job = sync_service.create_job()
             await sync_service.run_job(job["job_id"])
+        # D68: contracts uploaded before 8.11.0 get their first sighting in the CRM receipt ledger, once.
+        backfill_from_active_contracts(database, repository, project_repository.today())
         if settings.require_crm_project_match:
             project_repository.cleanup_legacy_orphaned_maintenance_once()
         elif settings.source_file.name.endswith(".example.json"):
@@ -872,7 +875,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def upsert_annual_plan(year: int, payload: dict[str, Any] = Body(...), user: dict[str, Any] = Depends(require_auth)) -> dict[str, Any]:
         """Compatibility wrapper over the ontology action setAnnualOperatingPlan."""
         mapping = {"department": "department", "new_contract_target": "newContractTarget",
-                   "collection_target": "collectionTarget", "capacity_person_days_target": "capacityPersonDaysTarget",
+                   "revenue_target": "revenueTarget", "operating_cost_target": "operatingCostTarget",
+                   "capacity_person_days_target": "capacityPersonDaysTarget",
                    "headcount_target": "headcountTarget", "utilization_target_percent": "utilizationTargetPercent", "notes": "notes"}
         params = action_parameters("setAnnualOperatingPlan", payload, mapping, policy="default", year=year)
         try:

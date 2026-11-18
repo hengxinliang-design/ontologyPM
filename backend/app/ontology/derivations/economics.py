@@ -13,6 +13,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, Callable
 from zoneinfo import ZoneInfo
 
+from ...crm_receipts import revenue_rows
 from ...project_repository import _counts_as_effort
 from .resources import ResourceMetrics
 
@@ -211,18 +212,18 @@ def rollup(items: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def after_tax(amount: Decimal | None, tax_rate_percent: Decimal) -> Decimal | None:
-    """D22: operating revenue after tax = receipts ÷ (1 + VAT rate)."""
+    """D22/D69: operating revenue 不含税 = receipts (含税) ÷ (1 + VAT rate)."""
     return None if amount is None else amount / (Decimal(1) + tax_rate_percent / HUNDRED)
 
 
-def plan_targets(revenue_target: Any, cost_target: Any, tax_rate_percent: Decimal) -> dict[str, Any]:
-    """D26: the after-tax revenue, gross profit and gross margin targets follow from the entered ones."""
-    revenue = after_tax(d(revenue_target), tax_rate_percent)
+def plan_targets(revenue_target: Any, cost_target: Any) -> dict[str, Any]:
+    """D26/D69: the gross profit and gross margin targets follow from the entered ones; the revenue target is
+    entered 不含税, so it is used as is (毛利润 = 经营收入·不含税 − 经营成本, 毛利率 = 毛利润 ÷ 经营收入·不含税)."""
+    revenue = d(revenue_target)
     cost = d(cost_target)
     profit = revenue - cost if revenue is not None and cost is not None else None
     margin = profit / revenue * HUNDRED if profit is not None and revenue else None
-    return {"revenueTargetAfterTax": money(revenue), "grossProfitTarget": money(profit),
-            "grossMarginTargetPercent": money(margin)}
+    return {"grossProfitTarget": money(profit), "grossMarginTargetPercent": money(margin)}
 
 
 def plan_completion(actual: Decimal | None, target: Decimal | None, month: int, tolerance_points: Decimal, cumulative: bool = True,
@@ -361,7 +362,7 @@ class DepartmentAnalysis:
         costs = [c for c in self.plans.list_costs(year) if c["month"] <= month]
         if not costs:
             return {"tax_rate_percent": money(tax_rate), "cost_entries": entries, "cost_cutoff_month": None, "missing_cost_months": [],
-                    "revenue_after_tax_to_cutoff": None, "operating_cost": None, "gross_profit": None,
+                    "revenue_excl_tax_to_cutoff": None, "operating_cost": None, "gross_profit": None,
                     "gross_margin_percent": None, "cost_by_category": None}
         cutoff = max(c["month"] for c in costs)
         entered = {c["month"] for c in costs}
@@ -371,7 +372,7 @@ class DepartmentAnalysis:
         profit = revenue - cost
         return {
             "tax_rate_percent": money(tax_rate), "cost_entries": entries, "cost_cutoff_month": cutoff, "missing_cost_months": missing,
-            "revenue_after_tax_to_cutoff": money(revenue), "operating_cost": money(cost), "gross_profit": money(profit),
+            "revenue_excl_tax_to_cutoff": money(revenue), "operating_cost": money(cost), "gross_profit": money(profit),
             "gross_margin_percent": money(profit / revenue * HUNDRED) if revenue else None,
             "cost_by_category": {f: money(sum((d(c[f]) or ZERO for c in costs), ZERO)) for f in categories},
         }
@@ -399,13 +400,27 @@ class DepartmentAnalysis:
         # Operating revenue (D22): receipts confirmed in the year, by month, whatever year the contract was signed.
         collections_ytd = ZERO
         revenue_by_month: dict[str, Decimal] = defaultdict(lambda: ZERO)
+        sources = {"confirmed": ZERO, "crm_changes": ZERO, "opening_estimate": ZERO}
+        confirmed_projects: set[str] = set()
         for project in projects:
             for payment in project.get("payment_nodes", []):
+                if payment.get("status") in PAID_STATUSES:
+                    confirmed_projects.add(project["project_number"])
                 actual_date = payment.get("actual_date") or ""
                 if payment.get("status") in PAID_STATUSES and actual_date[:4] == str(year) and actual_date <= period_end:
                     amount = d(payment.get("actual_amount")) or ZERO
                     collections_ytd += amount
+                    sources["confirmed"] += amount
                     revenue_by_month[actual_date[:7]] += amount
+        # D68: projects without confirmed 回款节点 take their receipts from the CRM 回款金额 changes between uploads
+        # (an opening estimate for contracts signed this year, then each change on its upload day).
+        for row in revenue_rows(self.database, year, period_end):
+            if row["project_number"] in confirmed_projects:
+                continue
+            amount = d(row["change_amount"]) or ZERO
+            collections_ytd += amount
+            sources["opening_estimate" if row["kind"] == "opening_estimate" else "crm_changes"] += amount
+            revenue_by_month[row["revenue_date"][:7]] += amount
 
         # Capacity and utilisation by month.
         months = [f"{year}-{m:02d}" for m in range(1, month_no + 1)]
@@ -430,13 +445,14 @@ class DepartmentAnalysis:
         target = lambda f: d(plan.get(f)) if plan else None
         operating = self._operating_result(year, month, revenue_by_month, Decimal(policy["default_tax_rate_percent"]))
         cutoff_no = int(operating["cost_cutoff_month"][5:7]) if operating["cost_cutoff_month"] else month_no
-        targets = plan_targets(plan.get("collection_target") if plan else None, plan.get("operating_cost_target") if plan else None,
-                               Decimal(policy["default_tax_rate_percent"]))
+        targets = plan_targets(plan.get("revenue_target") if plan else None, plan.get("operating_cost_target") if plan else None)
         kpis = {
             "new_contracts": {"label": "合同额", **plan_completion(new_contracts, target("new_contract_target"), month_no, tolerance)},
-            "collections": {"label": "经营收入（税前）", **plan_completion(collections_ytd, target("collection_target"), month_no, tolerance)},
-            "revenue_after_tax": {"label": "经营收入（税后）", **plan_completion(
-                after_tax(collections_ytd, Decimal(policy["default_tax_rate_percent"])), d(targets["revenueTargetAfterTax"]), month_no, tolerance)},
+            # D69: revenue is compared 不含税 (回款 ÷ (1 + VAT)); 回款（含税） is shown for reference, without a target.
+            "revenue_excl_tax": {"label": "经营收入·不含税", **plan_completion(
+                after_tax(collections_ytd, Decimal(policy["default_tax_rate_percent"])), target("revenue_target"), month_no, tolerance)},
+            "collections": {"label": "回款（含税）", "reference": True, **plan_completion(collections_ytd, None, month_no, tolerance),
+                            "sources": {key: money(value) for key, value in sources.items()}},
             "operating_cost": {"label": "经营成本", "as_of": operating["cost_cutoff_month"], **plan_completion(
                 d(operating["operating_cost"]), target("operating_cost_target"), cutoff_no, tolerance, lower_is_better=True)},
             "gross_profit": {"label": "毛利润", "as_of": operating["cost_cutoff_month"], **plan_completion(

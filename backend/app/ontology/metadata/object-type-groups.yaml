@@ -14,9 +14,9 @@ version: v1
 definition:
   apiName: deliveryPayment
   displayName: 交付与回款
-  description: 项目交付的里程碑、回款约定与回款节点，以及针对项目的管理干预。
+  description: 项目交付的里程碑、回款约定与回款节点、CRM 回款变动，以及针对项目的管理干预。
   displayOrder: 2
-  members: [Milestone, PaymentTerm, PaymentNode, Intervention]
+  members: [Milestone, PaymentTerm, PaymentNode, Intervention, CrmReceiptChange]
 ---
 kind: ObjectTypeGroup
 version: v1
