@@ -955,6 +955,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 content_base64=content_base64,
                 filename=filename,
                 data_type=data_type,
+                today=project_repository.today(),
             )
             result = sync_service.import_manual_records(
                 data_type=data_type,

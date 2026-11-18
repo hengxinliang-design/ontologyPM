@@ -1398,10 +1398,10 @@ def _total_entry_hours(row: dict[str, Any]) -> Decimal:
 
 def _signed_year(record: dict[str, Any]) -> int | None:
     """Signing year of a CRM contract (its 签约时间); opportunities and undated contracts have none."""
-    signed = record.get("signed_at")
-    if record.get("data_type") != "contract_order" or not signed:
-        return None
-    return int(str(signed)[:4])
+    signed = str(record.get("signed_at") or "")
+    if record.get("data_type") != "contract_order" or not re.match(r"\d{4}-\d{2}-\d{2}", signed):
+        return None  # undated, or a value that is not a date (an import before 2026-11-18 kept 「昨天」 as text)
+    return int(signed[:4])
 
 
 def _counts_as_effort(row: dict[str, Any]) -> bool:

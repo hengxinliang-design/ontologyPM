@@ -751,3 +751,14 @@ tr.clickable:focus-visible { outline: 3px solid rgba(40, 88, 184, .35); outline-
   .inline-form.three { grid-template-columns: 1fr; }
   .inline-form .form-actions .button { flex: 1; }
 }
+
+/* CRM import template guide (2026-11-18): folded under the upload cards. */
+.import-guide { margin: 14px 26px 0; padding: 12px 14px; border: 1px solid var(--line-subtle); border-radius: var(--radius-md); background: var(--surface-subtle); }
+.import-guide > summary strong { font-size: var(--fs-sm); }
+.import-guide > summary small { color: var(--text-tertiary); font-size: var(--fs-xs); }
+.import-guide dl { display: grid; gap: 8px; margin: 12px 0 2px; }
+.import-guide dl > div { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 12px; }
+.import-guide dt { color: var(--text-tertiary); font-size: var(--fs-xs); font-weight: 650; }
+.import-guide dd { margin: 0; color: var(--text-secondary); font-size: var(--fs-sm); line-height: 1.6; }
+@media (max-width: 720px) { .import-guide { margin: 12px 16px 0; } .import-guide dl > div { grid-template-columns: minmax(0, 1fr); gap: 2px; } }
+

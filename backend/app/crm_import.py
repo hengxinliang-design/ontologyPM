@@ -37,8 +37,10 @@ FIELD_ALIASES = {
 
 
 def parse_crm_import_base64(
-    *, content_base64: str, filename: str, data_type: str
+    *, content_base64: str, filename: str, data_type: str, today: date | None = None
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """``today`` is the upload day in the business timezone: the CRM list export writes recent dates as 今天 / 昨天 / 前天,
+    which are converted against it (2026-11-18: a contract signed 「昨天」 broke the project list)."""
     if data_type not in {"contract_order", "sales_opportunity"}:
         raise CrmImportValidationError("data_type must be contract_order or sales_opportunity")
     if "," in content_base64 and content_base64.lstrip().startswith("data:"):
@@ -58,7 +60,8 @@ def parse_crm_import_base64(
     else:
         raise CrmImportValidationError("only .xlsx, .csv, and .json files are supported")
 
-    records, recognized = _normalize_rows(rows, data_type=data_type)
+    dates = _DateNotes(today or date.today())
+    records, recognized = _normalize_rows(rows, data_type=data_type, dates=dates)
     unmatched = [record["主题"] for record in records if not record.get("项目编号")]
     return records, {
         "filename": filename,
@@ -68,6 +71,11 @@ def parse_crm_import_base64(
         "recognized_fields": recognized,
         "unmatched_project_rows": len(unmatched),
         "unmatched_project_subjects": unmatched[:5],
+        "project_codes": len({record["项目编号"] for record in records if record.get("项目编号")}),
+        "relative_dates": len(dates.converted),
+        "relative_date_examples": dates.converted[:5],
+        "unreadable_dates": len(dates.unreadable),
+        "unreadable_date_examples": dates.unreadable[:5],
     }
 
 
@@ -146,7 +154,8 @@ def _rows_from_matrix(rows: list[list[Any]]) -> list[dict[str, Any]]:
     return result
 
 
-def _normalize_rows(rows: list[dict[str, Any]], *, data_type: str) -> tuple[list[dict[str, Any]], list[str]]:
+def _normalize_rows(rows: list[dict[str, Any]], *, data_type: str, dates: "_DateNotes | None" = None) -> tuple[list[dict[str, Any]], list[str]]:
+    dates = dates or _DateNotes(date.today())
     if not rows:
         raise CrmImportValidationError("file does not contain importable rows")
     records: list[dict[str, Any]] = []
@@ -159,7 +168,8 @@ def _normalize_rows(rows: list[dict[str, Any]], *, data_type: str) -> tuple[list
             value = _first_value(values, aliases)
             if value not in (None, ""):
                 recognized.add(field)
-                item[_output_key(field)] = _field_value(field, value)
+                item[_output_key(field)] = (dates.read(value, f"第 {row_number} 行{FIELD_LABELS.get(field, field)}")
+                                            if field in DATE_FIELDS else _field_value(field, value))
         all_recognized.update(recognized)
         if not any(value not in (None, "") for value in item.values() if value != item["数据类型"]):
             continue
@@ -236,6 +246,63 @@ def _field_value(field: str, value: Any) -> str:
     return _clean(value)
 
 
+DATE_FIELDS = {"signed_at", "source_updated_at"}
+FIELD_LABELS = {"signed_at": "签约时间", "source_updated_at": "更新时间"}
+_RELATIVE_DAYS = {"今天": 0, "今日": 0, "刚刚": 0, "昨天": 1, "昨日": 1, "前天": 2}
+
+
+class _DateNotes:
+    """Reads the dates of one upload and remembers which were relative (converted) or unreadable (left empty)."""
+
+    def __init__(self, today: date):
+        self.today = today
+        self.converted: list[str] = []
+        self.unreadable: list[str] = []
+
+    def read(self, value: Any, where: str) -> str:
+        text = _clean(value)
+        absolute = _date_value(text)
+        if re.fullmatch(r"\d{4}-\d{2}-\d{2}", absolute):
+            return absolute
+        relative = _relative_date(text, self.today)
+        if relative:
+            self.converted.append(f"{where}：{text} → {relative}")
+            return relative
+        self.unreadable.append(f"{where}：{text}")
+        return ""
+
+
+def _relative_date(text: str, today: date) -> str | None:
+    """今天 / 昨天 / 前天 / N天前 / N小时前 (an optional time after them is ignored); 11-16 or 11月16日 without a year
+    is the latest such day not after today; 2026年11月16日 is read as written."""
+    head = text.split()[0] if text.split() else ""
+    if head in _RELATIVE_DAYS:
+        return (today - timedelta(days=_RELATIVE_DAYS[head])).isoformat()
+    match = re.fullmatch(r"(\d+)\s*天前", head)
+    if match:
+        return (today - timedelta(days=int(match.group(1)))).isoformat()
+    if re.fullmatch(r"\d+\s*(?:小时|分钟|秒)前", head):
+        return today.isoformat()
+    match = re.fullmatch(r"(\d{4})年(\d{1,2})月(\d{1,2})日?", head)
+    if match:
+        return _safe_date(int(match.group(1)), int(match.group(2)), int(match.group(3)))
+    match = re.fullmatch(r"(\d{1,2})(?:[-/]|月)(\d{1,2})日?", head)
+    if match:
+        month, day = int(match.group(1)), int(match.group(2))
+        this_year = _safe_date(today.year, month, day)
+        if this_year and this_year > today.isoformat():
+            return _safe_date(today.year - 1, month, day)
+        return this_year
+    return None
+
+
+def _safe_date(year: int, month: int, day: int) -> str | None:
+    try:
+        return date(year, month, day).isoformat()
+    except ValueError:
+        return None
+
+
 def _date_value(value: Any) -> str:
     text = _clean(value)
     if re.fullmatch(r"\d+(?:\.\d+)?", text):
@@ -264,5 +331,8 @@ def _probability_value(value: Any) -> str:
 
 
 def _project_number(subject: str) -> str | None:
-    match = re.match(r"^\s*([A-Z]{2,6}\d{2,4}[A-Z]?)\s*[-–—－]", subject)
+    """The project code that opens a CRM 主题 (user 2026-11-18: 「HJA114-鸿基伟业……补充协议第3号」 → HJA114; the export has
+    no separate code column). 2–6 capitals, 2–4 digits and an optional capital (GAC13A), then a dash, underscore,
+    colon or space."""
+    match = re.match(r"^\s*([A-Z]{2,6}\d{2,4}[A-Z]?)(?:\s*[-–—－_:：]|\s+)", subject)
     return match.group(1) if match else None

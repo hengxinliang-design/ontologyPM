@@ -1617,7 +1617,10 @@ function SyncStatusPanel({ sync, logs, logPage, setLogPage, refresh, reportError
       <ImportCard dataType="contract_order" importing={importing} upload={upload} />
       <ImportCard dataType="sales_opportunity" importing={importing} upload={upload} />
     </div>
-    {result && <div className="import-result"><strong>{result.dataType === "contract_order" ? "合同 / 订单" : "销售机会"}已导入</strong><span>{result.value.filename} · 解析 {result.value.parsed_rows} 行</span><b>新增 {result.value.validation.inserted_records ?? 0}</b><b>更新 {result.value.validation.updated_records ?? 0}</b><b>无变化 {result.value.validation.unchanged_records ?? 0}</b>{result.value.unmatched_project_rows > 0 && <em>待补充项目编号 {result.value.unmatched_project_rows} 条</em>}</div>}
+    <ImportTemplateGuide />
+    {result && <div className="import-result"><strong>{result.dataType === "contract_order" ? "合同 / 订单" : "销售机会"}已导入</strong><span>{result.value.filename} · 解析 {result.value.parsed_rows} 行{result.value.project_codes != null ? ` · 识别项目代码 ${result.value.project_codes} 个` : ""}</span><b>新增 {result.value.validation.inserted_records ?? 0}</b><b>更新 {result.value.validation.updated_records ?? 0}</b><b>无变化 {result.value.validation.unchanged_records ?? 0}</b>{result.value.unmatched_project_rows > 0 && <em>待补充项目编号 {result.value.unmatched_project_rows} 条</em>}
+      {(result.value.relative_dates ?? 0) > 0 && <em title={(result.value.relative_date_examples ?? []).join("\n")}>相对日期按导入日换算 {result.value.relative_dates} 条</em>}
+      {(result.value.unreadable_dates ?? 0) > 0 && <em title={(result.value.unreadable_date_examples ?? []).join("\n")}>无法识别的日期 {result.value.unreadable_dates} 条（已留空）</em>}</div>}
     <section className="import-log-section">
       <div className="section-heading"><div><h3>导入记录日志</h3><p>仅记录已成功解析并保存的数据文件，最新上传显示在最前。</p></div></div>
       <div className="table-wrap">
@@ -1630,9 +1633,23 @@ function SyncStatusPanel({ sync, logs, logPage, setLogPage, refresh, reportError
     </section>
     <div className="sync-note">
       <span className="manual-tag">导入规则</span>
-      <p>系统只更新 CRM 主数据字段；项目类型、预算人天、项目经理、里程碑、回款确认等人工维护信息始终保留。当前可上传 Excel、CSV 或 JSON；待你确认首版模板后，可将字段别名锁定为固定模板。</p>
+      <p>系统只更新 CRM 主数据字段；项目类型、预算人天、项目经理、里程碑、回款确认等人工维护信息始终保留。当前可上传 Excel、CSV 或 JSON（列名规则见上方「导入模板说明」）；待你确认首版模板后，可将字段别名锁定为固定模板。</p>
     </div>
   </section>;
+}
+
+/** What an upload needs (user 2026-11-18, after the first XToolsCRM 合同订单列表 export): columns, project code, dates. */
+function ImportTemplateGuide() {
+  return <details className="collapsible import-guide">
+    <summary><strong>导入模板说明</strong><small>按 XToolsCRM 列表导出的列名识别，列的顺序不限</small><span className="collapsible-toggle" /></summary>
+    <dl>
+      <div><dt>必填</dt><dd>主题、所有者（或负责人、我方签约人）</dd></div>
+      <div><dt>建议保留</dt><dd>ID（CRM 内部 ID：重复导入时据此识别同一条记录）、对应客户、分类、签约时间、总金额、回款金额、开票金额、状态；销售机会另有可能性、阶段</dd></div>
+      <div><dt>项目代码</dt><dd>不需要单独一列：从主题开头的代码自动识别并保存，例如「HJA114-鸿基伟业……补充协议第3号」→ HJA114；同一代码的多份合同、补充协议归到同一个项目。若文件里有「项目编号」列，以该列为准。</dd></div>
+      <div><dt>日期</dt><dd>2026-11-10、2026/11/10、2026年11月10日、Excel 日期；CRM 列表里的「今天 / 昨天 / 前天 / N天前」按上传当天换算，导入结果中列出换算了哪些；无法识别的日期留空并提示。</dd></div>
+      <div><dt>客户</dt><dd>「〖HJA〗」这类括号会去掉，按 HJA 归到同一客户。</dd></div>
+    </dl>
+  </details>;
 }
 
 function ImportCard(props: { dataType: "contract_order" | "sales_opportunity"; importing: "contract_order" | "sales_opportunity" | null; upload: (dataType: "contract_order" | "sales_opportunity", event: ChangeEvent<HTMLInputElement>) => Promise<void> }) {

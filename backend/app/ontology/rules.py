@@ -422,6 +422,8 @@ def load_customers(ctx: OntologyContext) -> list[dict[str, Any]]:
             item["crmOwners"].add(record["owner"])
         # An opportunity's signed_at is its expected signing date, not a signing.
         signed = record.get("signed_at") if record["data_type"] == "contract_order" else None
+        if signed and not re.match(r"\d{4}-\d{2}-\d{2}", str(signed)):
+            signed = None  # not a date (see crm_import relative dates); never let text outrank real dates
         if signed and (item["latestSignedAt"] is None or signed > item["latestSignedAt"]):
             item["latestSignedAt"] = signed
     return [
