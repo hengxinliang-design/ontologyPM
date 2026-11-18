@@ -4,6 +4,7 @@
 # 最后一条被批准。依据不成立的提案状态是「已过期」。所以不是核验没通过，问题在说法。
 kind: OntologyBuild
 stage: release
+supersededBy: 2026-11-16-object-type-groups.yaml
 topic: AI 提案被同类再次提交替换时，状态与处理说明写明原因（再次提交、未经审批、与依据复核无关）
 ontologyVersion: 8.9.1
 date: 2026-11-10

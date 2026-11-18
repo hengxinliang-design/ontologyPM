@@ -40,6 +40,7 @@ from .metadata_schema import (
     ValueTypeDoc,
 )
 from .model import (
+    ObjectTypeGroupDef,
     DEFAULT_TEXT_LENGTH,
     ActionTypeDef,
     FunctionDef,
@@ -515,6 +516,18 @@ def compile_documents(documents: list[MetadataDocument], rules: RuleRegistry = R
     for marking in markings.values():
         check_permissions(f"Marking {marking.api_name}", marking.permissions)
 
+    # D67: groups name existing object types, each at most once.
+    groups = []
+    for doc in sorted(by_kind["ObjectTypeGroup"], key=lambda d: (d.definition.display_order, d.definition.api_name)):
+        group = doc.definition
+        where = f"{doc.source} ObjectTypeGroup {group.api_name}"
+        for member in group.members:
+            if member not in object_docs:
+                errors.append(f"{where}: 成员 {member} 不是已声明的对象类型")
+        if len(set(group.members)) != len(group.members):
+            errors.append(f"{where}: 成员重复")
+        groups.append(ObjectTypeGroupDef(group.api_name, group.display_name, group.description, tuple(group.members)))
+
     if errors:
         raise OntologyMetadataError(errors)
 
@@ -526,6 +539,7 @@ def compile_documents(documents: list[MetadataDocument], rules: RuleRegistry = R
         markings=tuple(_marking(m) for m in markings.values()),
         object_types=tuple(object_types),
         link_types=tuple(link_types),
+        object_type_groups=tuple(groups),
         action_types=tuple(action_types),
         functions=tuple(functions),
         value_types=tuple(

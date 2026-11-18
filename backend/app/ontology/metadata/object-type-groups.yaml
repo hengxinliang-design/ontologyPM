@@ -1,0 +1,46 @@
+# 对象类型组（D67，本体 8.10.0）：按业务领域浏览本体。分组只用于浏览与说明，不改变对象、关系或权限；
+# 一个对象类型可以属于多个组，每个对象类型至少属于一个组（测试 test_every_object_type_belongs_to_a_group）。
+kind: ObjectTypeGroup
+version: v1
+definition:
+  apiName: projectContract
+  displayName: 项目与合同
+  description: 项目以及决定它的合同、商机、客户；成本对象按项目编号或商机编号归集投入。
+  displayOrder: 1
+  members: [Project, Contract, Opportunity, Customer, CostObject]
+---
+kind: ObjectTypeGroup
+version: v1
+definition:
+  apiName: deliveryPayment
+  displayName: 交付与回款
+  description: 项目交付的里程碑、回款约定与回款节点，以及针对项目的管理干预。
+  displayOrder: 2
+  members: [Milestone, PaymentTerm, PaymentNode, Intervention]
+---
+kind: ObjectTypeGroup
+version: v1
+definition:
+  apiName: workResource
+  displayName: 工时与资源
+  description: 员工、工时记录与负荷预测模型：投入从哪里来、资源够不够。
+  displayOrder: 3
+  members: [Employee, TimeEntry, LoadForecastModel]
+---
+kind: ObjectTypeGroup
+version: v1
+definition:
+  apiName: operatingBasis
+  displayName: 经营口径
+  description: 运营口径参数、年度经营计划与经营成本：规则阈值、目标与成本基础。
+  displayOrder: 4
+  members: [OperatingPolicy, AnnualOperatingPlan, OperatingCost]
+---
+kind: ObjectTypeGroup
+version: v1
+definition:
+  apiName: aiWriteback
+  displayName: AI 写回
+  description: AI 提案经人工批准后写回的 AI 风险标记与部门策略（AI）（D51–D66）。
+  displayOrder: 5
+  members: [AiProposal, AiRiskFlag, AiStrategyNote]

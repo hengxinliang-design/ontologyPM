@@ -634,6 +634,14 @@ when: [{property: contractType, notIn: [sales]}, {property: lifecycleStatus, not
 
 规模：18 个对象类型、27 种关系、26 个动作、22 个函数、20 个值类型、2 个安全标记。构建包见 [2026-11-10-project-ai-attention.yaml](./ontology-builds/2026-11-10-project-ai-attention.yaml)、[2026-11-10-replaced-wording.yaml](./ontology-builds/2026-11-10-replaced-wording.yaml)。
 
+### 11.42 对象类型组（v8.10.0）
+
+需求基线 D67。新增元数据种类 `ObjectTypeGroup`（`metadata/object-type-groups.yaml`）：apiName、displayName、description、displayOrder、members。编译器校验成员是已声明的对象类型且不重复；`Ontology.object_type_groups` 保存定义；`/api/v1/ontology/schema` 返回 `objectTypeGroups`，每组只含当前用户可读的成员，无可见成员的组不返回。版本差异按通用文档键（`ObjectTypeGroup:<apiName>`）比较，删除组属破坏性变更。
+
+前端 `GroupGraph.tsx`：按组过滤对象类型（其他组中与本组有关系的类型灰色）、每对类型合并为一条边并显示关系数、轮毂式布局（候选评分选最优）、预览面板与菜单。展示规则不进元数据。
+
+规模：18 个对象类型、5 个对象类型组、27 种关系、26 个动作、22 个函数、20 个值类型、2 个安全标记。构建包见 [2026-11-16-object-type-groups.yaml](./ontology-builds/2026-11-16-object-type-groups.yaml)。
+
 ## 12. 代码结构
 
 ```text

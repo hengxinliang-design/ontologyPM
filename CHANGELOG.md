@@ -4,6 +4,7 @@
 
 | 产品版本 | 本体版本 | 日期 | 构建包 |
 | --- | --- | --- | --- |
+| v1.43.0 | 8.10.0 | 2026-11-18 | [2026-11-16-object-type-groups](docs/ontology-builds/2026-11-16-object-type-groups.yaml) |
 | v1.42.0 | 8.9.1 | 2026-11-10 | [2026-11-10-project-ai-attention](docs/ontology-builds/2026-11-10-project-ai-attention.yaml)、[2026-11-10-replaced-wording](docs/ontology-builds/2026-11-10-replaced-wording.yaml) |
 | v1.41.1 | 8.8.2 | 2026-11-10 | [2026-11-10-object-lists](docs/ontology-builds/2026-11-10-object-lists.yaml) |
 | v1.41.0 | 8.8.0 | 2026-11-10 | [2026-11-10-intervention-history](docs/ontology-builds/2026-11-10-intervention-history.yaml) |
@@ -38,6 +39,13 @@
 | v1.22.0 | 7.6.0 | 2026-10-30 | [2026-10-29-logical-delete](docs/ontology-builds/2026-10-29-logical-delete.yaml) |
 | v1.21.0 | 7.5.0 | 2026-10-29 | [2026-10-29-rule-homes-and-linkages](docs/ontology-builds/2026-10-29-rule-homes-and-linkages.yaml) |
 | v1.20.0 | 7.4.0 | 2026-10-29 | [2026-10-29-milestone-span-period](docs/ontology-builds/2026-10-29-milestone-span-period.yaml) |
+
+## v1.43.0 — 按对象类型组浏览本体（需求基线 D67，本体 8.10.0）
+
+- 本体新增对象类型组：项目与合同、交付与回款、工时与资源、经营口径、AI 写回（新增元数据种类 ObjectTypeGroup，成员必须是已声明的对象类型；本体接口按读取权限只返回可见成员）。
+- 「本体模型」的关系图改为按组浏览（参考 Palantir 的对象类型组图）：组内对象类型彩色、其他组与之有关系的对象类型灰色虚线；每两类之间一个「↔ 关系数」，点击列出各关系的名称、方向与基数；点击对象类型弹出菜单：预览（说明、属性/关系/动作数、关系列表）、开始探索（进入对象浏览）、在图中隐藏；支持重新布局、缩放、拖动，以及「列表」视图。
+- 布局：关系最多的对象类型居中（项目），其余按组排在环上、其他组在外环；在 48 种旋转、环大小与顺序中取方框不重叠、连线少穿过方框的一种；画布按面板实际宽度绘制，文字不再随面板缩小。
+- 构建包 2026-11-16-object-type-groups。
 
 ## v1.42.0 — 项目上的 AI 关注事项与可读的函数结果（需求基线 D65、D66，本体 8.9.1）
 

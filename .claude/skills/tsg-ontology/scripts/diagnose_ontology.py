@@ -429,6 +429,8 @@ def _ontology_names(ontology: Any) -> set[str]:
     names |= {f"{l.target_type}.{l.reverse_api_name}" for l in ontology.link_types}
     names |= {a.api_name for a in ontology.action_types} | {f.api_name for f in ontology.functions}
     names |= {v.api_name for v in ontology.value_types}
+    # 8.10.0 (D67): object type groups are referenced by apiName, e.g. projectContract.
+    names |= {g.api_name for g in getattr(ontology, "object_type_groups", ())}
     names |= set(getattr(RULES, "criteria", {}) or {})
     names |= set(getattr(RULES, "derivations", {}) or {})
     return names

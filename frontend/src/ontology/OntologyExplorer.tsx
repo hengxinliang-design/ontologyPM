@@ -6,6 +6,7 @@ import "./ontology.css";
 import { ObjectSetWorkbench } from "./ObjectSetWorkbench";
 import { displayColumns, errorMessage, formatTime, periodParams, PropertyValue } from "./shared";
 import { FunctionResultView, money, RawJson } from "./functionResults";
+import { GroupGraph } from "./GroupGraph";
 import { isEmptyValue, isWideProperty, propertySections } from "./objectSections";
 import type { ActionLogEntry, ActionLogPage, ActionResult, CriterionResult, ObjectActionAvailability, ObjectPage, ObjectReference, OntologyFunction, OntologyObject, OntologyObjectDetail, OntologyObjectType, OntologyParameter, OntologyProperty, OntologySchema, OntologyValueType, OntologyVersion, VersionChange, VersionDiff } from "./types";
 
@@ -85,8 +86,8 @@ function ModelView({ schema, selectedType, setSelectedType, browse }: {
   const actions = schema.actionTypes.filter(a => a.objectType === type?.apiName);
   return <>
     <section className="panel">
-      <div className="panel-head"><div><h2>本体关系图</h2><p>点击对象类型查看其属性、关系与动作。连线标注基数，悬停可查看关系名称。</p></div></div>
-      <OntologyGraph schema={schema} selected={type?.apiName} select={setSelectedType} />
+      <div className="panel-head"><div><h2>本体关系图</h2><p>按对象类型组浏览本体：组内对象类型及其关系，以及与其他组的连接。</p></div></div>
+      <GroupGraph schema={schema} selected={type?.apiName} onSelect={setSelectedType} onExplore={browse} />
     </section>
 
     {type && <section className="panel ontology-type-detail">
@@ -184,47 +185,6 @@ function ModelView({ schema, selectedType, setSelectedType, browse }: {
 
 function reverseCardinality(value: string): string {
   return value === "one_to_many" ? "many_to_one" : value === "many_to_one" ? "one_to_many" : value;
-}
-
-function OntologyGraph({ schema, selected, select }: { schema: OntologySchema; selected?: string; select: (type: string) => void }) {
-  const width = 820, height = 420, nodeW = 132, nodeH = 46;
-  const positions = useMemo(() => {
-    const result: Record<string, { x: number; y: number }> = {};
-    const center = schema.objectTypes.find(t => t.apiName === "Project") ?? schema.objectTypes[0];
-    const others = schema.objectTypes.filter(t => t !== center);
-    if (center) result[center.apiName] = { x: width / 2, y: height / 2 };
-    others.forEach((type, index) => {
-      const angle = -Math.PI / 2 + (index / others.length) * Math.PI * 2;
-      result[type.apiName] = { x: width / 2 + Math.cos(angle) * 320, y: height / 2 + Math.sin(angle) * 160 };
-    });
-    return result;
-  }, [schema]);
-  return <div className="ontology-graph">
-    <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="本体对象类型关系图">
-      {schema.linkTypes.map(link => {
-        const a = positions[link.sourceObjectType], b = positions[link.targetObjectType];
-        if (!a || !b) return null;
-        const active = selected === link.sourceObjectType || selected === link.targetObjectType;
-        return <g key={`${link.sourceObjectType}-${link.apiName}-${link.targetObjectType}`} className={`graph-edge ${active ? "active" : ""}`}>
-          <title>{`${link.sourceObjectType}.${link.apiName} → ${link.targetObjectType}（反向 ${link.reverseApiName}）`}</title>
-          <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} strokeDasharray={link.cardinality === "many_to_many" ? "5 4" : undefined} />
-          <text x={(a.x + b.x) / 2} y={(a.y + b.y) / 2 - 4}>{CARDINALITY_LABEL[link.cardinality]}</text>
-        </g>;
-      })}
-      {schema.objectTypes.map(type => {
-        const p = positions[type.apiName];
-        if (!p) return null;
-        return <g key={type.apiName} className={`graph-node ${selected === type.apiName ? "active" : ""}`} transform={`translate(${p.x - nodeW / 2}, ${p.y - nodeH / 2})`}
-          onClick={() => select(type.apiName)} role="button" tabIndex={0} onKeyDown={event => { if (event.key === "Enter") select(type.apiName); }}>
-          <rect width={nodeW} height={nodeH} rx={10} />
-          <text x={nodeW / 2} y={20} className="graph-node-title">{type.displayName}</text>
-          {/* Long API names (e.g. AnnualOperatingPlan) are condensed to stay inside the box. */}
-          <text x={nodeW / 2} y={36} className="graph-node-api"
-            {...(type.apiName.length > 16 ? { textLength: nodeW - 14, lengthAdjust: "spacingAndGlyphs" } : {})}>{type.apiName}</text>
-        </g>;
-      })}
-    </svg>
-  </div>;
 }
 
 // ---------------------------------------------------------------- object view

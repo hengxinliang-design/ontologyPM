@@ -178,6 +178,16 @@ class ResolverDoc(MetadataModel):
     reverse: str
 
 
+class ObjectTypeGroupDoc(MetadataModel):
+    """D67: a business area of the ontology (项目与合同、交付与回款……) for exploring it by group. A type may sit in
+    several groups; grouping changes no object, link or permission."""
+    api_name: str = Field(pattern=API_NAME)
+    display_name: str
+    description: str = ""
+    display_order: int = 100
+    members: tuple[str, ...] = Field(min_length=1)
+
+
 class LinkTypeDoc(MetadataModel):
     api_name: str = Field(pattern=API_NAME)
     reverse_api_name: str = Field(pattern=API_NAME)
@@ -259,6 +269,7 @@ KIND_MODELS: dict[str, type[MetadataModel]] = {
     "ValueType": ValueTypeDoc,
     "Marking": MarkingDoc,
     "ObjectType": ObjectTypeDoc,
+    "ObjectTypeGroup": ObjectTypeGroupDoc,
     "LinkType": LinkTypeDoc,
     "ActionType": ActionTypeDoc,
     "Function": FunctionDoc,

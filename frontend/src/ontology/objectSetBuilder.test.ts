@@ -22,6 +22,7 @@ const schema = {
     { apiName: "Milestone", displayName: "里程碑", pluralDisplayName: "里程碑", description: "", primaryKey: "milestoneId", titleProperty: "name",
       backingDatasets: [], datasource: "milestones", metadataSource: "", readPermissions: [], icon: "", properties: [prop("milestoneId", "string")] }
   ],
+  objectTypeGroups: [],
   linkTypes: [
     { apiName: "team", reverseApiName: "workedProjects", displayName: "项目团队", reverseDisplayName: "参与项目", sourceObjectType: "Project", targetObjectType: "Employee", cardinality: "many_to_many", description: "", sourceKey: null, targetKey: null, via: "TimeEntry" },
     { apiName: "milestones", reverseApiName: "project", displayName: "里程碑", reverseDisplayName: "所属项目", sourceObjectType: "Project", targetObjectType: "Milestone", cardinality: "one_to_many", description: "", sourceKey: "projectNumber", targetKey: "projectNumber", via: null }

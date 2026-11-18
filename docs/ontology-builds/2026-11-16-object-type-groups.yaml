@@ -1,0 +1,51 @@
+# 本体构建包（发布稿）：对象类型组。本体 8.10.0（新增元数据种类 ObjectTypeGroup 与 5 个组，非破坏性，次版本）。
+# 依据：用户 2026-11-16 发来 Palantir「在图上探索对象类型组」的截图：组图、组内对象类型之间及与其他组的链接、「↔ 数字」查看链接类型、
+# 单个对象类型的菜单（预览 / 开始探索）。用户选择：在本体中声明对象类型组；其他组的对象类型灰色、虚线链接；点击对象类型弹出菜单（D67）。
+kind: OntologyBuild
+stage: release
+topic: 对象类型组（项目与合同、交付与回款、工时与资源、经营口径、AI 写回）与按组浏览的本体关系图
+ontologyVersion: 8.10.0
+date: 2026-11-16
+scope:
+  - CQ-G1 本体按业务领域分成哪几组，每组有哪些对象类型？
+  - CQ-G2 某组的对象类型之间、以及与其他组的对象类型之间有哪些关系？
+  - CQ-G3 两个对象类型之间有几种关系，分别叫什么、什么方向和基数？
+  - CQ-G4 一个没有某组对象类型读取权限的用户，看到的组里有什么？
+
+rules:
+  - id: R1
+    statement: 对象类型组是元数据种类 ObjectTypeGroup（apiName、displayName、description、displayOrder、members），在 metadata/object-type-groups.yaml 声明。成员必须是已声明的对象类型且不重复，否则编译失败；一个对象类型可以属于多个组。分组只用于浏览与说明，不改变对象、关系、动作或权限。
+    basis: D67；原则 3（组是浏览结构，不是对象类型）；原则 8（新增元数据种类升次版本）。
+    acceptance: 组成员写成不存在的 Projekt 时编译报「Projekt 不是已声明的对象类型」，同一成员写两次报「成员重复」。
+    verifiedBy: [test_invalid_metadata_is_rejected_with_location]
+    ontology: [projectContract, deliveryPayment, workResource, operatingBasis, aiWriteback]
+  - id: R2
+    statement: 当前 5 个组：项目与合同（项目、合同/订单、销售机会、客户、成本对象）、交付与回款（里程碑、回款约定、回款节点、管理干预）、工时与资源（员工、工时记录、负荷预测模型）、经营口径（运营口径参数、年度经营计划、经营成本）、AI 写回（AI 提案、AI 风险标记、部门策略（AI））。每个对象类型至少属于一个组。
+    basis: D67（用户选择按建议分组）。
+    acceptance: 18 个对象类型都在某个组中；组按 displayOrder 排列。
+    verifiedBy: [test_every_object_type_belongs_to_a_group]
+    ontology: [projectContract, deliveryPayment, workResource, operatingBasis, aiWriteback, Project, Contract, Opportunity, Customer, CostObject]
+  - id: R3
+    statement: 本体接口 schema 返回 objectTypeGroups；每个组只列当前用户有读取权限的成员，一个可见成员都没有的组不返回。
+    basis: D67；与 objectTypes、linkTypes 按读取权限过滤一致。
+    acceptance: 只有 crm 权限的用户看到「项目与合同」只含合同/订单、销售机会、客户，看不到「AI 写回」组；所有返回的成员都在其可见对象类型中。
+    verifiedBy: [test_the_schema_lists_groups_with_only_the_members_a_user_may_see]
+    ontology: [projectContract, aiWriteback, Contract, Opportunity, Customer]
+
+exceptions:
+  - rule: R1
+    case: 一个对象类型同时适合两个组（例如管理干预既是交付也是 AI 落实的去处）。
+    handling: 允许属于多个组；图中按第一个组着色，预览中列出全部所属组。当前每个对象类型只属于一个组。
+    basis: Palantir 的对象类型组同样允许多归属；分组不是分类学。
+  - rule: R2
+    case: 新增对象类型时忘了放进任何组。
+    handling: 不阻止编译（组不是对象类型的必填属性），由测试 test_every_object_type_belongs_to_a_group 拦下，新增对象类型时一并放组。
+    basis: 编译只校验引用正确；「每个类型都有组」是本项目约定，用测试守。
+  - rule: R3
+    case: 关系图上，用户有权看到的组成员与其他组之间的链接，而另一端的对象类型用户无权读取。
+    handling: 该对象类型与链接都不出现（linkTypes 本就只返回两端都可见的关系）。
+    basis: 与对象浏览相同的读取权限。
+  - rule: R1
+    case: 图的布局、颜色、预览面板与菜单。
+    handling: 属于前端展示（frontend/src/ontology/GroupGraph.tsx），不在元数据中；由前端测试覆盖（groupGraph.test.tsx），不另列规则。
+    basis: 原则：本体是口径，展示留在界面代码。

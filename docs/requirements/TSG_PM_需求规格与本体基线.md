@@ -304,6 +304,7 @@
 | D64（G11 补充，2026-11-10，原则 5） | 「AI 建议」与「AI 策略建议」怎样区分 | 改名：审批记录 AiProposal 叫「AI 提案」（类型：管理干预、风险标记、部门策略）；采纳后有效的部门策略 AiStrategyNote 叫「部门策略（AI）」；AiRiskFlag 仍叫「AI 风险标记」。此前「AI 策略建议」既是提案的一种类型，又是采纳后对象的名字，一个名字两个概念 | 只改显示名与界面文字，apiName、数据与关系不变 |
 | D65（G11 补充，2026-11-10，按 D53、D59 补全，请确认） | 项目详情里看不到批准后的 AI 内容 | 项目对象在「风险原因（规则）」旁单列「AI 关注事项」：有效的 AI 风险标记、待批准的 AI 提案、涉及本项目的部门策略（AI）及本项目落实干预状态；不并入风险原因、不改风险等级（D53） | Project 新增派生属性 aiAttention |
 | D66（G11 补充，2026-11-10，用户提出，按通用做法补全，请确认） | 「已被取代」被理解为依据核验没通过 | 状态改为「已由新提案替换」（AI 风险标记、部门策略（AI）为「已由新批准替换」）；处理说明写明是同一项目、同类、引用相同依据的提案再次提交，未经审批，与依据复核无关；旧说明启动时改写一次 | AiProposalStatus、AiFindingStatus 标签，ai_findings 说明文字 |
+| D67（G11 补充，2026-11-16，用户提出并选择） | 本体关系图 18 个对象类型挤在一个环上，看不出业务分区 | 本体声明对象类型组（项目与合同、交付与回款、工时与资源、经营口径、AI 写回）；关系图按组浏览，其他组的对象类型灰色、虚线链接；两类之间显示「↔ 关系数」，点击列出关系；点击对象类型弹出菜单：预览 / 开始探索 / 在图中隐藏 | 新增元数据种类 ObjectTypeGroup |
 
 ## 10. 基线差距与后续构建包
 
@@ -329,4 +330,4 @@
 
 ## 附录 A：构建包索引
 
-`docs/ontology-builds/` 中共 42 个构建包，从 2.0.2 到 8.9.1；只有最新的 `2026-11-10-replaced-wording.yaml` 是当前版本，其余已标注被取代（`supersededBy`）。最近几个包：8.0.0 intervention-loop（D31–D34）、8.1.0 input-guards（D40）、8.2.0 parameter-constraints（D41）、8.3.0 resource-range（D42）、8.4.0 ontology-audit（D43–D45）、8.5.0 load-forecast（D46–D49）。各包的规则卡和例外表是每条口径的依据。
+`docs/ontology-builds/` 中共 43 个构建包，从 2.0.2 到 8.10.0；只有最新的 `2026-11-16-object-type-groups.yaml` 是当前版本，其余已标注被取代（`supersededBy`）。最近几个包：8.0.0 intervention-loop（D31–D34）、8.1.0 input-guards（D40）、8.2.0 parameter-constraints（D41）、8.3.0 resource-range（D42）、8.4.0 ontology-audit（D43–D45）、8.5.0 load-forecast（D46–D49）。各包的规则卡和例外表是每条口径的依据。

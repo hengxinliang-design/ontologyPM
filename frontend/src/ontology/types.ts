@@ -140,6 +140,14 @@ export interface OntologyValueType {
   values: EnumValue[];
 }
 
+/** Object type group (ontology 8.10.0, D67): a business area for exploring the ontology; members visible to the user. */
+export interface OntologyObjectTypeGroup {
+  apiName: string;
+  displayName: string;
+  description: string;
+  members: string[];
+}
+
 export interface OntologySchema {
   apiName: string;
   displayName: string;
@@ -149,6 +157,7 @@ export interface OntologySchema {
   valueTypes: OntologyValueType[];
   markings: OntologyMarking[];
   objectTypes: OntologyObjectType[];
+  objectTypeGroups: OntologyObjectTypeGroup[];
   linkTypes: OntologyLinkType[];
   actionTypes: OntologyActionType[];
   functions: OntologyFunction[];

@@ -226,6 +226,14 @@ class ValueTypeDef:
     values: tuple[tuple[str, str], ...]
 
 
+@dataclass(frozen=True)
+class ObjectTypeGroupDef:
+    api_name: str
+    display_name: str
+    description: str
+    members: tuple[str, ...]
+
+
 @dataclass
 class Ontology:
     api_name: str
@@ -238,6 +246,7 @@ class Ontology:
     action_types: tuple[ActionTypeDef, ...] = ()
     functions: tuple[FunctionDef, ...] = ()
     value_types: tuple[ValueTypeDef, ...] = ()
+    object_type_groups: tuple[ObjectTypeGroupDef, ...] = ()
     checksum: str = ""
     documents: tuple[dict[str, Any], ...] = field(default=(), repr=False)
     _object_index: dict[str, ObjectTypeDef] = field(default_factory=dict, repr=False)

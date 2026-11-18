@@ -17,21 +17,90 @@
 .ontology-tabs button { min-height: 36px; padding: 0 16px; border: 0; border-radius: 8px; background: transparent; color: var(--text-secondary); cursor: pointer; font-size: var(--fs-sm); font-weight: 700; white-space: nowrap; }
 .ontology-tabs button.active { background: var(--primary); color: #fff; }
 
-.ontology-graph { padding: 0 18px 18px; }
-.ontology-graph svg { display: block; width: 100%; max-height: 440px; }
-.graph-edge line { stroke: #c9d6e8; stroke-width: 1.5; }
-.graph-edge text { fill: #8394ab; font-size: var(--fs-xs); font-weight: 700; text-anchor: middle; }
-.graph-edge.active line { stroke: var(--primary); stroke-width: 2; }
-.graph-edge.active text { fill: var(--primary); }
-.graph-node { cursor: pointer; }
-.graph-node rect { fill: var(--surface); stroke: #c3d2e6; stroke-width: 1.5; }
-.graph-node:hover rect, .graph-node:focus-visible rect { stroke: var(--primary); }
-.graph-node:focus { outline: none; }
-.graph-node.active rect { fill: var(--primary); stroke: var(--primary); }
-.graph-node text { text-anchor: middle; }
-.graph-node-title { fill: var(--text); font-size: var(--fs-sm); font-weight: 740; }
-.graph-node-api { fill: var(--text-tertiary); font-size: var(--fs-xs); font-family: "SF Mono", Menlo, Consolas, monospace; }
-.graph-node.active .graph-node-title, .graph-node.active .graph-node-api { fill: #fff; }
+/* Ontology map by object type group (D67). */
+.group-graph { display: grid; gap: 10px; padding: 0 18px 18px; }
+.gg-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; }
+.gg-groups { display: flex; flex-wrap: wrap; gap: 6px; }
+.gg-groups button, .gg-view button { display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); color: #29415e; cursor: pointer; font-size: var(--fs-sm); font-weight: 600; }
+.gg-groups button i { width: 8px; height: 8px; border-radius: 50%; }
+.gg-groups button em { color: var(--text-tertiary); font-size: var(--fs-xs); font-style: normal; font-weight: 600; }
+.gg-groups button.active, .gg-view button.active { border-color: var(--primary); background: #eaf1fd; color: var(--primary); }
+.gg-view { display: inline-flex; gap: 4px; }
+.gg-caption { margin: 0; color: var(--text-secondary); font-size: var(--fs-xs); line-height: 1.6; }
+.gg-canvas { position: relative; overflow: hidden; height: 560px; border: 1px solid var(--line-subtle); border-radius: 12px; background: #f3f6fa; }
+.gg-canvas svg { display: block; width: 100%; height: 100%; cursor: grab; touch-action: none; }
+.gg-canvas svg:active { cursor: grabbing; }
+.gg-edge { stroke: #b9c7d8; stroke-width: 1.4; }
+.gg-edge.external { stroke-dasharray: 5 4; stroke: #c8d2de; }
+.gg-edge.active { stroke: var(--primary); stroke-width: 2; }
+.gg-node { cursor: pointer; }
+.gg-node:focus { outline: none; }
+.gg-node > rect:first-child { fill: #fff; stroke: #cfdae8; stroke-width: 1.2; }
+.gg-node text { fill: var(--text); font-size: var(--fs-sm); font-weight: 650; }
+.gg-node:hover > rect:first-child, .gg-node:focus-visible > rect:first-child { stroke: var(--primary); }
+.gg-node.active > rect:first-child { stroke: var(--primary); stroke-width: 2; fill: #f4f8ff; }
+.gg-node.external > rect:first-child { fill: #e4e9f0; stroke: #c8d2de; stroke-dasharray: 4 3; }
+.gg-node.external text { fill: #6a7b90; }
+.gg-badge { cursor: pointer; }
+.gg-badge:focus { outline: none; }
+.gg-badge rect { fill: #fff; stroke: #b9c7d8; }
+.gg-badge text { fill: #5d6f86; font-size: var(--fs-xs); font-weight: 700; text-anchor: middle; }
+.gg-badge.external rect { fill: #f3f6fa; }
+.gg-badge:hover rect, .gg-badge:focus-visible rect, .gg-badge.active rect { stroke: var(--primary); }
+.gg-badge.active text, .gg-badge:hover text { fill: var(--primary); }
+.gg-tools { position: absolute; top: 10px; left: 10px; display: flex; gap: 6px; }
+.gg-tools button, .gg-zoom button { border: 1px solid var(--line); background: #fff; color: #29415e; cursor: pointer; font-size: var(--fs-xs); font-weight: 650; }
+.gg-tools button { padding: 5px 10px; border-radius: 8px; }
+.gg-zoom { position: absolute; bottom: 10px; left: 10px; display: grid; overflow: hidden; border-radius: 8px; box-shadow: 0 1px 2px rgba(15, 32, 56, 0.08); }
+.gg-zoom button { width: 30px; height: 28px; border-width: 0 0 1px; font-size: var(--fs-md); }
+.gg-zoom button:last-child { border-bottom: 0; }
+.gg-tools button:hover, .gg-zoom button:hover { color: var(--primary); }
+.gg-legend { position: absolute; top: 10px; right: 10px; display: grid; gap: 4px; padding: 8px 10px; border: 1px solid var(--line-subtle); border-radius: 8px; background: rgba(255, 255, 255, 0.92); color: var(--text-secondary); font-size: var(--fs-xs); }
+.gg-legend span { display: flex; align-items: center; gap: 6px; }
+.gg-legend i { width: 14px; height: 10px; border: 1px solid #cfdae8; border-radius: 3px; background: #fff; }
+.gg-legend i.external { border-style: dashed; background: #e4e9f0; }
+.gg-pop { position: absolute; z-index: 3; min-width: 168px; padding: 6px; border: 1px solid var(--line); border-radius: 10px; background: #fff; box-shadow: 0 8px 24px rgba(15, 32, 56, 0.14); }
+.gg-pop > strong { display: block; padding: 4px 8px 6px; color: var(--text); font-size: var(--fs-sm); }
+.gg-menu.up { transform: translateY(-100%); }
+.gg-menu button { display: flex; width: 100%; align-items: baseline; justify-content: space-between; gap: 10px; padding: 6px 8px; border: 0; border-radius: 6px; background: none; color: #29415e; cursor: pointer; font-size: var(--fs-sm); text-align: left; }
+.gg-menu button small { color: var(--text-tertiary); font-size: var(--fs-xs); }
+.gg-menu button:hover, .gg-menu button:focus-visible { background: #eef3fb; color: var(--primary); }
+.gg-links { width: min(380px, 80%); transform: translateX(-50%); }
+.gg-links ul { display: grid; gap: 6px; max-height: 260px; margin: 0; padding: 0 4px 4px; overflow: auto; list-style: none; }
+.gg-links li { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; padding: 7px 8px; border-radius: 8px; background: #f6f8fb; font-size: var(--fs-xs); }
+.gg-links li span { grid-column: 1 / -1; color: var(--text-tertiary); }
+.gg-links li b { color: var(--text); font-size: var(--fs-sm); }
+.gg-links li em { color: var(--primary); font-style: normal; font-weight: 650; }
+.gg-links li small { grid-column: 1 / -1; color: var(--text-secondary); }
+.gg-links li code { grid-column: 1 / -1; color: var(--text-tertiary); font-size: var(--fs-xs); }
+.gg-preview { position: absolute; top: 0; right: 0; bottom: 0; z-index: 4; display: flex; width: min(320px, 90%); flex-direction: column; gap: 10px; padding: 14px; overflow: auto; border-left: 1px solid var(--line); background: #fff; box-shadow: -8px 0 24px rgba(15, 32, 56, 0.08); }
+.gg-preview header { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.gg-preview header small { color: var(--text-tertiary); font-size: var(--fs-xs); }
+.gg-preview h3 { margin: 2px 0; font-size: var(--fs-lg); }
+.gg-preview header code { color: var(--text-tertiary); font-size: var(--fs-xs); }
+.gg-preview header button { border: 0; background: none; color: var(--text-tertiary); cursor: pointer; font-size: var(--fs-xl); line-height: 1; }
+.gg-preview > p { margin: 0; color: var(--text-secondary); font-size: var(--fs-sm); line-height: 1.6; }
+.gg-preview dl { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: 0; }
+.gg-preview dl div { padding: 8px; border-radius: 8px; background: #f6f8fb; }
+.gg-preview dt { color: var(--text-tertiary); font-size: var(--fs-xs); }
+.gg-preview dd { margin: 2px 0 0; color: var(--text); font-size: var(--fs-base); font-weight: 700; }
+.gg-preview dd small { display: block; color: var(--text-tertiary); font-size: var(--fs-xs); font-weight: 500; }
+.gg-preview h4 { margin: 0 0 6px; font-size: var(--fs-sm); }
+.gg-preview ul { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; font-size: var(--fs-xs); }
+.gg-preview li { display: flex; align-items: baseline; gap: 6px; }
+.gg-preview li span { color: var(--text-secondary); }
+.gg-preview li em { margin-left: auto; color: var(--text-tertiary); font-style: normal; }
+.gg-preview li .link-button { font-size: var(--fs-xs); }
+.gg-actions { margin: 0; color: var(--text-secondary); font-size: var(--fs-xs); line-height: 1.6; }
+.gg-preview footer { display: flex; gap: 8px; margin-top: auto; padding-top: 6px; }
+.gg-list td small { display: block; color: var(--text-tertiary); }
+.gg-list tr.selected td { background: #f4f8ff; }
+.gg-list tr.external td { color: var(--text-tertiary); }
+.gg-desc { max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 720px) {
+  .gg-canvas { height: 440px; }
+  .gg-legend { display: none; }
+}
 
 .ontology-facts { display: flex; flex-wrap: wrap; gap: 8px 22px; padding: 0 26px 18px; color: #3d526e; font-size: var(--fs-sm); }
 .ontology-facts b { margin-right: 8px; color: var(--text-tertiary); font-size: var(--fs-xs); font-weight: 700; }
@@ -165,7 +234,7 @@ tr.selected-row { background: var(--primary-soft) !important; }
   .ontology-hero { padding: 20px 18px; }
   .ontology-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .property-rows, .action-fields { grid-template-columns: minmax(0, 1fr); }
-  .ontology-graph { padding: 0 6px 12px; }
+  .group-graph { padding: 0 6px 12px; }
 }
 
 .version-picker { display: flex; align-items: center; gap: 8px; color: var(--text-tertiary); }
@@ -340,12 +409,6 @@ tr.selected-row { background: var(--primary-soft) !important; }
 .reference-cell strong { font-weight: 600; }
 .reference-cell small { color: var(--text-tertiary); font-size: var(--fs-xs); }
 .reference-value:hover strong { text-decoration: underline; }
-/* UI check 2026-10-30: on phones the relationship diagram keeps a readable size and scrolls sideways. */
-@media (max-width: 820px) {
-  .ontology-graph { overflow-x: auto; }
-  .ontology-graph svg { min-width: 680px; max-height: none; }
-}
-
 /* Action form outcome (D40): failures read as errors; a failed evaluation blocks 提交 until a field changes. */
 .action-message.ok { color: var(--success); }
 .action-blocked { align-self: center; margin-right: auto; color: var(--text-secondary); font-size: var(--fs-xs); }

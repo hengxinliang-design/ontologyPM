@@ -328,6 +328,13 @@ class OntologyService:
                 for m in self.ontology.markings
             ],
             "objectTypes": [self._object_type_schema(principal, t) for t in visible_types],
+            # D67: groups list only the members this user may see; a group with none is left out.
+            "objectTypeGroups": [
+                {"apiName": g.api_name, "displayName": g.display_name, "description": g.description,
+                 "members": [m for m in g.members if m in visible_names]}
+                for g in self.ontology.object_type_groups
+                if any(m in visible_names for m in g.members)
+            ],
             "linkTypes": [
                 _link_schema(link)
                 for link in self.ontology.link_types
