@@ -60,6 +60,8 @@ def parse_timesheet_xlsx(workbook_bytes: bytes) -> list[dict[str, Any]]:
         raw_overtime_days = _value(row, indexes["加班天数"]) if source_kind == "exported_detail" else None
         raw_content = _value(row, indexes["工作内容"])
         raw_status = _value(row, indexes["流程状态"]) if source_kind == "legacy" else "流转完成"
+        case_index = next((indexes[name] for name in CASE_HEADERS if name in indexes), None)
+        raw_case = _value(row, case_index) if case_index is not None else None
         if not any([raw_name, raw_project, raw_date, raw_days, raw_overtime_days, raw_content, raw_status]):
             continue
         if not all([raw_name, raw_project, raw_date, raw_content]):
@@ -104,10 +106,35 @@ def parse_timesheet_xlsx(workbook_bytes: bytes) -> list[dict[str, Any]]:
                 "approval_status": approval_status,
                 "work_content": work_content,
                 "source_updated_at": f"{work_date}T00:00:00+08:00",
+                "_case": str(raw_case).strip() if raw_case not in (None, "") else "",
             }
         )
     if not entries:
         raise ValueError("Excel does not contain importable timesheet rows")
+    return _separate_case_entries(entries)
+
+
+CASE_HEADERS = ("case", "Case", "CASE", "工单号", "案例号", "Case号")
+
+
+def _separate_case_entries(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Rows that are identical except for their case number are separate entries, not a duplicate export: 桑小峰
+    worked 0.5 day on each of two CFT405 support cases on 2026-02-26, and the second used to overwrite the first.
+    In such a group the lowest case number keeps the plain identity (so entries imported before stay matched);
+    the others carry their case in the identity and the work content. Rows with the same case still merge."""
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for entry in entries:
+        groups.setdefault(entry["external_id"], []).append(entry)
+    for group in groups.values():
+        cases = sorted({entry["_case"] for entry in group if entry["_case"]}, key=lambda c: (len(c), c))
+        if len(cases) < 2:
+            continue
+        for entry in group:
+            if entry["_case"] and entry["_case"] != cases[0]:
+                entry["external_id"] = _external_id(entry["external_id"], entry["_case"])
+                entry["work_content"] = f"{entry['work_content']}（case {entry['_case']}）"
+    for entry in entries:
+        entry.pop("_case")
     return entries
 
 

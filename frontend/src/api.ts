@@ -431,6 +431,9 @@ export interface CrmImportResult {
   unmatched_project_subjects: string[];
   /** Distinct project codes recognised (from a 项目编号 column or the code that opens 主题, e.g. HJA114-…). */
   project_codes?: number;
+  /** Opportunity 预期金额 values converted from 千元 to 元 (×1000; XToolsCRM opportunity list, 2026-11-18). */
+  thousand_yuan_amounts?: number;
+  unreadable_amounts?: string[];
   /** Dates written as 今天 / 昨天 / 前天 … converted against the upload day; unreadable ones are left empty (2026-11-18). */
   relative_dates?: number;
   relative_date_examples?: string[];

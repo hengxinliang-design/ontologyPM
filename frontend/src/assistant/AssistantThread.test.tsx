@@ -41,3 +41,35 @@ describe("an answer in the thread", () => {
     expect(sending).toMatch(/<button[^>]*disabled=""[^>]*>回答中<\/button>/);
   });
 });
+
+describe("opening a saved conversation", () => {
+  const recorder = () => {
+    const state = { messages: [] as AssistantMessage[], loading: false, error: null as string | null };
+    return { state, set: { setMessages: (m: AssistantMessage[]) => { state.messages = m; }, setLoading: (l: boolean) => { state.loading = l; }, setError: (e: string | null) => { state.error = e; } } };
+  };
+  const saved: AssistantMessage[] = [{ role: "user", content: "合同最多的客户是哪个？" }, { role: "assistant", content: "HJA" }];
+
+  it("still loads when the effect runs twice (StrictMode), instead of staying on 正在打开对话", async () => {
+    // User 2026-11-18: 历史与全屏 showed a blank conversation — the first run was cleaned up, the second skipped loading.
+    const { state, set } = recorder();
+    const shown = { current: undefined as string | null | undefined };
+    let calls = 0;
+    const load = async () => { calls += 1; return { messages: saved }; };
+    const cleanup = ui.openConversation("conv_1", shown, set, load);
+    cleanup?.();                                   // StrictMode: mount, clean up …
+    ui.openConversation("conv_1", shown, set, load); // … and mount again
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(calls).toBe(2);
+    expect(state.loading).toBe(false);
+    expect(state.messages).toEqual(saved);
+  });
+
+  it("does not reload a conversation that is already on screen", () => {
+    const { set } = recorder();
+    let calls = 0;
+    const shown = { current: "conv_1" as string | null | undefined };
+    expect(ui.openConversation("conv_1", shown, set, async () => { calls += 1; return { messages: [] }; })).toBeUndefined();
+    expect(calls).toBe(0);
+  });
+});
+

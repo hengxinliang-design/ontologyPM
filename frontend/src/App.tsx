@@ -1619,6 +1619,8 @@ function SyncStatusPanel({ sync, logs, logPage, setLogPage, refresh, reportError
     </div>
     <ImportTemplateGuide />
     {result && <div className="import-result"><strong>{result.dataType === "contract_order" ? "合同 / 订单" : "销售机会"}已导入</strong><span>{result.value.filename} · 解析 {result.value.parsed_rows} 行{result.value.project_codes != null ? ` · 识别项目代码 ${result.value.project_codes} 个` : ""}</span><b>新增 {result.value.validation.inserted_records ?? 0}</b><b>更新 {result.value.validation.updated_records ?? 0}</b><b>无变化 {result.value.validation.unchanged_records ?? 0}</b>{result.value.unmatched_project_rows > 0 && <em>待补充项目编号 {result.value.unmatched_project_rows} 条</em>}
+      {(result.value.thousand_yuan_amounts ?? 0) > 0 && <em>预期金额按千元换算为元 {result.value.thousand_yuan_amounts} 条</em>}
+      {(result.value.unreadable_amounts ?? []).length > 0 && <em title={(result.value.unreadable_amounts ?? []).join("\n")}>无法识别的预期金额 {result.value.unreadable_amounts?.length} 条（保留原值）</em>}
       {(result.value.relative_dates ?? 0) > 0 && <em title={(result.value.relative_date_examples ?? []).join("\n")}>相对日期按导入日换算 {result.value.relative_dates} 条</em>}
       {(result.value.unreadable_dates ?? 0) > 0 && <em title={(result.value.unreadable_date_examples ?? []).join("\n")}>无法识别的日期 {result.value.unreadable_dates} 条（已留空）</em>}</div>}
     <section className="import-log-section">
@@ -1644,9 +1646,10 @@ function ImportTemplateGuide() {
     <summary><strong>导入模板说明</strong><small>按 XToolsCRM 列表导出的列名识别，列的顺序不限</small><span className="collapsible-toggle" /></summary>
     <dl>
       <div><dt>必填</dt><dd>主题、所有者（或负责人、我方签约人）</dd></div>
-      <div><dt>建议保留</dt><dd>ID（CRM 内部 ID：重复导入时据此识别同一条记录）、对应客户、分类、签约时间、总金额、回款金额、开票金额、状态；销售机会另有可能性、阶段</dd></div>
+      <div><dt>建议保留</dt><dd>ID（CRM 内部 ID：重复导入时据此识别同一条记录）、对应客户、分类、签约时间、总金额、回款金额、开票金额、状态；销售机会另有机会主题、预期金额、预计签单日期、可能性、阶段、更新日期</dd></div>
+      <div><dt>金额单位</dt><dd>合同 / 订单的金额按元读取；销售机会列表的「预期金额」是千元，导入时乘以 1000 换算为元（例如 550 → 550,000.00），导入结果中显示换算了多少条。</dd></div>
       <div><dt>项目代码</dt><dd>不需要单独一列：从主题开头的代码自动识别并保存，例如「HJA114-鸿基伟业……补充协议第3号」→ HJA114；同一代码的多份合同、补充协议归到同一个项目。若文件里有「项目编号」列，以该列为准。</dd></div>
-      <div><dt>日期</dt><dd>2026-11-10、2026/11/10、2026年11月10日、Excel 日期；CRM 列表里的「今天 / 昨天 / 前天 / N天前」按上传当天换算，导入结果中列出换算了哪些；无法识别的日期留空并提示。</dd></div>
+      <div><dt>日期</dt><dd>2026-11-10、2026/11/10、2026年11月10日、Excel 日期；CRM 列表里的「今天 / 昨天 / 前天 / N天前」以及预计签单日期的「明天 / 后天 / N天后」按上传当天换算，导入结果中列出换算了哪些；无法识别的日期留空并提示。</dd></div>
       <div><dt>客户</dt><dd>「〖HJA〗」这类括号会去掉，按 HJA 归到同一客户。</dd></div>
     </dl>
   </details>;

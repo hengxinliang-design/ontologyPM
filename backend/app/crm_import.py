@@ -6,6 +6,7 @@ import io
 import json
 import re
 from datetime import date, timedelta
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
@@ -31,7 +32,7 @@ FIELD_ALIASES = {
     "sales_stage": ("阶段", "商机阶段", "sales_stage", "stage"),
     "status": ("状态", "商机状态", "status"),
     "source_updated_at": (
-        "更新时间", "源更新时间", "最后更新时间", "source_updated_at", "updated_at"
+        "更新时间", "更新日期", "源更新时间", "最后更新时间", "最后更新日期", "source_updated_at", "updated_at"
     ),
 }
 
@@ -61,7 +62,8 @@ def parse_crm_import_base64(
         raise CrmImportValidationError("only .xlsx, .csv, and .json files are supported")
 
     dates = _DateNotes(today or date.today())
-    records, recognized = _normalize_rows(rows, data_type=data_type, dates=dates)
+    amounts = _AmountNotes()
+    records, recognized = _normalize_rows(rows, data_type=data_type, dates=dates, amounts=amounts)
     unmatched = [record["主题"] for record in records if not record.get("项目编号")]
     return records, {
         "filename": filename,
@@ -72,6 +74,8 @@ def parse_crm_import_base64(
         "unmatched_project_rows": len(unmatched),
         "unmatched_project_subjects": unmatched[:5],
         "project_codes": len({record["项目编号"] for record in records if record.get("项目编号")}),
+        "thousand_yuan_amounts": amounts.converted,
+        "unreadable_amounts": amounts.unreadable[:5],
         "relative_dates": len(dates.converted),
         "relative_date_examples": dates.converted[:5],
         "unreadable_dates": len(dates.unreadable),
@@ -154,8 +158,10 @@ def _rows_from_matrix(rows: list[list[Any]]) -> list[dict[str, Any]]:
     return result
 
 
-def _normalize_rows(rows: list[dict[str, Any]], *, data_type: str, dates: "_DateNotes | None" = None) -> tuple[list[dict[str, Any]], list[str]]:
+def _normalize_rows(rows: list[dict[str, Any]], *, data_type: str, dates: "_DateNotes | None" = None,
+                   amounts: "_AmountNotes | None" = None) -> tuple[list[dict[str, Any]], list[str]]:
     dates = dates or _DateNotes(date.today())
+    amounts = amounts or _AmountNotes()
     if not rows:
         raise CrmImportValidationError("file does not contain importable rows")
     records: list[dict[str, Any]] = []
@@ -168,6 +174,9 @@ def _normalize_rows(rows: list[dict[str, Any]], *, data_type: str, dates: "_Date
             value = _first_value(values, aliases)
             if value not in (None, ""):
                 recognized.add(field)
+                if field == "total_amount" and data_type == "sales_opportunity" and _header("预期金额") in values \
+                        and _first_value(values, ("预期金额",)) == value:
+                    value = amounts.thousands(value, f"第 {row_number} 行预期金额")
                 item[_output_key(field)] = (dates.read(value, f"第 {row_number} 行{FIELD_LABELS.get(field, field)}")
                                             if field in DATE_FIELDS else _field_value(field, value))
         all_recognized.update(recognized)
@@ -246,9 +255,27 @@ def _field_value(field: str, value: Any) -> str:
     return _clean(value)
 
 
+class _AmountNotes:
+    """预期金额 in the XToolsCRM opportunity list is in 千元 (user 2026-11-18: ZMJ180 550 vs contract ¥545,352); stored in 元."""
+
+    def __init__(self) -> None:
+        self.converted = 0
+        self.unreadable: list[str] = []
+
+    def thousands(self, value: Any, where: str) -> str:
+        text = _clean(value).replace(",", "")
+        try:
+            amount = Decimal(text) * 1000
+        except (InvalidOperation, ValueError):
+            self.unreadable.append(f"{where}：{_clean(value)}")
+            return _clean(value)
+        self.converted += 1
+        return format(amount.quantize(Decimal("0.01")), "f")
+
+
 DATE_FIELDS = {"signed_at", "source_updated_at"}
 FIELD_LABELS = {"signed_at": "签约时间", "source_updated_at": "更新时间"}
-_RELATIVE_DAYS = {"今天": 0, "今日": 0, "刚刚": 0, "昨天": 1, "昨日": 1, "前天": 2}
+_RELATIVE_DAYS = {"今天": 0, "今日": 0, "刚刚": 0, "昨天": 1, "昨日": 1, "前天": 2, "明天": -1, "明日": -1, "后天": -2, "大后天": -3}
 
 
 class _DateNotes:
@@ -273,14 +300,16 @@ class _DateNotes:
 
 
 def _relative_date(text: str, today: date) -> str | None:
-    """今天 / 昨天 / 前天 / N天前 / N小时前 (an optional time after them is ignored); 11-16 or 11月16日 without a year
-    is the latest such day not after today; 2026年11月16日 is read as written."""
+    """今天 / 昨天 / 前天 / N天前 / N小时前, and for expected signing dates 明天 / 后天 / N天后 (an optional time after
+    them is ignored); 11-16 or 11月16日 without a year is the latest such day not after today; 2026年11月16日 is read
+    as written."""
     head = text.split()[0] if text.split() else ""
     if head in _RELATIVE_DAYS:
         return (today - timedelta(days=_RELATIVE_DAYS[head])).isoformat()
-    match = re.fullmatch(r"(\d+)\s*天前", head)
+    match = re.fullmatch(r"(\d+)\s*天(前|后)", head)
     if match:
-        return (today - timedelta(days=int(match.group(1)))).isoformat()
+        days = int(match.group(1))
+        return (today - timedelta(days=days) if match.group(2) == "前" else today + timedelta(days=days)).isoformat()
     if re.fullmatch(r"\d+\s*(?:小时|分钟|秒)前", head):
         return today.isoformat()
     match = re.fullmatch(r"(\d{4})年(\d{1,2})月(\d{1,2})日?", head)

@@ -1070,7 +1070,8 @@ def test_manual_opportunity_upload_normalizes_decimal_probability_and_expected_c
         assert record["probability"] == 20
         assert record["customer"] == "OPP", "the CRM bracket pair around the customer code is dropped"
         assert record["signed_at"] == "2026-09-30"
-        assert record["total_amount"]["amount"] == "8800.00"
+        # 预期金额 of the XToolsCRM opportunity list is in 千元 (user 2026-11-18, checked against contracts): 8800 → ¥8,800,000.
+        assert record["total_amount"]["amount"] == "8800000.00"
         assert record["category"] == "ISL"
 
 
@@ -1737,3 +1738,27 @@ def _xml_escape(value: str) -> str:
         .replace("<", "&lt;")
         .replace(">", "&gt;")
     )
+
+
+def test_timesheet_rows_that_differ_only_by_case_are_two_entries(tmp_path):
+    """User 2026-11-18 (tsg.xlsx rows 5530/5531): 桑小峰 worked 0.5 day on each of two CFT405 support cases on the same
+    day with the same content; the second used to overwrite the first. Importing the older file and then the fixed one
+    keeps both halves without duplicating the first."""
+    header = ["姓名", "部门", "日期", "项目代码", "case", "天数", "工作内容", "流程状态"]
+    both = [header, ["桑小峰", "TSG", "2026-02-26", "CFT405", "18207", "0.5", "接口问题检查与分析", "流转完成"],
+            ["桑小峰", "TSG", "2026-02-26", "CFT405", "18197", "0.5", "接口问题检查与分析", "流转完成"]]
+    with TestClient(create_app(settings(tmp_path))) as client:
+        def upload(rows):
+            body = {"filename": "tsg.xlsx", "content_base64": base64.b64encode(_minimal_timesheet_xlsx(rows)).decode("ascii")}
+            return client.post("/api/v1/time-entries/import-xlsx", json=body).json()
+        first = upload(both)
+        assert first["parsed"] == 2 and first["imported"] == 2
+        again = upload([header, both[2], both[1]])
+        assert again["imported"] == 0 and again["unchanged"] == 2, "the same file in another order changes nothing"
+        db = client.app.state.database
+        with db.connect() as connection:
+            rows = connection.execute("SELECT hours, work_content FROM time_entries WHERE project_number='CFT405' ORDER BY work_content").fetchall()
+        assert [(r["hours"], r["work_content"]) for r in rows] == [("4.00", "接口问题检查与分析"), ("4.00", "接口问题检查与分析（case 18207）")]
+        same_case = upload([header, ["王殿忠", "TSG", "2026-01-13", "MKT800", "9", "0.5", "返回保定", "流转完成"],
+                            ["王殿忠", "TSG", "2026-01-13", "MKT800", "9", "0.5", "返回保定", "流转完成"]])
+        assert same_case["parsed"] == 2 and same_case["imported"] == 1, "rows with the same case are still one entry"

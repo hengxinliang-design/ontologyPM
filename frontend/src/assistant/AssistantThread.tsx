@@ -12,6 +12,41 @@ const FALLBACK_ERROR = "PM Assistant 暂时无法回答，请稍后重试。";
  * One conversation: loads it from the server, sends questions into it, and reports a newly started conversation.
  * The floating panel and the PM Assistant page each hold one, on the same conversation id kept by the app.
  */
+type ThreadSetters = {
+  setMessages: (messages: AssistantMessage[]) => void;
+  setLoading: (loading: boolean) => void;
+  setError: (error: string | null) => void;
+};
+
+/**
+ * Shows a conversation: loads it unless it is already on screen (one this thread just started). Returns the effect
+ * cleanup. A load abandoned before it finished clears the on-screen mark, so the next run loads again — React's
+ * development StrictMode runs effects twice, and the second run used to see the mark, skip loading and leave
+ * 「正在打开对话…」 forever (user 2026-11-18: 历史与全屏 opened a blank conversation).
+ */
+export function openConversation(conversationId: string | null, shown: { current: string | null | undefined }, set: ThreadSetters,
+  load: (id: string) => Promise<{ messages: AssistantMessage[] }> = getConversation): (() => void) | undefined {
+  if (shown.current === conversationId) return undefined;
+  shown.current = conversationId;
+  set.setError(null);
+  if (!conversationId) {
+    set.setMessages([]);
+    return undefined;
+  }
+  let live = true;
+  let done = false;
+  set.setMessages([]);
+  set.setLoading(true);
+  load(conversationId)
+    .then(detail => { if (live) set.setMessages(detail.messages); })
+    .catch(err => { if (live) set.setError(err instanceof Error ? err.message : "无法打开这段对话。"); })
+    .finally(() => { done = true; if (live) set.setLoading(false); });
+  return () => {
+    live = false;
+    if (!done && shown.current === conversationId) shown.current = undefined;
+  };
+}
+
 export function useAssistantThread(conversationId: string | null, onSaved: (conversationId: string) => void) {
   const [messages, setMessages] = useState<AssistantMessage[]>([]);
   const [loading, setLoading] = useState(false);
@@ -20,23 +55,7 @@ export function useAssistantThread(conversationId: string | null, onSaved: (conv
   // The conversation now on screen; a conversation this thread just started is already shown and is not reloaded.
   const shown = useRef<string | null | undefined>(undefined);
 
-  useEffect(() => {
-    if (shown.current === conversationId) return;
-    shown.current = conversationId;
-    setError(null);
-    if (!conversationId) {
-      setMessages([]);
-      return;
-    }
-    let live = true;
-    setMessages([]);
-    setLoading(true);
-    getConversation(conversationId)
-      .then(detail => { if (live) setMessages(detail.messages); })
-      .catch(err => { if (live) setError(err instanceof Error ? err.message : "无法打开这段对话。"); })
-      .finally(() => { if (live) setLoading(false); });
-    return () => { live = false; };
-  }, [conversationId]);
+  useEffect(() => openConversation(conversationId, shown, { setMessages, setLoading, setError }), [conversationId]);
 
   const send = useCallback(async (question: string): Promise<boolean> => {
     const content = question.trim();

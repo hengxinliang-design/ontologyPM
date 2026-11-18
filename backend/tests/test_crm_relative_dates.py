@@ -59,3 +59,19 @@ def test_the_project_code_is_read_from_the_start_of_the_subject():
                                {"主题": "无编号的合同", "负责人": "Tao Jun", "签约时间": "2026-10-10"}])
     assert [r.get("项目编号") for r in records] == ["HJA114", "HJA114", None]
     assert summary["project_codes"] == 1 and summary["unmatched_project_rows"] == 1
+
+
+def test_the_opportunity_list_reads_future_dates_its_update_column_and_amounts_in_thousand_yuan():
+    """User 2026-11-18 (XToolsCRM销售机会列表): 预计签单日期 「后天」, the column 「更新日期」, and 预期金额 in 千元 —
+    won opportunities are ~1/1000 of their contracts (ZMJ180: 550 vs contract ¥545,352)."""
+    rows = [{"ID": "2884", "机会主题": "ZMJ180-合同", "客户": "〖ZMJ〗", "负责人": "Li Qiang", "预期金额": "550", "预计签单日期": "后天",
+             "可能性": "1", "状态": "成功", "阶段": "合同签约100%", "更新日期": "今天"},
+            {"ID": "2885", "机会主题": "TPL160-合同", "客户": "〖TPL〗", "负责人": "Li Qiang", "预期金额": "1,234.5", "预计签单日期": "3天后",
+             "可能性": "0.3", "状态": "跟踪", "阶段": "项目立项50%", "更新日期": "46336"}]
+    content = base64.b64encode(json.dumps(rows, ensure_ascii=False).encode("utf-8")).decode()
+    records, summary = parse_crm_import_base64(content_base64=content, filename="销售机会.json", data_type="sales_opportunity", today=TODAY)
+    assert [r["签约时间"] for r in records] == ["2026-11-20", "2026-11-21"]
+    assert [r["总金额"] for r in records] == ["550000.00", "1234500.00"]
+    assert summary["thousand_yuan_amounts"] == 2 and "source_updated_at" in summary["recognized_fields"]
+    contracts, _ = upload([{"主题": "ZMJ180-合同", "负责人": "Li Qiang", "总金额": "545352", "签约时间": "2026-10-01"}])
+    assert contracts[0]["总金额"] == "545352", "contract amounts are already in 元"
