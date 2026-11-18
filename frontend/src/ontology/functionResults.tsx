@@ -428,8 +428,8 @@ function MaintenanceWorklistView({ result }: { result: Json }) {
 const INTERVENTION_STATUS: Record<string, [string, Tone]> = { open: ["待处理", "warn"], in_progress: ["处理中", "warn"], closed: ["已关闭", "good"] };
 
 function Fold({ title, count, open = false, children }: { title: string; count?: ReactNode; open?: boolean; children: ReactNode }) {
-  return <details className="fr-fold" open={open}>
-    <summary><span>{title}</span>{count !== undefined && <em>{count}</em>}</summary>
+  return <details className="fr-fold collapsible" open={open}>
+    <summary><span>{title}</span>{count !== undefined && <em>{count}</em>}<span className="collapsible-toggle" /></summary>
     <div>{children}</div>
   </details>;
 }
@@ -526,7 +526,7 @@ function AiOverviewView({ result }: { result: Json }) {
       <ul className="fr-alerts">{flags.map(flag => <li key={String(flag.flagId)} className={flag.basisHolds ? "warning" : ""}>
         <div><strong>{String(flag.projectNumber)} · {String(flag.title)}</strong><Badge tone={flag.basisHolds ? "warn" : "neutral"}>{flag.basisHolds ? "依据成立" : "依据已不成立"}</Badge></div>
         <p>{String(flag.approvedBy)} 批准 · 有效至 {String(flag.validUntil)}</p>
-        <details className="fr-more"><summary>说明与依据</summary>
+        <details className="fr-more collapsible"><summary><span>说明与依据</span><span className="collapsible-toggle" /></summary>
           <p>{String(flag.detail ?? "")}</p>
           <ul className="fr-list">{basisLines(flag.basis).map(line => <li key={line}>{line}</li>)}</ul>
         </details>
@@ -536,7 +536,7 @@ function AiOverviewView({ result }: { result: Json }) {
       <ul className="fr-alerts">{basis.map(([interventionId, item]) => <li key={interventionId} className={item.basisHolds ? "" : "warning"}>
         <div><strong>{String(item.strategyTitle ?? interventionId)}</strong><Badge tone={item.basisHolds ? "good" : "warn"}>{item.basisHolds ? "依据仍成立" : "依据已变化"}</Badge></div>
         <p>{item.strategyTitle ? `部门策略（AI）· ${item.strategyStatus === "active" ? "有效" : String(item.strategyStatus)}` : "管理干预提案"} · 干预 {interventionId}</p>
-        {item.basisNote ? <details className="fr-more"><summary>依据复核</summary>
+        {item.basisNote ? <details className="fr-more collapsible"><summary><span>依据复核</span><span className="collapsible-toggle" /></summary>
           <ul className="fr-list">{String(item.basisNote).split("；").filter(Boolean).map(line => <li key={line}>{line}</li>)}</ul>
         </details> : null}
       </li>)}</ul>
@@ -595,8 +595,8 @@ export function FunctionResultView({ outputType, result, valueTypes }: { outputT
 }
 
 export function RawJson({ value }: { value: unknown }) {
-  return <details className="fr-raw">
-    <summary>查看原始 JSON</summary>
+  return <details className="fr-raw collapsible">
+    <summary><span>原始 JSON</span><span className="collapsible-toggle" /></summary>
     <pre>{JSON.stringify(value, null, 2)}</pre>
   </details>;
 }

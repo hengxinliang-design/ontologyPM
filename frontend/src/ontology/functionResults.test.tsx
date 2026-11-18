@@ -149,7 +149,7 @@ describe("FunctionResultView", () => {
     const html = renderToStaticMarkup(<RawJson value={{ a: 1 }} />);
     expect(html).toContain("<details");
     expect(html).not.toContain("open");
-    expect(html).toContain("查看原始 JSON");
+    expect(html).toContain("原始 JSON");
   });
 
   it("ranks strategy signals in the department review", () => {
@@ -211,7 +211,7 @@ describe("readable overviews (user 2026-11-10: 项目全景 and AI 提案与标�
     expect(html).toContain("工时预算接近上限");
     expect(html).toContain("AI 关注事项");
     expect(html).toContain("1 项未关闭 / 共 1 项");
-    expect(html).toContain('<details class="fr-fold" open="">');  // open interventions are unfolded
+    expect(html).toContain('<details class="fr-fold collapsible" open="">');  // open interventions are unfolded
     expect(html).not.toContain("project_number");
     expect(html).not.toContain("crm_records");
   });

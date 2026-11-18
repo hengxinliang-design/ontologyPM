@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { FormEvent } from "react";
+import type { FormEvent, ReactNode } from "react";
 import { ApiError } from "../api";
 import { aggregateObjectSet, applyAction, executeFunction, fetchActionLog, fetchLinkedObjects, fetchObject, fetchObjectActions, fetchObjects, fetchOntologyDiff, fetchOntologySchema, fetchOntologyVersions } from "./api";
 import "./ontology.css";
@@ -8,7 +8,7 @@ import { displayColumns, errorMessage, formatTime, periodParams, PropertyValue }
 import { FunctionResultView, money, RawJson } from "./functionResults";
 import { GroupGraph } from "./GroupGraph";
 import { isEmptyValue, isWideProperty, propertySections } from "./objectSections";
-import type { ActionLogEntry, ActionLogPage, ActionResult, CriterionResult, ObjectActionAvailability, ObjectPage, ObjectReference, OntologyFunction, OntologyObject, OntologyObjectDetail, OntologyObjectType, OntologyParameter, OntologyProperty, OntologySchema, OntologyValueType, OntologyVersion, VersionChange, VersionDiff } from "./types";
+import type { ActionLogEntry, ActionLogPage, ActionResult, CriterionResult, ObjectActionAvailability, ObjectPage, ObjectReference, OntologyActionType, OntologyFunction, OntologyLinkType, OntologyObject, OntologyObjectDetail, OntologyObjectType, OntologyParameter, OntologyProperty, OntologySchema, OntologyValueType, OntologyVersion, VersionChange, VersionDiff } from "./types";
 
 type Tab = "model" | "objects" | "objectSets" | "metadata" | "audit";
 type Focus = { objectType: string; primaryKey: string };
@@ -48,12 +48,13 @@ export function OntologyExplorer() {
   return <div className="ontology">
     <section className="panel ontology-hero">
       <div>
-        <p className="eyebrow">本体版本 v{schema.version}（内容指纹 {schema.checksum.slice(0, 8)}）</p>
         <h2>{schema.displayName}</h2>
         <p>{schema.description}</p>
+        <p className="ontology-meta">本体版本 v{schema.version} · 内容指纹 <code>{schema.checksum.slice(0, 8)}</code></p>
       </div>
       <dl className="ontology-stats">
         <div><dt>对象类型</dt><dd>{schema.objectTypes.length}</dd></div>
+        <div><dt>对象类型组</dt><dd>{schema.objectTypeGroups.length}</dd></div>
         <div><dt>关系类型</dt><dd>{schema.linkTypes.length}</dd></div>
         <div><dt>动作类型</dt><dd>{schema.actionTypes.length}</dd></div>
         <div><dt>函数</dt><dd>{schema.functions.length}</dd></div>
@@ -84,103 +85,133 @@ function ModelView({ schema, selectedType, setSelectedType, browse }: {
   const type = schema.objectTypes.find(t => t.apiName === selectedType) ?? schema.objectTypes[0];
   const links = schema.linkTypes.filter(l => l.sourceObjectType === type?.apiName || l.targetObjectType === type?.apiName);
   const actions = schema.actionTypes.filter(a => a.objectType === type?.apiName);
+  const globalFunctions = schema.functions.filter(fn => fn.permitted && !fn.parameters.some(p => p.dataType === "object_ref"));
   return <>
     <section className="panel">
       <div className="panel-head"><div><h2>本体关系图</h2><p>按对象类型组浏览本体：组内对象类型及其关系，以及与其他组的连接。</p></div></div>
       <GroupGraph schema={schema} selected={type?.apiName} onSelect={setSelectedType} onExplore={browse} />
     </section>
 
-    {type && <section className="panel ontology-type-detail">
-      <div className="panel-head">
-        <div>
-          <p className="eyebrow">OBJECT TYPE · {type.apiName}</p>
-          <h2>{type.displayName}</h2>
-          <p>{type.description}</p>
-        </div>
-        <button className="button primary" onClick={() => browse(type.apiName)}>浏览对象</button>
-      </div>
-      <div className="ontology-facts">
-        <span><b>主键</b>{type.primaryKey}</span>
-        <span><b>标题属性</b>{type.titleProperty}</span>
-        <span><b>后端数据集</b>{type.backingDatasets.join("、")}</span>
-        <span><b>可见权限</b>{type.readPermissions.join(" / ")}</span>
-        <span><b>元数据文件</b><code>{type.metadataSource}</code></span>
-        <span><b>数据源规则</b><code>{type.datasource}</code></span>
-      </div>
-      <div className="table-wrap">
-        <table>
-          <thead><tr><th>属性</th><th>API 名</th><th>类型</th><th>来源</th><th>物理映射 / 规则</th><th>安全标记</th><th>由谁修改</th></tr></thead>
-          <tbody>{type.properties.map(prop => <tr key={prop.apiName}>
-            <td><strong>{prop.displayName}</strong>{prop.apiName === type.primaryKey && <small>主键</small>}</td>
-            <td><code>{prop.apiName}</code></td>
-            <td>{prop.dataType}{prop.unitLabel ? ` · ${prop.unitLabel}` : ""}{prop.enumValues.length > 0 && <small className="wrap-text">{prop.enumValues.map(v => v.label).join(" / ")}</small>}</td>
-            <td><span className={`source-kind ${prop.sourceKind}`}>{SOURCE_KIND_LABEL[prop.sourceKind]}</span></td>
-            <td className="ontology-source">{prop.source}{prop.derivedFrom && <small>函数：{prop.derivedFrom}</small>}</td>
-            <td>{prop.marking ? <span className={`marking ${prop.readable ? "" : "locked"}`}>{prop.marking}</span> : "—"}</td>
-            <td>{prop.editedBy.length ? prop.editedBy.join("、") : <span className="muted">只读</span>}</td>
-          </tr>)}</tbody>
-        </table>
-      </div>
-      <div className="ontology-split">
-        <div>
-          <h3>关系类型</h3>
-          <ul className="ontology-list">{links.map(link => {
-            const forward = link.sourceObjectType === type.apiName;
-            return <li key={`${link.sourceObjectType}-${link.apiName}`}>
-              <strong>{forward ? link.displayName : link.reverseDisplayName}</strong>
-              <code>{forward ? link.apiName : link.reverseApiName}</code>
-              <span>→ {forward ? link.targetObjectType : link.sourceObjectType} · {CARDINALITY_LABEL[forward ? link.cardinality : reverseCardinality(link.cardinality)]}{link.via ? ` · 经由 ${link.via}` : ""}</span>
-            </li>;
-          })}</ul>
-        </div>
-        <div>
-          <h3>动作类型</h3>
-          {actions.length ? <ul className="ontology-list">{actions.map(action => <li key={action.apiName}>
-            <strong>{action.displayName}</strong><code>{action.apiName}</code>
-            <span>写回 {action.writebackDatasets.join("、")}{action.permitted ? "" : " · 当前用户无权执行"}</span>
-          </li>)}</ul> : <p className="muted">该对象类型只读，没有动作。</p>}
-        </div>
-      </div>
-    </section>}
+    {type && <TypeDetail key={type.apiName} type={type} links={links} actions={actions} browse={browse} />}
 
-    <section className="panel">
-      <div className="panel-head"><div><h2>动作类型</h2><p>动作是修改人工维护数据的唯一入口：权限 → 参数校验 → 提交条件 → 写回 → 审计。</p></div></div>
+    <ReferencePanel title="动作类型" count={schema.actionTypes.length} unit="个"
+      description="动作是修改人工维护数据的唯一入口：权限 → 参数校验 → 提交条件 → 写回 → 审计。">
       <div className="table-wrap"><table>
         <thead><tr><th>动作</th><th>目标对象</th><th>提交条件</th><th>写回数据集</th><th>所需权限</th></tr></thead>
         <tbody>{schema.actionTypes.map(action => <tr key={action.apiName}>
           <td><strong>{action.displayName}</strong><small><code>{action.apiName}</code></small></td>
           <td>{action.objectType}</td>
           <td>{action.submissionCriteria.length ? <ul className="plain-list">{action.submissionCriteria.map(c => <li key={c}>{c}</li>)}</ul> : "—"}</td>
-          <td>{action.writebackDatasets.join("、")}</td>
+          <td className="wrap-cell">{action.writebackDatasets.join("、")}</td>
           <td>{action.requiredPermissions.join(" / ")}{!action.permitted && <small className="locked-text">无权执行</small>}</td>
         </tr>)}</tbody>
       </table></div>
-    </section>
+    </ReferencePanel>
 
-    {schema.functions.some(fn => fn.permitted && !fn.parameters.some(p => p.dataType === "object_ref")) && <section className="panel">
-      <div className="panel-head"><div><h2>运行全局函数</h2><p>不针对单个对象的函数（如资源健康、资源测算），按你的权限计算；针对对象的函数在对象详情中运行。</p></div></div>
-      <div className="detail-block">{schema.functions.filter(fn => fn.permitted && !fn.parameters.some(p => p.dataType === "object_ref"))
-        .map(fn => <FunctionRunner key={fn.apiName} fn={fn} valueTypes={schema.valueTypes} />)}</div>
-    </section>}
+    {globalFunctions.length > 0 && <ReferencePanel title="运行全局函数" count={globalFunctions.length} unit="个"
+      description="不针对单个对象的函数（如资源健康、资源测算），按你的权限计算；针对对象的函数在对象详情中运行。">
+      <div className="detail-block">{globalFunctions.map(fn => <FunctionRunner key={fn.apiName} fn={fn} valueTypes={schema.valueTypes} />)}</div>
+    </ReferencePanel>}
 
     <div className="ontology-split two-panels">
-      <section className="panel">
-        <div className="panel-head"><div><h2>函数</h2><p>可复用的业务规则，派生属性均由函数定义。</p></div></div>
+      <ReferencePanel title="函数" count={schema.functions.length} unit="个" description="可复用的业务规则，派生属性均由函数定义。">
         <ul className="ontology-list padded">{schema.functions.map(fn => <li key={fn.apiName}>
           <strong>{fn.displayName}</strong><code>{fn.apiName}({fn.parameters.map(p => p.apiName).join(", ")}) → {fn.outputType}</code>
           <span>{fn.description}{!fn.permitted && " · 当前用户无权调用"}</span>
         </li>)}</ul>
-      </section>
-      <section className="panel">
-        <div className="panel-head"><div><h2>安全标记（Safe）</h2><p>带标记的属性仅对具备相应权限的用户可见，其余用户看到脱敏值。</p></div></div>
+      </ReferencePanel>
+      <ReferencePanel title="安全标记（Safe）" count={schema.markings.length} unit="个" description="带标记的属性仅对具备相应权限的用户可见，其余用户看到脱敏值。">
         <ul className="ontology-list padded">{schema.markings.map(marking => <li key={marking.apiName}>
           <strong><span className={`marking ${marking.granted ? "" : "locked"}`}>{marking.apiName}</span> {marking.displayName}</strong>
           <span>{marking.description}</span>
           <span>需要权限：{marking.permissions.join(" / ")} · {marking.granted ? "你可以查看" : "你无权查看"}</span>
         </li>)}</ul>
-      </section>
+      </ReferencePanel>
     </div>
   </>;
+}
+
+/** A reference section that folds to its title and count (shared .collapsible pattern); closed until asked for. */
+function ReferencePanel({ title, description, count, unit, children }: { title: string; description: string; count: number; unit: string; children: ReactNode }) {
+  return <details className="panel collapsible ontology-ref">
+    <summary className="panel-head">
+      <div><h2>{title}<em>{count} {unit}</em></h2><p>{description}</p></div>
+      <span className="collapsible-toggle" />
+    </summary>
+    {children}
+  </details>;
+}
+
+type DetailTab = "properties" | "links" | "actions";
+const SOURCE_FILTERS: Array<["all" | "system" | "manual" | "derived", string]> = [["all", "全部"], ["system", "系统接口"], ["manual", "人工维护"], ["derived", "派生计算"]];
+
+/** The selected object type: its facts, then 属性 / 关系 / 动作 one at a time (项目 alone has about 60 properties). */
+function TypeDetail({ type, links, actions, browse }: {
+  type: OntologyObjectType; links: OntologyLinkType[]; actions: OntologyActionType[]; browse: (type: string) => void;
+}) {
+  const [tab, setTab] = useState<DetailTab>("properties");
+  const [source, setSource] = useState<(typeof SOURCE_FILTERS)[number][0]>("all");
+  const [query, setQuery] = useState("");
+  const needle = query.trim().toLowerCase();
+  const properties = type.properties.filter(prop => (source === "all" || prop.sourceKind === source)
+    && (!needle || `${prop.displayName} ${prop.apiName} ${prop.source}`.toLowerCase().includes(needle)));
+  const counts = (kind: string) => kind === "all" ? type.properties.length : type.properties.filter(p => p.sourceKind === kind).length;
+  return <section className="panel ontology-type-detail">
+    <div className="panel-head">
+      <div>
+        <h2>{type.displayName} <code className="type-api">{type.apiName}</code></h2>
+        <p>{type.description}</p>
+      </div>
+      <button className="button primary" onClick={() => browse(type.apiName)}>浏览对象</button>
+    </div>
+    <div className="ontology-facts">
+      <span><b>主键</b>{type.primaryKey}</span>
+      <span><b>标题属性</b>{type.titleProperty}</span>
+      <span><b>后端数据集</b>{type.backingDatasets.join("、")}</span>
+      <span><b>可见权限</b>{type.readPermissions.join(" / ")}</span>
+      <span><b>元数据文件</b><code>{type.metadataSource}</code></span>
+      <span><b>数据源规则</b><code>{type.datasource}</code></span>
+    </div>
+    <div className="type-detail-bar">
+      <div className="ontology-chips" role="tablist" aria-label="对象类型定义">
+        {([["properties", "属性", type.properties.length], ["links", "关系", links.length], ["actions", "动作", actions.length]] as Array<[DetailTab, string, number]>).map(([value, label, count]) =>
+          <button key={value} role="tab" aria-selected={tab === value} className={tab === value ? "active" : ""} onClick={() => setTab(value)}>{label}<b>{count}</b></button>)}
+      </div>
+      {tab === "properties" && <div className="type-detail-filters">
+        <div className="ontology-chips small" role="group" aria-label="按来源筛选">
+          {SOURCE_FILTERS.map(([value, label]) => <button key={value} aria-pressed={source === value} className={source === value ? "active" : ""}
+            onClick={() => setSource(value)}>{label}<b>{counts(value)}</b></button>)}
+        </div>
+        <input type="search" value={query} onChange={event => setQuery(event.target.value)} placeholder="搜索属性名、API 名或口径" aria-label="搜索属性" />
+      </div>}
+    </div>
+    {tab === "properties" && (properties.length ? <div className="table-wrap ontology-props">
+      <table>
+        <thead><tr><th>属性</th><th>API 名</th><th>类型</th><th>来源</th><th>物理映射 / 规则</th><th>安全标记</th><th>由谁修改</th></tr></thead>
+        <tbody>{properties.map(prop => <tr key={prop.apiName}>
+          <td><strong>{prop.displayName}</strong>{prop.apiName === type.primaryKey && <small>主键</small>}</td>
+          <td><code>{prop.apiName}</code></td>
+          <td>{prop.dataType}{prop.unitLabel ? ` · ${prop.unitLabel}` : ""}{prop.enumValues.length > 0 && <small className="wrap-text">{prop.enumValues.map(v => v.label).join(" / ")}</small>}</td>
+          <td><span className={`source-kind ${prop.sourceKind}`}>{SOURCE_KIND_LABEL[prop.sourceKind]}</span></td>
+          <td className="ontology-source">{prop.source}{prop.derivedFrom && <small>函数：{prop.derivedFrom}</small>}</td>
+          <td>{prop.marking ? <span className={`marking ${prop.readable ? "" : "locked"}`}>{prop.marking}</span> : "—"}</td>
+          <td>{prop.editedBy.length ? prop.editedBy.join("、") : <span className="muted">只读</span>}</td>
+        </tr>)}</tbody>
+      </table>
+    </div> : <p className="empty type-detail-empty">没有符合条件的属性。<button className="link-button" onClick={() => { setSource("all"); setQuery(""); }}>清除筛选</button></p>)}
+    {tab === "links" && (links.length ? <ul className="ontology-list padded two-columns">{links.map(link => {
+      const forward = link.sourceObjectType === type.apiName;
+      return <li key={`${link.sourceObjectType}-${link.apiName}`}>
+        <strong>{forward ? link.displayName : link.reverseDisplayName}</strong>
+        <code>{forward ? link.apiName : link.reverseApiName}</code>
+        <span>→ {forward ? link.targetObjectType : link.sourceObjectType} · {CARDINALITY_LABEL[forward ? link.cardinality : reverseCardinality(link.cardinality)]}{link.via ? ` · 经由 ${link.via}` : ""}</span>
+      </li>;
+    })}</ul> : <p className="empty type-detail-empty">该对象类型没有关系。</p>)}
+    {tab === "actions" && (actions.length ? <ul className="ontology-list padded two-columns">{actions.map(action => <li key={action.apiName}>
+      <strong>{action.displayName}</strong><code>{action.apiName}</code>
+      <span>写回 {action.writebackDatasets.join("、")}{action.permitted ? "" : " · 当前用户无权执行"}</span>
+    </li>)}</ul> : <p className="empty type-detail-empty">该对象类型只读，没有动作。</p>)}
+  </section>;
 }
 
 function reverseCardinality(value: string): string {
@@ -188,6 +219,22 @@ function reverseCardinality(value: string): string {
 }
 
 // ---------------------------------------------------------------- object view
+/** Object type chips by object type group (D67); types in no group follow under 其他. */
+function TypeChips({ schema, selected, select }: { schema: OntologySchema; selected: string; select: (type: string) => void }) {
+  const byName = new Map(schema.objectTypes.map(t => [t.apiName, t]));
+  const grouped = new Set(schema.objectTypeGroups.flatMap(g => g.members));
+  const rows = [...schema.objectTypeGroups.map(g => [g.displayName, g.members] as [string, string[]]),
+    ["其他", schema.objectTypes.map(t => t.apiName).filter(name => !grouped.has(name))] as [string, string[]]].filter(([, members]) => members.length);
+  return <div className="ontology-chip-groups">{rows.map(([label, members]) =>
+    <div key={label} className="chip-group" role="group" aria-label={label}>
+      <span>{label}</span>
+      <div className="ontology-chips small">{members.map(name => byName.get(name)).filter(Boolean).map(t =>
+        <button key={t!.apiName} className={t!.apiName === selected ? "active" : ""} aria-pressed={t!.apiName === selected} onClick={() => select(t!.apiName)}>{t!.displayName}</button>)}
+      </div>
+    </div>)}
+  </div>;
+}
+
 // Types that carry a signing year (contracts, projects) get a year filter; the options are the years in the data.
 const YEAR_FIELD = "signedYear";
 
@@ -241,9 +288,7 @@ function ObjectsView({ schema, objectType, setObjectType, focus, openObject, rev
   const totalPages = Math.max(1, Math.ceil((result?.meta.totalObjects ?? 0) / PAGE_SIZE));
 
   return <div className="ontology-objects">
-    <div className="ontology-chips">{schema.objectTypes.map(t =>
-      <button key={t.apiName} className={t.apiName === type.apiName ? "active" : ""} onClick={() => setObjectType(t.apiName)}>{t.displayName}</button>)}
-    </div>
+    <TypeChips schema={schema} selected={type.apiName} select={setObjectType} />
     <div className={`ontology-browser ${focus ? "with-detail" : ""}`}>
       <section className="panel">
         <div className="panel-head">
@@ -332,7 +377,7 @@ function ObjectDetail({ schema, focus, openObject, changed, month }: {
 
   return <section className="panel ontology-detail">
     <div className="panel-head">
-      <div><p className="eyebrow">{type.displayName} · {object.primaryKey}</p><h2>{object.title}</h2></div>
+      <div><h2>{object.title}</h2><p className="object-meta">{type.displayName} · <code>{object.primaryKey}</code></p></div>
     </div>
 
     <div className="detail-block">
@@ -595,6 +640,7 @@ function FunctionRunner({ fn, objectType, primaryKey, valueTypes, month }: { fn:
       <div><strong>{fn.displayName}</strong><code>{fn.apiName} → {fn.outputType}</code></div>
       <div className="function-controls">
         {extra.map(p => <input key={p.apiName} value={values[p.apiName] ?? ""} maxLength={p.maxLength ?? undefined} placeholder={`${p.displayName}${parameterHint(p) ? `（${parameterHint(p)}）` : ""}`}
+          aria-label={p.displayName} title={`${p.displayName}${parameterHint(p) ? `（${parameterHint(p)}）` : ""}`}
           onChange={e => setValues(v => ({ ...v, [p.apiName]: e.target.value }))} />)}
         {result !== undefined && <button className="button ghost" aria-expanded={!folded} onClick={() => setFolded(value => !value)}>{folded ? "展开结果" : "收起结果"}</button>}
         <button className="button secondary" disabled={busy || !fn.permitted} title={fn.permitted ? fn.description : "当前用户无权调用"} onClick={() => void run()}>{busy ? "计算中…" : result === undefined ? "运行" : "重新运行"}</button>

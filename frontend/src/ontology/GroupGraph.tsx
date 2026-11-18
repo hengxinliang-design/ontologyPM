@@ -20,7 +20,7 @@ export interface GraphEdge { key: string; a: string; b: string; links: OntologyL
 /** Width of a node box: CJK glyphs are about a font size wide, Latin about half. */
 export function nodeWidth(label: string): number {
   const units = [...label].reduce((sum, ch) => sum + (/[⺀-鿿＀-￯]/.test(ch) ? 1 : 0.58), 0);
-  return Math.max(92, Math.round(units * 13 + 40));
+  return Math.max(92, Math.round(units * 13 + 44));
 }
 
 /** The types a view shows: the group's members, plus types of other groups linked to them (external). */
@@ -284,14 +284,14 @@ export function GroupGraph({ schema, selected, onSelect, onExplore }: {
 
   return <div className="group-graph">
     <div className="gg-bar">
-      <div className="gg-groups" role="tablist" aria-label="对象类型组">
+      <div className="ontology-chips gg-groups" role="tablist" aria-label="对象类型组">
         <button role="tab" aria-selected={group === "all"} className={group === "all" ? "active" : ""} onClick={() => setGroup("all")}>
-          全部<em>{schema.objectTypes.length}</em></button>
+          全部<b>{schema.objectTypes.length}</b></button>
         {groups.map((g, i) => <button key={g.apiName} role="tab" aria-selected={group === g.apiName} className={group === g.apiName ? "active" : ""}
           title={g.description} onClick={() => setGroup(g.apiName)}>
-          <i style={{ background: GROUP_COLORS[i % GROUP_COLORS.length] }} />{g.displayName}<em>{g.members.length}</em></button>)}
+          <i style={{ background: GROUP_COLORS[i % GROUP_COLORS.length] }} />{g.displayName}<b>{g.members.length}</b></button>)}
       </div>
-      <div className="gg-view" role="group" aria-label="显示方式">
+      <div className="ontology-chips small gg-view" role="group" aria-label="显示方式">
         <button className={view === "graph" ? "active" : ""} aria-pressed={view === "graph"} onClick={() => setView("graph")}>图</button>
         <button className={view === "list" ? "active" : ""} aria-pressed={view === "list"} onClick={() => setView("list")}>列表</button>
       </div>
@@ -317,8 +317,8 @@ export function GroupGraph({ schema, selected, onSelect, onExplore }: {
                 onClick={() => setOverlay({ kind: "node", apiName: node.apiName })}
                 onKeyDown={event => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setOverlay({ kind: "node", apiName: node.apiName }); } }}>
                 <rect width={node.width} height={NODE_H} rx={8} />
-                <rect width={5} height={NODE_H - 12} x={8} y={6} rx={2.5} className="gg-swatch" style={{ fill: node.external ? "#a9b6c6" : colorOf(node.apiName) }} />
-                <text x={22} y={NODE_H / 2 + 4.5}>{node.label}</text>
+                <circle cx={15} cy={NODE_H / 2} r={4} className="gg-swatch" style={{ fill: node.external ? "#a9b6c6" : colorOf(node.apiName) }} />
+                <text x={26} y={NODE_H / 2 + 4.5}>{node.label}</text>
               </g>;
             })}
             {edges.map(edge => {
@@ -342,9 +342,9 @@ export function GroupGraph({ schema, selected, onSelect, onExplore }: {
           {hidden.size > 0 && <button onClick={() => setHidden(new Set())} title={[...hidden].map(h => types.get(h)?.displayName).join("、")}>显示已隐藏（{hidden.size}）</button>}
         </div>
         <div className="gg-zoom" role="group" aria-label="缩放">
-          <button onClick={() => zoom(1.2)} aria-label="放大">＋</button>
-          <button onClick={() => zoom(1 / 1.2)} aria-label="缩小">－</button>
-          <button onClick={() => setView2d({ x: 0, y: 0, k: 1 })} aria-label="适应画布">⤢</button>
+          <button onClick={() => zoom(1.2)} aria-label="放大" title="放大"><ZoomIcon d="M8 3.5v9M3.5 8h9" /></button>
+          <button onClick={() => zoom(1 / 1.2)} aria-label="缩小" title="缩小"><ZoomIcon d="M3.5 8h9" /></button>
+          <button onClick={() => setView2d({ x: 0, y: 0, k: 1 })} aria-label="适应画布" title="适应画布"><ZoomIcon d="M3 6V3h3M10 3h3v3M13 10v3h-3M6 13H3v-3" /></button>
         </div>
         {group !== "all" && <div className="gg-legend">
           <span><i className="member" />本组对象类型</span>
@@ -369,6 +369,10 @@ export function GroupGraph({ schema, selected, onSelect, onExplore }: {
           explore={() => onExplore(previewType.apiName)} />}
       </div>}
   </div>;
+}
+
+function ZoomIcon({ d }: { d: string }) {
+  return <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d={d} fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>;
 }
 
 function LinkList({ edge, types, style }: { edge: GraphEdge; types: Map<string, OntologyObjectType>; style: { left: string; top: string } }) {

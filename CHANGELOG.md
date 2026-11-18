@@ -4,6 +4,7 @@
 
 | 产品版本 | 本体版本 | 日期 | 构建包 |
 | --- | --- | --- | --- |
+| v1.43.1 | 8.10.0 | 2026-11-18 | —（只改界面） |
 | v1.43.0 | 8.10.0 | 2026-11-18 | [2026-11-16-object-type-groups](docs/ontology-builds/2026-11-16-object-type-groups.yaml) |
 | v1.42.0 | 8.9.1 | 2026-11-10 | [2026-11-10-project-ai-attention](docs/ontology-builds/2026-11-10-project-ai-attention.yaml)、[2026-11-10-replaced-wording](docs/ontology-builds/2026-11-10-replaced-wording.yaml) |
 | v1.41.1 | 8.8.2 | 2026-11-10 | [2026-11-10-object-lists](docs/ontology-builds/2026-11-10-object-lists.yaml) |
@@ -39,6 +40,13 @@
 | v1.22.0 | 7.6.0 | 2026-10-30 | [2026-10-29-logical-delete](docs/ontology-builds/2026-10-29-logical-delete.yaml) |
 | v1.21.0 | 7.5.0 | 2026-10-29 | [2026-10-29-rule-homes-and-linkages](docs/ontology-builds/2026-10-29-rule-homes-and-linkages.yaml) |
 | v1.20.0 | 7.4.0 | 2026-10-29 | [2026-10-29-milestone-span-period](docs/ontology-builds/2026-10-29-milestone-span-period.yaml) |
+
+## v1.43.1 — 本体浏览器页面打磨（只改界面，本体 8.10.0 不变）
+
+- 「本体模型」页高度从约 13,100 px 降到约 2,500 px：选中对象类型的定义分为「属性 / 关系 / 动作」三页，属性可按来源（系统接口、人工维护、派生计算）筛选和搜索，表格固定高度、表头固定；动作类型、运行全局函数、函数、安全标记改为可折叠的参考区，默认收起并显示数量。
+- 「对象浏览」的对象类型按对象类型组分行排列；对象详情标题下显示类型与主键。
+- 页头加入「对象类型组」统计，版本与内容指纹移到说明下方；属性标签（如「风险原因（规则）」）不再折行；动作类型的写回数据集可换行。
+- 统一样式：关系图的组与视图切换、函数结果的折叠、原始 JSON、维护清单改用全站共用的芯片与「展开 ▾ / 收起 ▴」样式；关系图节点用圆点表示所属组，缩放按钮改为图标；函数参数输入框带可读名称。
 
 ## v1.43.0 — 按对象类型组浏览本体（需求基线 D67，本体 8.10.0）
 

@@ -87,7 +87,8 @@ export function MaintenanceChecklist({ items }: { items: ChecklistItem[] }) {
   const done = items.filter(item => item.met);
   return <div className="checklist">
     {pending.length > 0 && <ul className="value-list">{pending.map(item => <li key={item.requirement} className="pending">待维护：{item.label}</li>)}</ul>}
-    {done.length > 0 && <details><summary>{pending.length ? `已维护 ${done.length} 项` : `${done.length} 项全部已维护`}</summary>
+    {done.length > 0 && <details className="collapsible"><summary>{!pending.length && <span className="collapsible-mark" aria-hidden="true">✓</span>}
+      <span>{pending.length ? `已维护 ${done.length} 项` : `${done.length} 项全部已维护`}</span><span className="collapsible-toggle" /></summary>
       <span>{done.map(item => item.label).join("、")}</span>
     </details>}
   </div>;
