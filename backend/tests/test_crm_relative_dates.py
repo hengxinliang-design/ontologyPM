@@ -75,3 +75,21 @@ def test_the_opportunity_list_reads_future_dates_its_update_column_and_amounts_i
     assert summary["thousand_yuan_amounts"] == 2 and "source_updated_at" in summary["recognized_fields"]
     contracts, _ = upload([{"主题": "ZMJ180-合同", "负责人": "Li Qiang", "总金额": "545352", "签约时间": "2026-10-01"}])
     assert contracts[0]["总金额"] == "545352", "contract amounts are already in 元"
+
+
+def test_a_file_uploaded_under_the_wrong_list_is_refused():
+    """User 2026-11-19: the opportunity list uploaded under 合同 / 订单 created 573 fake contracts and overwrote 127
+    real ones (the two lists' CRM ID numbers overlap). The columns now decide; nothing is imported."""
+    import pytest
+    from app.crm_import import CrmImportValidationError
+    opportunities = [{"ID": "1823", "机会主题": "DFP12B-ERP数据归档", "客户": "〖DFP〗", "负责人": "Li Qiang", "预期金额": "0.5",
+                      "预计签单日期": "2022-08-31", "可能性": "1", "状态": "成功", "阶段": "合同签约100%"}]
+    contracts = [{"ID": "1823", "主题": "ZMJ113-开口合同", "对应客户": "〖ZMJ〗", "签约时间": "2026-11-10", "总金额": "24910",
+                  "回款金额": "0", "开票金额": "0", "状态": "执行中", "所有者": "Li Qiang"}]
+    encode = lambda rows: base64.b64encode(json.dumps(rows, ensure_ascii=False).encode("utf-8")).decode()
+    with pytest.raises(CrmImportValidationError, match="像是销售机会列表.*请在「销售机会数据」中上传"):
+        parse_crm_import_base64(content_base64=encode(opportunities), filename="TSG-商机.json", data_type="contract_order", today=TODAY)
+    with pytest.raises(CrmImportValidationError, match="像是合同 / 订单列表.*请在「合同 / 订单数据」中上传"):
+        parse_crm_import_base64(content_base64=encode(contracts), filename="TSG-合同.json", data_type="sales_opportunity", today=TODAY)
+    records, _ = parse_crm_import_base64(content_base64=encode(contracts), filename="TSG-合同.json", data_type="contract_order", today=TODAY)
+    assert len(records) == 1, "the right list still imports"

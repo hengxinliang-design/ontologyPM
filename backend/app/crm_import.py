@@ -61,6 +61,7 @@ def parse_crm_import_base64(
     else:
         raise CrmImportValidationError("only .xlsx, .csv, and .json files are supported")
 
+    _check_file_kind(rows, data_type)
     dates = _DateNotes(today or date.today())
     amounts = _AmountNotes()
     records, recognized = _normalize_rows(rows, data_type=data_type, dates=dates, amounts=amounts)
@@ -81,6 +82,30 @@ def parse_crm_import_base64(
         "unreadable_dates": len(dates.unreadable),
         "unreadable_date_examples": dates.unreadable[:5],
     }
+
+
+# Columns only one kind of XToolsCRM list has (user 2026-11-19: 「TSG-商机.xlsx」 uploaded under 合同 / 订单 created 573 fake
+# contracts and overwrote 127 real ones whose CRM ID numbers matched the opportunities').
+CONTRACT_ONLY_HEADERS = ("签约时间", "签约日期", "合同签订日期", "回款金额", "已回款", "开票金额", "已开票", "合同主题", "合同订单主题", "合同id", "合同订单id")
+OPPORTUNITY_ONLY_HEADERS = ("机会主题", "预期金额", "预计签单日期", "可能性", "成交可能性", "阶段", "商机阶段", "商机状态", "商机id", "机会id")
+KIND_LABELS = {"contract_order": "合同 / 订单", "sales_opportunity": "销售机会"}
+
+
+def _check_file_kind(rows: list[dict[str, Any]], data_type: str) -> None:
+    """Refuses a file whose columns belong to the other list: opportunity columns and no contract column in a contract
+    upload, or the reverse. CRM ID numbers of the two lists overlap, so a wrong upload would overwrite real records."""
+    headers = {_header(key) for row in rows[:50] for key in row}
+    contract = sorted(h for h in CONTRACT_ONLY_HEADERS if _header(h) in headers)
+    opportunity = sorted(h for h in OPPORTUNITY_ONLY_HEADERS if _header(h) in headers)
+    if data_type == "contract_order" and opportunity and not contract:
+        found, expected, other = opportunity, "签约时间、回款金额、开票金额", "sales_opportunity"
+    elif data_type == "sales_opportunity" and contract and not opportunity:
+        found, expected, other = contract, "机会主题、预期金额、预计签单日期、可能性、阶段", "contract_order"
+    else:
+        return
+    raise CrmImportValidationError(
+        f"这个文件像是{KIND_LABELS[other]}列表（含「{'」「'.join(found[:4])}」列），没有{KIND_LABELS[data_type]}的列（{expected}）。"
+        f"请在「{KIND_LABELS[other]}数据」中上传；本次没有导入任何数据。")
 
 
 def template_fields(data_type: str) -> dict[str, Any]:
