@@ -444,6 +444,9 @@ export interface ProjectHealthRow {
   project_number: string;
   project_name: string;
   customer: string | null;
+  /** The list's default order (2026-11-20): latest contract 签约时间, or a 商机's 预计签单日期, newest first. */
+  signing_date?: string | null;
+  signing_date_kind?: "签约" | "预计签单" | null;
   master_category: ProjectSummary["master_category"];
   category: string | null;
   contract_type: ContractType;

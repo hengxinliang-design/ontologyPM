@@ -7,6 +7,7 @@ moved here unchanged from the repository in ontology 3.1.0, so results are ident
 """
 from __future__ import annotations
 
+import re
 from datetime import date
 from decimal import ROUND_CEILING, Decimal
 from typing import Any
@@ -883,6 +884,18 @@ def _health_period(
     return current, current
 
 
+def _signing_or_expected_date(project: dict[str, Any]) -> tuple[str | None, str | None]:
+    """The date the 项目管理 list sorts by: a project's most recent contract 签约时间 (a new supplementary agreement
+    brings it to the top); a 商机 without contracts, its latest 预计签单日期. Values that are not dates are ignored."""
+    records = project.get("crm_records", [])
+    for data_type, kind in (("contract_order", "签约"), ("sales_opportunity", "预计签单")):
+        dates = [str(r.get("signed_at"))[:10] for r in records
+                 if r.get("data_type") == data_type and re.match(r"\d{4}-\d{2}-\d{2}", str(r.get("signed_at") or ""))]
+        if dates:
+            return max(dates), kind
+    return None, None
+
+
 def _project_health_row(
     project: dict[str, Any],
     start_month: str,
@@ -967,10 +980,13 @@ def _project_health_row(
             0,
             f"来源状态已结束，统计期仍填报 {_format_decimal(period_days)} 人天（额外投入）",
         )
+    signing_date, signing_date_kind = _signing_or_expected_date(project)
     return {
         "project_number": project["project_number"],
         "project_name": project["subject"],
         "customer": project.get("customer"),
+        "signing_date": signing_date,
+        "signing_date_kind": signing_date_kind,
         "master_category": project.get("master_category"),
         "category": project.get("category"),
         "contract_type": project.get("contract_type"),
@@ -1257,10 +1273,17 @@ def project_health_view(
             continue
         included.append(project)
         rows.append(_project_health_row(project, start, end, thresholds))
-    # The project workspace lists projects needing attention first: risk
-    # level, then budget health, then project code.
+    # The project workspace lists the most recent projects first (user 2026-11-20): 签约 / 预计签单 dates up to today,
+    # newest first; then 预计签单 dates still to come, soonest first (strict newest-first put 商机 expected in 2028 above
+    # last week's contracts); projects with neither date last; then project code. Risk and health stay filters.
+    today = now[:10]
+
     def sort_key(row: dict[str, Any]) -> tuple[int, int, str]:
-        return (_risk_rank(row["risk_level"]), _health_rank(row["health_status"]), row["project_number"])
+        signed = row.get("signing_date")
+        if not signed:
+            return (2, 0, row["project_number"])
+        day = date.fromisoformat(signed).toordinal()
+        return (0, -day, row["project_number"]) if signed <= today else (1, day, row["project_number"])
 
     rows.sort(key=sort_key)
     page, next_cursor = _cursor_page(

@@ -875,7 +875,7 @@ function ProjectWorkspaceRow({ row, open }: { row: ProjectHealthRow; open?: () =
   return <tr className={open ? "clickable" : undefined} onClick={open} tabIndex={open ? 0 : undefined}
     onKeyDown={open ? event => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); open(); } } : undefined}>
     <td><strong className="project-code">{row.project_number}</strong></td>
-    <td><div className="subject">{displayProjectName(row.project_number, row.project_name)}</div><small>{row.customer ?? "—"}</small></td>
+    <td><div className="subject">{displayProjectName(row.project_number, row.project_name)}</div><small>{row.customer ?? "—"}{row.signing_date ? ` · ${row.signing_date_kind} ${row.signing_date}` : ""}</small></td>
     <td><RiskBadge project={row} /></td>
     <td><span className="category-pill">{row.master_category}</span></td>
     <td>{row.category ?? "未设置"}</td>
