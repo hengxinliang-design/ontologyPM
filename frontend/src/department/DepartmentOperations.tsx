@@ -76,7 +76,7 @@ export function DepartmentOperationsPage({ canEditPlan }: { canEditPlan: boolean
       <div className="panel-head">
         <div>
           <h2>部门年度经营</h2>
-          <p>按年度经营计划和时间进度对照合同额（当年签约，含税）、经营收入·不含税（当年到账回款 ÷ (1 + 增值税率)，另列回款含税作参考）、经营成本（财务按月录入）、毛利润与毛利率（按不含税收入，截至最近已录成本的月份），以及项目投入人天、产能利用率和在岗人数，并给出带依据的策略信号（只作建议）。</p>
+          <p>按年度经营计划和时间进度对照经营与资源指标，并给出带依据的策略信号（只作建议）。</p>
         </div>
         <div className="department-period">
           <select value={year} aria-label="选择年度" onChange={e => { setYear(Number(e.target.value)); setMonth(""); }}>
@@ -86,6 +86,14 @@ export function DepartmentOperationsPage({ canEditPlan }: { canEditPlan: boolean
           {canEditPlan && <button type="button" className="button secondary" onClick={() => setPlanOpen(!planOpen)}>{planOpen ? "收起年度计划" : review?.plan ? "调整年度计划" : "设定年度计划"}</button>}
         </div>
       </div>
+      {/* The definitions as a scannable list instead of one long sentence (user 2026-11-20: 优化这里的布局展示). */}
+      <dl className="department-defs">
+        <div><dt>合同额</dt><dd>当年签约，含税</dd></div>
+        <div><dt>经营收入·不含税</dt><dd>当年到账回款 ÷ (1 + 增值税率)，另列回款含税作参考</dd></div>
+        <div><dt>经营成本</dt><dd>财务按月录入</dd></div>
+        <div><dt>毛利润与毛利率</dt><dd>按不含税收入，截至最近已录成本的月份</dd></div>
+        <div><dt>资源</dt><dd>项目投入人天、产能利用率和在岗人数</dd></div>
+      </dl>
       {planOpen && review && <AnnualPlanForm year={year} review={review} onSaved={() => { setPlanOpen(false); void load(); }} reportError={setError} />}
     </section>
 

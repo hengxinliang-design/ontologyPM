@@ -2,7 +2,11 @@
    with a text label; the utilization chart is a single series (no legend) with a data table. */
 .department { display: grid; gap: 20px; }
 .department-intro .panel-head { align-items: flex-start; }
-.department-period { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; color: var(--text-secondary); font-size: var(--fs-sm); }
+.department-period { display: flex; flex: none; flex-wrap: nowrap; align-items: center; gap: 8px; color: var(--text-secondary); font-size: var(--fs-sm); white-space: nowrap; }
+.department-defs { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 360px), 1fr)); gap: 6px 28px; margin: -6px 0 0; padding: 0 26px 20px; }
+.department-defs > div { display: flex; gap: 10px; min-width: 0; font-size: var(--fs-xs); line-height: 1.6; }
+.department-defs dt { flex: none; color: var(--text-secondary); font-weight: 650; }
+.department-defs dd { margin: 0; color: var(--text-tertiary); }
 .department-period label { display: flex; align-items: center; gap: 6px; }
 .department-period select, .department-period input { min-height: 38px; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--text); font-size: var(--fs-sm); }
 .department-empty { margin: 0; padding: 0 26px 24px; color: var(--text-tertiary); font-size: var(--fs-sm); }
@@ -89,3 +93,7 @@
 .department-costs td, .department-costs th { white-space: nowrap; font-variant-numeric: tabular-nums; }
 .cost-missing { margin: 6px 0 0; color: var(--warning); font-size: var(--fs-sm); }
 .kpi-warn { color: var(--warning); font-size: var(--fs-xs); font-weight: 650; }
+@media (max-width: 760px) {
+  .department-period { flex-wrap: wrap; }
+  .department-defs { padding: 0 16px 16px; }
+}
